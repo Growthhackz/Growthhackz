@@ -19,8 +19,8 @@ Only these. Every post carries the same campaign image, and nothing counts as de
 | Full Send Trenches channel | `🔥 TRENDING` + social post + project Telegram link, with the image | Live (`call_channel`) |
 | Telegram sticker pack | Five stickers from the project mascot, owned by our team account (`STICKER_OWNER_ID`); the link goes to the buybot to DM the buyer | Live |
 | Reddit r/moonshots and r/solanamemecoins | Headline + article as a text post in each (image link at the top when the hub is public, Telegram link at the end) | Built (companion worker, scripted browser); not yet run against real Reddit |
-| CoinSniper | Directory listing | Not built yet |
-| Coinvote | Directory listing | Not built yet |
+| CoinSniper | Listing at coinsniper.net/submit | Built (companion worker); not yet run against the real form |
+| Coinvote | Listing at coinvote.cc/en/add-coin/released | Built (companion worker); not yet run against the real form |
 
 The short post is the hub summary; it isn't posted anywhere by itself.
 
@@ -89,7 +89,7 @@ curl -X POST localhost:4020/v1/orders -H "authorization: Bearer $SERVICE_KEY" -H
 
 ### Pipeline and statuses
 
-`metadata → copy → hub → campaign_image → media* → telegraph / binance* / call_channel / reddit_moonshots* / reddit_solanamemecoins* → sticker_art_0..4 → stickers* → sticker_publish`
+`metadata → copy → hub → campaign_image → media* → telegraph / binance* / call_channel / reddit_moonshots* / reddit_solanamemecoins* / coinsniper* / coinvote* → sticker_art_0..4 → stickers* → sticker_publish`
 
 (* = done by the companion worker.)
 
@@ -100,7 +100,8 @@ Publications wait until the campaign image is delivered; if the image can't be g
 | `delivered` | Done. Publications have a verified public URL. |
 | `skipped` | Not requested, or a demo order. |
 | `blocked` | Missing credential, input or allowance. Doesn't use up an attempt. Fix it, then `POST /v1/jobs/:id/retry`. |
-| `failed` | Three attempts used. |
+| `failed` | Three attempts used (or a listing was still not live a week after submission). |
+| `submitted` | A directory listing is waiting for the site's review. The order shows `in_review` while this is all that's left. |
 | `uncertain` | A post may exist but couldn't be verified. **Never retried automatically.** Check the account, then `POST /v1/jobs/:id/reconcile {"url": "..."}` (admin). |
 
 The order's overall status is `delivered` only when every job is `delivered` or `skipped`. It is `attention` if any job is blocked, failed or uncertain.
@@ -168,19 +169,22 @@ The worker runs next to the bot and handles the work that needs local tools:
 - **Binance Square:** posts the article with the campaign image as its cover through Binance's official `square-post/scripts/post-image.mjs`.
 - **Reddit:** logs in once with `REDDIT_USERNAME` / `REDDIT_PASSWORD` (session saved to `REDDIT_STATE_PATH`), submits a text post through old.reddit's submit form, reads back the post URL, and re-opens it logged-out to confirm it is visible. Login failures, CAPTCHAs and Reddit's "doing that too much" limit are reported as *not posted* and retried after 5 minutes; anything after the submit click that can't be confirmed becomes `uncertain`. It does not try to get around CAPTCHAs or bot checks, and Reddit's rules don't allow automating the website, so use an account you can afford to lose.
 
-It uses a service key and polls four routes:
+- **Directory listings (CoinSniper, Coinvote):** logs in with that site's account (session saved in `DIRECTORY_STATE_DIR`), fills the submit form by matching each field's label (name, symbol, chain, contract, launch date, description, website, Telegram, X, logo upload, terms box), and submits. Any required field it can't fill stops the job *before* submitting, with a screenshot and the page's HTML in `DIRECTORY_DEBUG_DIR`. After submitting, the job is `submitted`; every hour the worker checks the site logged-out (the returned coin URL, else the new-coins page) and delivers the coin page URL once it's live. `npm run inspect coinsniper` (or `coinvote`) logs in and prints each form field and what would go in it, without submitting.
+
+It uses a service key and polls these routes:
 
 - `POST /v1/render/claim`
 - `/v1/render/:jobId/complete|fail`
 - `POST /v1/publish/claim`
-- `/v1/publish/:jobId/complete|fail` (claim takes `{"kinds": [...]}`: `binance`, `reddit_moonshots`, `reddit_solanamemecoins`)
+- `/v1/publish/:jobId/complete|fail` (claim takes `{"kinds": [...]}`: `binance`, `reddit_moonshots`, `reddit_solanamemecoins`, `coinsniper`, `coinvote`)
+- `POST /v1/listings/check-claim`, `/v1/listings/:jobId/checked`
 
 Leases expire, so a crashed worker's job is picked up again. A crashed publication becomes `uncertain` instead.
 
 ```bash
 cd worker && npm install && cp .env.example .env   # needs ffmpeg + a font such as DejaVu Sans
 npm start
-npm test                                            # render, callback signature, Reddit flow against a local fake
+npm test                                            # render, callback signature, Reddit and directory flows against local fakes
 ```
 
 For Binance, set `BINANCE_SQUARE_SKILL_DIR` (pinned checkout of `binance/binance-skills-hub` → `skills/binance/square-post`) and `BINANCE_SQUARE_OPENAPI_KEY` on the worker only.
@@ -198,7 +202,7 @@ Two services from this repo, each with **Root Directory** set in Railway and a *
 
 **API variables:** `ADMIN_API_TOKEN`, `CONFIG_ENCRYPTION_KEY` (never change it once set), `PUBLIC_BASE_URL=https://<the generated domain>`, `PUBLIC_HUB_ENABLED=true`, `STICKER_OWNER_ID`, `CALL_CHANNEL_ID=@fullsendtrenches`. Secrets (Gemini, Telegraph, the bot token, callback URL and secret) can be Railway variables too, or saved afterwards with `PUT /v1/settings`. Railway provides `PORT`.
 
-**Worker variables:** `CONTENT_MACHINE_URL` (the API's public URL, or `http://<api-service>.railway.internal:<PORT>` over private networking), `CONTENT_MACHINE_API_KEY` (issue one with `POST /v1/keys`), `BINANCE_SQUARE_OPENAPI_KEY`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`.
+**Worker variables:** `CONTENT_MACHINE_URL` (the API's public URL, or `http://<api-service>.railway.internal:<PORT>` over private networking), `CONTENT_MACHINE_API_KEY` (issue one with `POST /v1/keys`), `BINANCE_SQUARE_OPENAPI_KEY`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`, `COINSNIPER_EMAIL`, `COINSNIPER_PASSWORD`, `COINVOTE_EMAIL`, `COINVOTE_PASSWORD`.
 
 Then check the setup with the connector probes: `GET /v1/connectors`, and `POST /v1/connectors/{gemini|telegraph|call_channel|sticker_pack}/probe`.
 

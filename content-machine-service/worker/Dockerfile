@@ -12,5 +12,7 @@ RUN npm ci --omit=dev && npx playwright install --with-deps chromium
 COPY *.mjs ./
 ENV BINANCE_SQUARE_SKILL_DIR=/opt/binance-skills-hub/skills/binance/square-post \
     REDDIT_STATE_PATH=/data/reddit-session.json \
+    DIRECTORY_STATE_DIR=/data \
+    DIRECTORY_DEBUG_DIR=/data/debug \
     FFMPEG_PATH=ffmpeg
 CMD ["node", "worker.mjs"]

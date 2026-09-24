@@ -11,6 +11,8 @@ import {
   publishClaim,
   publishComplete,
   publishFailed,
+  listingCheckClaim,
+  listingChecked,
   reconcile,
   renderClaim,
   renderFailed,
@@ -102,8 +104,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   });
   app.post('/v1/publish/claim', async (req) => publishClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
   app.post<{ Params: Params }>('/v1/publish/:id/complete', async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown };
-    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified);
+    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown };
+    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted);
+  });
+  /** Directory listings waiting on the site's review: the worker checks whether the coin page is live yet. */
+  app.post('/v1/listings/check-claim', async () => listingCheckClaim(ctx));
+  app.post<{ Params: Params }>('/v1/listings/:id/checked', async (req) => {
+    const b = (req.body ?? {}) as { url?: unknown; live?: unknown };
+    return listingChecked(ctx, req.params.id, b.url, b.live);
   });
   app.post<{ Params: Params }>('/v1/publish/:id/fail', async (req) => {
     const b = (req.body ?? {}) as { lease?: unknown; error?: unknown };

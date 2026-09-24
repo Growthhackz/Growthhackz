@@ -30,8 +30,8 @@ export const SOURCES: Source[] = [
   { id: 'call_channel', name: 'Full Send Trenches channel post', mode: 'publish', credential: 'CALL_CHANNEL_BOT_TOKEN', detail: 'X-sized post with the campaign image and the project Telegram link, posted by our bot to CALL_CHANNEL_ID.' },
   { id: 'sticker_pack', name: 'Telegram sticker pack', mode: 'publish + verify', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Five stickers from the project mascot, published as a set owned by the project (needs telegram_owner_id).' },
   { id: 'reddit', name: 'Reddit r/moonshots + r/solanamemecoins', mode: 'publish (worker)', credential: null, detail: 'Headline + article as a text post in each subreddit, via a scripted browser on the companion worker (REDDIT_USERNAME / REDDIT_PASSWORD there).' },
-  { id: 'coinsniper', name: 'CoinSniper listing', mode: 'planned listing', credential: null, detail: 'Not built yet; account + browser automation.', url: 'https://coinsniper.net/' },
-  { id: 'coinvote', name: 'Coinvote listing', mode: 'planned listing', credential: null, detail: 'Not built yet; account + browser automation.', url: 'https://coinvote.cc/' },
+  { id: 'coinsniper', name: 'CoinSniper listing', mode: 'submit + review (worker)', credential: null, detail: 'Submitted at coinsniper.net/submit by the worker (COINSNIPER_EMAIL / COINSNIPER_PASSWORD); delivered once the coin page is live.', url: 'https://coinsniper.net/submit' },
+  { id: 'coinvote', name: 'Coinvote listing', mode: 'submit + review (worker)', credential: null, detail: 'Submitted at coinvote.cc/en/add-coin/released by the worker (COINVOTE_EMAIL / COINVOTE_PASSWORD); delivered once the coin page is live.', url: 'https://coinvote.cc/en/add-coin/released' },
 ];
 
 export function connectorList(ctx: ServiceContext) {
@@ -42,7 +42,7 @@ export function connectorList(ctx: ServiceContext) {
     let status: string;
     if (s.id === 'dexscreener') status = 'ready';
     else if (s.credential) status = setting(ctx, s.credential) ? 'configured' : 'needs_key';
-    else if (s.id === 'binance' || s.id === 'reddit') status = workerOnline ? 'worker_online' : 'needs_worker';
+    else if (['binance', 'reddit', 'coinsniper', 'coinvote'].includes(s.id)) status = workerOnline ? 'worker_online' : 'needs_worker';
     else if (s.id === 'intake') status = hasKey ? 'api_key_created' : 'needs_api_key';
     else if (s.mode.startsWith('planned')) status = 'planned';
     else status = 'handoff';

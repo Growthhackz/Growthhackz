@@ -2,7 +2,15 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote'] as const;
+
+/** Directory listings: submitted by the worker, reviewed by the site, delivered once the coin page is live. */
+export const DIRECTORY_HOSTS: Record<string, string[]> = {
+  coinsniper: ['coinsniper.net', 'www.coinsniper.net'],
+  coinvote: ['coinvote.cc', 'www.coinvote.cc'],
+};
+/** Give up waiting for a site's review after this long. */
+export const LISTING_REVIEW_MAX_MS = 7 * 24 * 60 * 60_000;
 
 /** Pipeline kind → subreddit. The `reddit` channel turns on every entry. */
 export const REDDIT_SUBREDDITS: Record<string, string> = {
@@ -40,6 +48,8 @@ export const orderInputSchema = z
     x_url: httpsUrl.optional(),
     logo_url: httpsUrl.optional(),
     colour: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#fc6b35'),
+    /** Token launch date for directory listings; defaults to the DEX pair's creation date. */
+    launch_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     approved_facts: z.array(approvedFactSchema).max(12).default([]),
     telegram_owner_id: z.number().int().positive().optional(),
     channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).default([]),
@@ -70,6 +80,8 @@ export const trendingPurchaseSchema = z.object({
   website_url: httpsUrl.optional(),
   x_url: httpsUrl.optional(),
   logo_url: httpsUrl.optional(),
+  /** Token launch date for directory listings; defaults to the DEX pair's creation date. */
+  launch_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** Numeric Telegram user ID that will own the sticker pack; they must have started the sticker bot. */
   telegram_owner_id: z.number().int().positive().optional(),
   /** Extra destinations on top of the call channel. */
@@ -118,6 +130,8 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['call_channel', 75],
   ['reddit_moonshots', 80],
   ['reddit_solanamemecoins', 81],
+  ['coinsniper', 85],
+  ['coinvote', 86],
   ['sticker_art_0', 100],
   ['sticker_art_1', 101],
   ['sticker_art_2', 102],
@@ -128,12 +142,13 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
 
-export type JobStatus = 'queued' | 'running' | 'delivered' | 'skipped' | 'blocked' | 'failed' | 'uncertain';
+/** `submitted`: a directory listing is waiting for the site's review. */
+export type JobStatus = 'queued' | 'running' | 'submitted' | 'delivered' | 'skipped' | 'blocked' | 'failed' | 'uncertain';
 
 export const EXPECTED_RENDER_FILES: Record<string, string[]> = {
   media: ['meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_5', 'meme_6', 'meme_7', 'trailer_square', 'trailer_vertical'],

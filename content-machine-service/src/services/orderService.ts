@@ -153,6 +153,7 @@ export function orderStatus(o: Order): string {
   if (s.every((x) => x === 'delivered' || x === 'skipped')) return 'delivered';
   if (s.includes('running')) return 'running';
   if (s.some((x) => ['failed', 'uncertain', 'blocked'].includes(x))) return 'attention';
+  if (s.every((x) => ['delivered', 'skipped', 'submitted'].includes(x))) return 'in_review';
   return 'queued';
 }
 

@@ -29,6 +29,7 @@ export async function enrich(ctx: ServiceContext, project: Project, demo: boolea
       liquidity_usd: pair.liquidity?.usd,
       volume_24h: pair.volume?.h24,
       pair_url: pair.url,
+      pair_created_at: pair.pairCreatedAt,
       source: 'DEX Screener',
       fetched_at: nowMs(ctx),
     };

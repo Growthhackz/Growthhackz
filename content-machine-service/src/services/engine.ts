@@ -1,5 +1,13 @@
 import { all, get, run } from '../db/database.js';
-import { EXPECTED_RENDER_FILES, IRREVERSIBLE, MAX_ATTEMPTS, REDDIT_SUBREDDITS, RENDER_KINDS } from '../domain/schemas.js';
+import {
+  DIRECTORY_HOSTS,
+  EXPECTED_RENDER_FILES,
+  IRREVERSIBLE,
+  LISTING_REVIEW_MAX_MS,
+  MAX_ATTEMPTS,
+  REDDIT_SUBREDDITS,
+  RENDER_KINDS,
+} from '../domain/schemas.js';
 import { AppError, ConflictError, isBlocking, NotVerifiedError, SetupRequiredError, UpstreamError, ValidationError } from '../lib/errors.js';
 import { signCallback } from '../lib/crypto.js';
 import { safeRemote } from '../lib/http.js';
@@ -17,7 +25,7 @@ const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
-const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', ...Object.keys(REDDIT_SUBREDDITS)];
+const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 
 type Leased = JobRow & { lease: string };
@@ -345,13 +353,38 @@ export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown,
 
 // ---- worker publications: Binance Square and Reddit ----
 
-export const WORKER_PUBLICATIONS = ['binance', ...Object.keys(REDDIT_SUBREDDITS)];
+export const WORKER_PUBLICATIONS = ['binance', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 
 /** What the worker should post; built here so the worker stays a thin publisher. */
 function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
   if (kind === 'binance') return { title: copy.headline, text: copy.article };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
+  if (DIRECTORY_HOSTS[kind]) {
+    const p = o.project;
+    const created = Number(p.market?.pair_created_at) || 0;
+    const paragraphs = copy.article.split(/\n+/).filter(Boolean);
+    let description = '';
+    for (const para of paragraphs) if ((description + '\n\n' + para).length <= 1000) description = description ? description + '\n\n' + para : para;
+    return {
+      site: kind,
+      listing: {
+        name: p.name,
+        symbol: p.symbol,
+        chain: p.chain,
+        contract_address: p.contract_address,
+        description: description || copy.article.slice(0, 1000),
+        short_description: copy.short_post,
+        website_url: p.website_url ?? null,
+        telegram_url: p.telegram_url,
+        x_url: p.x_url ?? null,
+        launch_date: p.launch_date ?? new Date(created || nowMs(ctx)).toISOString().slice(0, 10),
+        // The worker uploads the project logo when there is one, else the campaign image.
+        logo_url: p.logo_url ?? null,
+        image_asset_url: image ? `/v1/assets/${image.id}` : null,
+      },
+    };
+  }
   const parts = [copy.article];
   if (image && ctx.config.PUBLIC_HUB_ENABLED) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
   parts.push(`Telegram: ${o.project.telegram_url}`);
@@ -395,9 +428,31 @@ function redditResult(ctx: ServiceContext, kind: string, url: string) {
   return { url: `https://www.reddit.com${u.pathname}`, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
 }
 
-export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown) {
+/** Coin pages only, on the directory's own host. */
+function directoryUrl(kind: string, url: unknown): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  try {
+    const u = safeRemote(url, DIRECTORY_HOSTS[kind]);
+    return /\/coins?\//i.test(u.pathname) ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown, submitted?: unknown) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
-  if (typeof url === 'string' && url) {
+  if (DIRECTORY_HOSTS[j.kind] && submitted === true) {
+    const result = { submitted_at: new Date(nowMs(ctx)).toISOString(), url: directoryUrl(j.kind, url) };
+    run(
+      ctx.db,
+      `UPDATE jobs SET status = 'submitted', result = :r, error = NULL, lease = NULL, lease_until = NULL,
+         available_at = :a, updated_at = :t WHERE id = :id AND lease = :lease`,
+      { r: result, a: nowMs(ctx) + 30 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+    );
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'submitted', result });
+    return { status: 'submitted' };
+  }
+  if (typeof url === 'string' && url && !DIRECTORY_HOSTS[j.kind]) {
     run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id', { r: { url }, id: j.id });
     try {
       if (j.kind === 'binance') finish(ctx, j, await verifyPublication(ctx, url, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
@@ -432,15 +487,54 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
   return { status: 'blocked' };
 }
 
+/** Hands the worker a submitted listing whose next check is due (the claim itself pushes the next check out an hour). */
+export function listingCheckClaim(ctx: ServiceContext) {
+  const kinds = Object.keys(DIRECTORY_HOSTS).map((k) => `'${k}'`).join(', ');
+  const j = get<JobRow>(
+    ctx.db,
+    `SELECT * FROM jobs WHERE status = 'submitted' AND kind IN (${kinds}) AND available_at <= :t ORDER BY available_at LIMIT 1`,
+    { t: nowMs(ctx) },
+  );
+  if (!j) return null;
+  run(ctx.db, 'UPDATE jobs SET available_at = :a WHERE id = :id', { a: nowMs(ctx) + 60 * 60_000, id: j.id });
+  return { job: { id: j.id, kind: j.kind, order_id: j.order_id }, submission: JSON.parse(j.result ?? '{}'), target: publishTarget(ctx, j.kind, loadOrder(ctx, j.order_id)) };
+}
+
+/** The worker looked for the live coin page. Delivered once it's public; failed if review takes over a week. */
+export function listingChecked(ctx: ServiceContext, jobId: string, url: unknown, live: unknown) {
+  const j = get<JobRow>(ctx.db, "SELECT * FROM jobs WHERE id = :id AND status = 'submitted'", { id: jobId });
+  if (!j || !DIRECTORY_HOSTS[j.kind]) throw new ConflictError('No listing awaiting review with this ID');
+  const submission = JSON.parse(j.result ?? '{}');
+  const coinUrl = directoryUrl(j.kind, url);
+  if (live === true && coinUrl) {
+    const result = { url: coinUrl, submitted_at: submission.submitted_at, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
+    run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", { r: result, t: nowMs(ctx), id: j.id });
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'delivered', result });
+    return { status: 'delivered', url: coinUrl };
+  }
+  if (nowMs(ctx) - Date.parse(submission.submitted_at ?? 0) > LISTING_REVIEW_MAX_MS) {
+    const error = 'The listing was not live a week after submission; check the account on the site.';
+    run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, updated_at = :t WHERE id = :id", { e: error, t: nowMs(ctx), id: j.id });
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+    return { status: 'failed' };
+  }
+  return { status: 'submitted' };
+}
+
 /** Admin records the real URL for an uncertain/blocked publication after checking the account. */
 export async function reconcile(ctx: ServiceContext, jobId: string, url: unknown) {
   const j = get<JobRow>(ctx.db, 'SELECT * FROM jobs WHERE id = :id', { id: jobId });
-  if (!j || !['uncertain', 'blocked'].includes(j.status) || !['telegraph', ...WORKER_PUBLICATIONS].includes(j.kind))
+  if (!j || !['uncertain', 'blocked', 'submitted', 'failed'].includes(j.status) || !['telegraph', ...WORKER_PUBLICATIONS].includes(j.kind))
     throw new ConflictError('This job cannot be reconciled with a post URL');
   if (typeof url !== 'string') throw new ValidationError('url is required');
-  const result = REDDIT_SUBREDDITS[j.kind]
-    ? redditResult(ctx, j.kind, url)
-    : await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
+  if (['submitted', 'failed'].includes(j.status) && !DIRECTORY_HOSTS[j.kind]) throw new ConflictError('This job cannot be reconciled with a post URL');
+  let result: Record<string, unknown>;
+  if (DIRECTORY_HOSTS[j.kind]) {
+    const coinUrl = directoryUrl(j.kind, url);
+    if (!coinUrl) throw new ValidationError(`Use the coin page URL on ${DIRECTORY_HOSTS[j.kind]![0]}`);
+    result = { url: coinUrl, verified_at: new Date(nowMs(ctx)).toISOString() };
+  } else if (REDDIT_SUBREDDITS[j.kind]) result = redditResult(ctx, j.kind, url);
+  else result = await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
   const full = { ...result, manual_reconciliation: true };
   run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", {
     r: full,
