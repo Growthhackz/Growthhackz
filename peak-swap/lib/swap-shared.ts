@@ -1,7 +1,8 @@
 export const SOL='So11111111111111111111111111111111111111112';
 export const USDC='EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-export const FEE_BPS=125;
-export type Token={id:string;symbol:string;name:string;decimals:number;isVerified?:boolean;usdPrice?:number;graduatedAt?:string;launchpad?:string;organicScoreLabel?:string;audit?:{mintAuthorityDisabled?:boolean;freezeAuthorityDisabled?:boolean;isSus?:boolean}};
+/** Peak's fee: 1% of the SOL side of every swap, added as a plain transfer in the swap transaction. */
+export const FEE_BPS=100;
+export type Token={id:string;symbol:string;name:string;decimals:number;isVerified?:boolean;tokenProgram?:string};
 export const DEFAULT_TOKENS:Token[]=[{id:SOL,symbol:'SOL',name:'Solana',decimals:9,isVerified:true},{id:USDC,symbol:'USDC',name:'USD Coin',decimals:6,isVerified:true}];
 export function toAtomic(value:string,decimals:number){
  if(!Number.isInteger(decimals)||decimals<0||decimals>18||!/^\d+(\.\d*)?$/.test(value))throw Error('Enter a valid amount.');

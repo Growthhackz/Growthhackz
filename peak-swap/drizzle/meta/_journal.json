@@ -15,6 +15,13 @@
       "when": 1790213022372,
       "tag": "0001_secret_whistler",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790231024531,
+      "tag": "0002_nosy_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }
