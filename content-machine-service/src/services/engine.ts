@@ -6,7 +6,7 @@ import { safeRemote } from '../lib/http.js';
 import { uid } from '../lib/ids.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
-import { botToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
+import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { createPage } from '../providers/telegraph.js';
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
@@ -17,7 +17,7 @@ const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
-const PUBLICATIONS = ['telegraph', 'binance', 'telegram'];
+const PUBLICATIONS = ['telegraph', 'binance', 'telegram', 'call_channel'];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 
 type Leased = JobRow & { lease: string };
@@ -193,10 +193,35 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
         visibility: username ? 'public_channel' : 'private_message',
       });
     }
+    case 'call_channel': {
+      const channel = setting(ctx, 'CALL_CHANNEL_ID');
+      if (!channel) throw new SetupRequiredError('Set CALL_CHANNEL_ID to the call channel (e.g. @fullsendtrenches).');
+      const token = callChannelToken(ctx);
+      const bytes = await ctx.assets.get(image!.path);
+      if (!bytes) throw new SetupRequiredError('Campaign image file is missing.');
+      const caption = callChannelCaption(ctx, o);
+      const r = await sendPhoto(ctx, channel, bytes, image!.mime, image!.name, caption, token);
+      const username = r.chat?.username;
+      return finish(ctx, j, {
+        message_id: r.message_id,
+        chat_id: r.chat?.id,
+        url: username ? `https://t.me/${username}/${r.message_id}` : null,
+      });
+    }
     case 'sticker_publish':
       return finish(ctx, j, await publishStickers(ctx, o));
   }
   throw new ValidationError(`Unknown job type ${j.kind}`);
+}
+
+export const DEFAULT_CALL_CHANNEL_LABEL = '🔥 TRENDING on Peak Buybot';
+
+/** Label (paid placement disclosure), the X-sized post, then the project's Telegram link from Peak. */
+export function callChannelCaption(ctx: ServiceContext, o: Order): string {
+  const label = setting(ctx, 'CALL_CHANNEL_LABEL') || DEFAULT_CALL_CHANNEL_LABEL;
+  const p = o.project;
+  const title = `${label} | ${p.name} ($${p.symbol})`;
+  return [title, o.copy!.x_post, `💬 Telegram: ${p.telegram_url}`].join('\n\n');
 }
 
 async function publishStickers(ctx: ServiceContext, o: Order) {

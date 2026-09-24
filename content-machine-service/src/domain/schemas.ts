@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
-export const CHANNELS = ['telegraph', 'binance', 'telegram'] as const;
+/** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
+export const CHANNELS = ['telegraph', 'binance', 'telegram', 'call_channel'] as const;
 
 const httpsUrl = z
   .string()
@@ -32,7 +33,7 @@ export const orderInputSchema = z
     approved_facts: z.array(approvedFactSchema).max(12).default([]),
     telegram_owner_id: z.number().int().positive().optional(),
     telegram_chat_id: z.string().regex(/^-?\d+$|^@[a-zA-Z0-9_]{5,}$/).optional(),
-    channels: z.array(z.enum(CHANNELS)).max(3).default([]),
+    channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).default([]),
     budget_cents: z.number().int().min(10).max(500).default(100),
     demo: z.boolean().default(false),
   })
@@ -44,6 +45,27 @@ export const orderInputSchema = z
   });
 
 export type OrderInput = z.infer<typeof orderInputSchema>;
+
+/**
+ * Peak Buybot's trending-purchase webhook. Unknown fields are ignored so Peak can send its full
+ * purchase record; only the fields below reach the order. purchase_id makes retries idempotent.
+ */
+export const trendingPurchaseSchema = z.object({
+  purchase_id: z.string().min(1).max(100),
+  chain: z.enum(CHAINS),
+  contract_address: z.string().min(20).max(64),
+  telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link'),
+  name: z.string().min(1).max(80).optional(),
+  symbol: z.string().min(1).max(20).optional(),
+  description: z.string().max(2500).optional(),
+  website_url: httpsUrl.optional(),
+  x_url: httpsUrl.optional(),
+  logo_url: httpsUrl.optional(),
+  /** Extra destinations on top of the call channel. */
+  channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).optional(),
+  budget_cents: z.number().int().min(10).max(500).optional(),
+});
+export type TrendingPurchase = z.infer<typeof trendingPurchaseSchema>;
 
 /**
  * Three posts, each published with the same campaign image:
@@ -81,6 +103,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['telegraph', 60],
   ['binance', 65],
   ['telegram', 70],
+  ['call_channel', 75],
   ['sticker_art_0', 100],
   ['sticker_art_1', 101],
   ['sticker_art_2', 102],
@@ -91,7 +114,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'telegram', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'telegram', 'call_channel', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;

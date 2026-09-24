@@ -30,6 +30,10 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   CALLBACK_URL: z.string().optional(),
   CALLBACK_SECRET: z.string().optional(),
+  /** Our own call channel (separate bot from TELEGRAM_BOT_TOKEN). */
+  CALL_CHANNEL_BOT_TOKEN: z.string().optional(),
+  CALL_CHANNEL_ID: z.string().optional(),
+  CALL_CHANNEL_LABEL: z.string().optional(),
 
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */

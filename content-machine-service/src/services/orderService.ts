@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { MAX_ATTEMPTS, orderInputSchema, STAGES, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, MAX_ATTEMPTS, orderInputSchema, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -103,7 +103,7 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
     for (const [kind, rank] of STAGES) {
       const skipped =
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
-        (['telegraph', 'binance', 'telegram'].includes(kind) && !(input.channels as string[]).includes(kind));
+        ((CHANNELS as readonly string[]).includes(kind) && !(input.channels as string[]).includes(kind));
       run(ctx.db, 'INSERT INTO jobs (id, order_id, kind, rank, status, updated_at) VALUES (:id, :o, :kind, :rank, :status, :t)', {
         id: uid(),
         o: id,
@@ -116,6 +116,18 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
     recordEvent(ctx, id, 'order.accepted', { order_id: input.order_id });
     return { order: loadOrder(ctx, id), created: true };
   });
+}
+
+/** Maps a Peak trending purchase to an order that always includes the call-channel post. */
+export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
+  const parsed = trendingPurchaseSchema.safeParse(body);
+  if (!parsed.success)
+    throw new ValidationError(
+      parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+      parsed.error.issues,
+    );
+  const { purchase_id, channels = [], ...rest } = parsed.data;
+  return createOrder(ctx, { ...rest, order_id: `trending:${purchase_id}`, channels: [...channels, 'call_channel'] });
 }
 
 export function loadOrder(ctx: ServiceContext, id: string): Order {

@@ -13,6 +13,7 @@ The Peak Content Machine as a standalone microservice. It takes a token launch o
 | Telegraph | Article | Embedded at the top (needs `PUBLIC_HUB_ENABLED` so Telegraph can load it) |
 | Binance Square | Article | Cover image, via the official `post-image.mjs` script on the worker |
 | Telegram | X post as the caption, plus the hub link when the hub is public | Sent as the photo |
+| Call channel (ours, e.g. @fullsendtrenches) | Label + X post + the project's Telegram link from Peak | Sent as the photo |
 | X (manual) | X post | `x_handoff` on the order gives the text and the image URL |
 | Hub / API | All three | Shown on the hub |
 - **Callbacks:** each status change is sent to Peak as a signed webhook.
@@ -109,6 +110,43 @@ Other routes:
 - `GET /v1/orders/by-external-id/:orderId`
 - `GET /v1/orders/:id/events`
 - `GET /v1/assets/:id` (add `?download` to get it as an attachment)
+
+## Trending purchases → call channel
+
+After a **confirmed** trending purchase, Peak Buybot calls:
+
+```bash
+curl -X POST localhost:4020/v1/peak/trending -H "authorization: Bearer $SERVICE_KEY" -H 'content-type: application/json' -d '{
+  "purchase_id": "8841",
+  "chain": "solana",
+  "contract_address": "So11111111111111111111111111111111111111112",
+  "telegram_url": "https://t.me/yourproject",
+  "name": "Moon Frog", "symbol": "MFROG",
+  "logo_url": "https://example.com/mascot.png"
+}'
+```
+
+- **What it creates:** an order with ID `trending:<purchase_id>` that always includes the `call_channel` post. Add `channels` to publish anywhere else too.
+- **Retries are safe:** resending the same `purchase_id` returns the same order.
+- **Extra fields are ignored:** Peak can send its whole purchase record.
+- **Order of work:** the post goes out after the copy and campaign image exist, as one photo message. The caption is:
+
+  ```
+  🔥 TRENDING on Peak Buybot | Moon Frog ($MFROG)
+
+  <X-sized post>
+
+  💬 Telegram: https://t.me/yourproject
+  ```
+
+**Setup:**
+
+1. In @BotFather, revoke any token that has been shared and use the replacement.
+2. Make the bot an admin of the channel, with permission to post messages.
+3. Save the settings: `CALL_CHANNEL_BOT_TOKEN` and `CALL_CHANNEL_ID` (e.g. `@fullsendtrenches`). `CALL_CHANNEL_LABEL` is optional and changes the first line.
+4. Check with `POST /v1/connectors/call_channel/probe`. It confirms the bot can post in the channel, without posting anything.
+
+The call-channel bot is separate from `TELEGRAM_BOT_TOKEN`. The label is there because every call-channel post is a paid trending placement. If a send fails partway, the job is `uncertain` and is never re-posted automatically.
 
 ## Callbacks
 

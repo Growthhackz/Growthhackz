@@ -1,9 +1,9 @@
 import { get } from '../db/database.js';
 import { CHAINS } from '../domain/schemas.js';
-import { ValidationError } from '../lib/errors.js';
+import { SetupRequiredError, ValidationError } from '../lib/errors.js';
 import { tokenPairs } from '../providers/dexscreener.js';
 import { listModels } from '../providers/gemini.js';
-import { telegram } from '../providers/telegram.js';
+import { callChannelToken, telegram } from '../providers/telegram.js';
 import { accountInfo } from '../providers/telegraph.js';
 import { nowMs, type ServiceContext } from './context.js';
 import { rawSetting, setting, type SettingKey } from './settingsService.js';
@@ -24,6 +24,7 @@ export const SOURCES: Source[] = [
   { id: 'gemini', name: 'Gemini', mode: 'generate', credential: 'GEMINI_API_KEY', detail: 'Structured copy and campaign/sticker artwork.' },
   { id: 'telegraph', name: 'Telegraph', mode: 'fetch + publish', credential: 'TELEGRAPH_TOKEN', detail: 'Publishes the article with the campaign image embedded (needs PUBLIC_HUB_ENABLED so the image is reachable), then verifies the page.' },
   { id: 'telegram', name: 'Telegram', mode: 'fetch + publish', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Posts the X-sized post as the caption of the campaign image to authorized chats, and creates sticker packs.' },
+  { id: 'call_channel', name: 'Call channel (Telegram)', mode: 'publish', credential: 'CALL_CHANNEL_BOT_TOKEN', detail: 'Our own channel (CALL_CHANNEL_ID), posted by our bot: the X-sized post with the campaign image and the project Telegram link. Every trending purchase from Peak posts here.' },
   { id: 'binance', name: 'Binance Square', mode: 'publish + verify', credential: null, detail: 'Article with the campaign image as cover, via the official Square script on the companion worker; credentials stay on that worker.' },
   { id: 'paragraph', name: 'Paragraph', mode: 'planned fetch + publish', credential: null, detail: 'Publication API candidate; requires a publication key and a current API contract test.', url: 'https://docs.paragraph.com/developers' },
   { id: 'peak', name: 'Peak Buybot', mode: 'receive + push', credential: null, detail: 'Authenticated order intake, polling and signed delivery callbacks.' },
@@ -69,6 +70,15 @@ export async function probeConnector(ctx: ServiceContext, id: string, input: Rec
     case 'telegram': {
       const bot = await telegram(ctx, 'getMe', {});
       return { ok: true, bot: { id: bot.id, username: bot.username, can_join_groups: bot.can_join_groups } };
+    }
+    case 'call_channel': {
+      const token = callChannelToken(ctx);
+      const channel = setting(ctx, 'CALL_CHANNEL_ID');
+      if (!channel) throw new SetupRequiredError('Set CALL_CHANNEL_ID first.');
+      const bot = await telegram(ctx, 'getMe', {}, token);
+      const member = await telegram(ctx, 'getChatMember', { chat_id: channel, user_id: bot.id }, token);
+      const canPost = ['administrator', 'creator'].includes(member.status) && (member.status === 'creator' || !!member.can_post_messages);
+      return { ok: canPost, bot: bot.username, channel, status: member.status, can_post_messages: canPost };
     }
     case 'binance':
     case 'peak':

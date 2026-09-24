@@ -16,7 +16,7 @@ import {
   tick,
 } from '../services/engine.js';
 import { publicHub, renderHub } from '../services/hubService.js';
-import { createOrder, findByExternalId, getOrder, listOrders, presentOrder, readAsset, retryJob } from '../services/orderService.js';
+import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, presentOrder, readAsset, retryJob } from '../services/orderService.js';
 import { saveSetting, settingsSummary } from '../services/settingsService.js';
 
 type Params = { id: string };
@@ -48,6 +48,12 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   // ---- orders (service key or admin) ----
   app.post('/v1/orders', async (req, reply) => {
     const { order, created } = createOrder(ctx, req.body);
+    return reply.code(created ? 201 : 200).send(presentOrder(ctx, order));
+  });
+
+  /** Peak Buybot calls this after a confirmed trending purchase; the order posts to the call channel. */
+  app.post('/v1/peak/trending', async (req, reply) => {
+    const { order, created } = createTrendingOrder(ctx, req.body);
     return reply.code(created ? 201 : 200).send(presentOrder(ctx, order));
   });
 
