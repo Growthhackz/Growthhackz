@@ -4,7 +4,7 @@ Backend service that places social activity orders with an SMM panel provider (F
 
 It stores each order's metadata, checks targets and quantities against the provider's service catalog, submits orders safely (never twice), polls for progress, reconciles spend against what the provider actually charged, and handles refills and cancels.
 
-**Products:** Twitter/X followers, likes, retweets and custom comments; website traffic; Telegram members (with an optional premium variant). Each can be targeted by geo (`any`, `north_america`, `usa`, `canada`).
+**Products:** Twitter/X followers, likes, retweets and comments (custom or provider-written); website traffic; Telegram members (with an optional premium variant). Each can be targeted by geo (`any`, `north_america`, `usa`, `canada`).
 
 **Order types:** `default`, `drip_feed`, `custom_comments`, `subscription` (auto likes/RTs on future posts).
 
@@ -83,26 +83,28 @@ curl -X POST localhost:4010/v1/campaigns \
 
 ## Packages (default orders)
 
-`starter` is a small, test-sized package. Deliveries are spread out so nothing arrives as one spike:
+`starter` is the default package. Each item is pinned to a specific Followiz service. Deliveries are spread out so nothing arrives as one spike:
 
-| Item | Default | Range | Delivery |
-|---|---|---|---|
-| `telegram_members` | 10 | 5–10 | one delivery |
-| `telegram_premium` (opt-in) | 2 | 1–2 | one delivery |
-| `twitter_followers` | 50 | 25–50 | drip: 5 runs, one per day |
-| `twitter_likes` | 50 | 25–50 | drip: 5 runs, one per hour |
-| `twitter_retweets` | 25 | 25–50 | drip: 5 runs, every 90 min |
-| `twitter_comments` | your comment texts | 5–25 | one delivery (only if `comments` are sent) |
-| `website_traffic` | 1500 | 1000–2000 | drip: 3 runs, one per day |
+| Item | Followiz service | Default | Delivery | Est. cost |
+|---|---|---|---|---|
+| `telegram_members` | 4690 Telegram Premium Members [USA] | 100 | one delivery | $0.648 |
+| `twitter_followers` | 1054 X Followers (no refill) | 50 | 5 × 10, one per day | $0.060 |
+| `twitter_likes` | 1501 X Likes [r7] | 50 | 5 × 10, one per hour | $0.090 |
+| `twitter_retweets` | 1101 X Retweets [r15] | 20 | 2 × 10, 90 min apart | $0.048 |
+| `twitter_comments` | 4955 X Comments Random (provider-written) | 10 | one delivery | $0.350 |
+| `website_traffic_google` | 4349 USA Traffic from Google | 500 | 5 × 100, every 12 h | $0.150 |
+| `website_traffic_reddit` | 4354 USA Traffic from Reddit | 250 | 2 × 125, one per day | $0.075 |
+| `website_traffic_x` | 4356 USA Traffic from X | 350 | 2 × 175, one per day | $0.105 |
+| | | | **Total per run** | **≈ $1.53** |
 
-All items prefer `north_america` services. If no North America service is mapped for an item, it falls back to the `any` mapping and says so in the notes.
+Costs are at the rates listed on 2026-09-24. The preview always shows current rates.
 
-**Fitting to the catalog:** the package adjusts to each service's limits and records every change in `notes`:
+**Service selection:** a pinned service is used only when the active provider is the one it is pinned for. With any other provider, or if Followiz stops offering a pinned service, the item uses the product mapping instead (North America first, then `any`) and says so in the notes. `--apply` and the recommendations endpoint don't change mappings for pinned items.
+
+**Fitting to the catalog:** when an item runs on a mapped service, the package adjusts to that service's limits and records every change in `notes`:
 
 - A quantity below the service minimum is raised to the minimum if that is still inside the item's range. If the minimum is above the range, the item is **skipped**, unless you pass `allowAboveRange: true`.
 - Drip-feed is reduced to fewer runs, or dropped to a single delivery, when each run would fall under the service minimum or the service has no drip-feed.
-
-Tiny Telegram orders (5–10 members, 1–2 premium) are below many panels' minimums, so check the preview.
 
 Always preview first:
 
@@ -114,19 +116,17 @@ curl -X POST localhost:4010/v1/packages/starter/preview -H "authorization: Beare
       "tweet": "https://x.com/yourhandle/status/123",
       "telegram": "https://t.me/yourchannel",
       "website": "https://example.com/landing"
-    },
-    "comments": ["Great thread", "Saving this", "Agree with point 2", "Useful breakdown", "Following for more"],
-    "include": ["telegram_premium"]
+    }
   }'
 ```
 
 Then send the same body to `POST /v1/packages/starter/order`. It also accepts `name`, `budgetUsd`, `autoRefill`, `metadata`, `submit` and an `Idempotency-Key` header. Other options:
 
-- `exclude: ["website_traffic"]` drops items.
+- `exclude: ["website_traffic_reddit"]` drops items.
 - `quantities: {"twitter_likes": 30}` overrides a default.
 - `geo` changes the preferred geo for all items.
 
-Items with no target are skipped. You must pass the tweet URL yourself: the service doesn't call the X API, so it can't look up your pinned or top tweet.
+Items with no target are skipped. Likes, retweets and comments all go to `targets.tweet`, which should be your pinned or most recent post. You must pass that URL yourself: the service doesn't call the X API, so it can't look up your pinned or latest tweet.
 
 ## Order lifecycle
 

@@ -31,6 +31,7 @@ export const MOCK_SERVICES: ProviderService[] = [
   svc('1006', 'Telegram Channel Members [North America] [R30]', 'Telegram', 'Default', 1.8, 100, 50000, true, true),
   svc('1007', 'Telegram Premium Members [North America] [30 Days Refill]', 'Telegram', 'Default', 9, 50, 10000, true, false),
   svc('1008', 'Twitter Auto Likes [Subscription]', 'Twitter', 'Subscriptions', 0.9, 10, 5000, false, false),
+  svc('1009', 'Twitter Comments Random [North America]', 'Twitter', 'Default', 30, 5, 150, false, true),
 ];
 
 function svc(

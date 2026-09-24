@@ -50,7 +50,8 @@ export const PRODUCT_SPECS: Record<Product, ProductSpec> = {
   twitter_comments: {
     label: 'Twitter/X comments',
     linkKind: 'twitter_post',
-    allowedTypes: ['custom_comments'],
+    // default = provider-written ("random") comments by quantity.
+    allowedTypes: ['custom_comments', 'default'],
     defaultType: 'custom_comments',
     supportsPremium: false,
   },

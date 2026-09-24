@@ -44,7 +44,8 @@ async function main(): Promise<void> {
 
   for (const rec of recommendForPackage(ctx, pkg, 5)) {
     const label = `${rec.item} (${rec.geo}${rec.premium ? ', premium' : ''})`;
-    console.log(`== ${label}${rec.currentServiceId ? `  [mapped: ${rec.currentServiceId}]` : ''}`);
+    const tags = [rec.pinnedServiceId && `pinned: ${rec.pinnedServiceId}`, rec.currentServiceId && `mapped: ${rec.currentServiceId}`].filter(Boolean);
+    console.log(`== ${label}${tags.length ? `  [${tags.join(', ')}]` : ''}`);
     if (rec.candidates.length === 0) console.log('   no matching services');
     for (const c of rec.candidates) {
       const s = c.service;

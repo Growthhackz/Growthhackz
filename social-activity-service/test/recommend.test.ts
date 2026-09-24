@@ -18,6 +18,7 @@ const CATALOG: ProviderService[] = [
   svc('13', 'Twitter Likes | USA', 'Twitter - Likes [USA]', 2.1, 10, { dripfeed: true }),
   svc('14', 'Twitter Retweets | USA', 'Twitter - Retweets [USA]', 3.2, 10, { dripfeed: true }),
   svc('15', 'Twitter Custom Comments | USA', 'Twitter - Comments', 40, 5, { rawType: 'Custom Comments', orderType: 'custom_comments' }),
+  svc('17', 'Twitter Comments Random | USA', 'Twitter - Comments Random', 30, 5, { dripfeed: true }),
   svc('16', 'Twitter Auto Likes [Subscription]', 'Twitter - Auto', 1, 10, { rawType: 'Subscriptions', orderType: 'subscription' }),
   svc('20', 'Telegram Channel Members | USA | R30', 'Telegram - Members [USA]', 3.9, 10, { refill: true, refillDays: 30 }),
   svc('21', 'Telegram Members | Global | Cheap', 'Telegram - Members', 0.6, 500),
@@ -38,25 +39,23 @@ describe('service recommendations', () => {
     expect(top.twitter_followers[0]).toBe('10');
     expect(top.twitter_likes).toEqual(['13']); // "Likes + Views" excluded
     expect(top.twitter_retweets).toEqual(['14']);
-    expect(top.twitter_comments).toEqual(['15']);
-    expect(top.telegram_members[0]).toBe('20');
-    expect(top.telegram_members).not.toContain('23');
-    expect(top.telegram_premium).toEqual(['22']);
-    expect(top.website_traffic).toEqual(['30']);
+    expect(top.twitter_comments).toEqual(['17']); // provider-written comments, not custom
+    expect(top.telegram_members).toEqual(['22']); // the package's Telegram item is premium
+    expect(top.website_traffic_google).toEqual(['30']);
+    // Pins only apply to the provider they name.
+    expect(recs.every((r: any) => r.pinnedServiceId === null)).toBe(true);
 
     const applied = (await api('POST', '/v1/catalog/recommendations/apply', {})).body.results;
     expect(applied.every((r: any) => r.applied)).toBe(true);
 
     const preview = await api('POST', '/v1/packages/starter/preview', {
       targets: { twitterProfile: '@acme', tweet: 'https://x.com/acme/status/1', telegram: 't.me/acmechannel', website: 'https://acme.com' },
-      comments: ['a1', 'a2', 'a3', 'a4', 'a5'],
-      include: ['telegram_premium'],
     });
     const lines = Object.fromEntries(preview.body.lines.map((l: any) => [l.item, l]));
-    expect(lines.telegram_members).toMatchObject({ included: true, quantity: 10 });
-    expect(lines.telegram_premium.included).toBe(false); // min 10 > 2
+    expect(lines.telegram_members).toMatchObject({ included: true, quantity: 100 });
+    expect(lines.twitter_comments).toMatchObject({ included: true, quantity: 10, serviceId: '17' });
     expect(lines.twitter_followers).toMatchObject({ quantity: 50, runs: 5 });
-    expect(lines.website_traffic).toMatchObject({ quantity: 1500, runs: 3 });
+    expect(lines.website_traffic_google).toMatchObject({ quantity: 500, runs: 1 }); // min 500: no room to drip
 
     // Existing mappings are kept unless overwrite is set.
     const again = (await api('POST', '/v1/catalog/recommendations/apply', {})).body.results;

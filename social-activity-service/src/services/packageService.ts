@@ -46,8 +46,19 @@ async function findService(
   notes: string[],
 ): Promise<{ svc: CatalogRow; geo: Geo } | { error: string }> {
   const orderType = item.usesComments ? 'custom_comments' : 'default';
-  const geos: Geo[] = geo === 'any' ? ['any'] : [geo, 'any'];
   let lastError = '';
+  const pinned = item.serviceIds?.[ctx.provider.name];
+  if (pinned) {
+    try {
+      const svc = await resolveService(ctx, { product: item.product, orderType, geo, premium: item.premium ?? false, serviceIdOverride: pinned });
+      return { svc, geo };
+    } catch (err) {
+      if (!(err instanceof ValidationError)) throw err;
+      notes.push(`Pinned service ${pinned} unusable (${err.message}); trying the product mapping`);
+      lastError = err.message;
+    }
+  }
+  const geos: Geo[] = geo === 'any' ? ['any'] : [geo, 'any'];
   for (const g of geos) {
     try {
       const svc = await resolveService(ctx, { product: item.product, orderType, geo: g, premium: item.premium ?? false });

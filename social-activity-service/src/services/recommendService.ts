@@ -52,6 +52,15 @@ const RULES: Record<string, Rule> = {
   },
 };
 
+/** Items without a comment list take provider-written ("random") comments, a default-type service. */
+function ruleFor(item: PackageItem): Rule {
+  const rule = RULES[item.product]!;
+  if (item.product === 'twitter_comments' && !item.usesComments) {
+    return { ...rule, unwanted: /like|follower|retweet|custom/i, orderType: 'default' };
+  }
+  return rule;
+}
+
 const GEO_PATTERNS: Record<Exclude<Geo, 'any'>, RegExp> = {
   north_america: /north america|\bna\b|usa|united states|\bus\b|america|canada/i,
   usa: /usa|united states|\bus\b|america/i,
@@ -65,7 +74,7 @@ export interface Candidate {
 }
 
 function scoreService(item: PackageItem, svc: CatalogRow): Candidate | null {
-  const rule = RULES[item.product]!;
+  const rule = ruleFor(item);
   const text = `${svc.category} ${svc.name}`;
   if (svc.order_type !== rule.orderType) return null;
   if (!rule.platform.test(text) || !rule.wanted.test(svc.name) || rule.unwanted.test(svc.name)) return null;
@@ -117,6 +126,7 @@ export function recommendForPackage(ctx: ServiceContext, packageName: string, li
     const current = mappings.find(ctx.db, ctx.provider.name, item.product, item.geo, item.premium ?? false);
     return {
       item: item.key,
+      pinnedServiceId: item.serviceIds?.[ctx.provider.name] ?? null,
       product: item.product,
       geo: item.geo,
       premium: item.premium ?? false,
@@ -132,6 +142,7 @@ export function applyRecommendations(ctx: ServiceContext, packageName: string, o
   const now = nowIso(ctx);
   return recs.map((r) => {
     const top = r.candidates[0];
+    if (r.pinnedServiceId) return { item: r.item, applied: false, reason: `pinned to ${r.pinnedServiceId} in the package` };
     if (!top) return { item: r.item, applied: false, reason: 'no matching service in the catalog' };
     if (r.currentServiceId && !overwrite) {
       return { item: r.item, applied: false, reason: `already mapped to ${r.currentServiceId}` };
