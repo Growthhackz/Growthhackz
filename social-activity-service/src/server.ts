@@ -4,6 +4,10 @@ import { Scheduler } from './workers/scheduler.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  if (config.PROVIDER !== 'mock' && !config.SERVICE_API_TOKEN) {
+    // Anyone who can reach the server could spend the provider balance.
+    throw new Error(`SERVICE_API_TOKEN must be set (16+ chars) when PROVIDER=${config.PROVIDER}`);
+  }
   const { app, ctx } = buildApp({ config });
   const scheduler = new Scheduler(ctx);
 

@@ -52,6 +52,24 @@ Review the list before `--apply`. `--overwrite` replaces existing mappings. The 
    A single order can also skip the mapping by passing `serviceId`.
 4. Fund the Followiz account on their site, and optionally record it with `POST /v1/ledger/funding`.
 
+### Deploy on Railway
+
+`railway.json` sets the build, the start command, the health check (`/health`) and a single replica. There must be exactly one replica: the database is a SQLite file and the background workers must not run twice.
+
+1. In Railway: **New Project → Deploy from GitHub repo**, pick this repo, then in the service's **Settings** set **Root Directory** to `/social-activity-service` and the branch to deploy.
+2. **Add a volume** to the service (right-click → Attach volume) mounted at `/data`. Without it, order history and tracking are wiped on every deploy.
+3. **Variables:**
+
+   ```
+   PROVIDER=followiz
+   FOLLOWIZ_API_KEY=...
+   SERVICE_API_TOKEN=<random, 16+ chars>
+   DATABASE_PATH=/data/social-activity.db
+   ```
+
+   The server refuses to start with a real provider and no `SERVICE_API_TOKEN`, because the Railway URL is public.
+4. **Settings → Networking → Generate Domain**, then check `https://<domain>/health`.
+
 ## Placing orders
 
 ```bash
