@@ -3,13 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { json, liveCopy, makeApp, mp4Bytes, pngBytes, SOL } from './helpers.js';
 
 const liveInput = {
-  order_id: 'peak-1001',
+  order_id: 'order-1001',
   chain: 'solana',
   contract_address: SOL,
   telegram_url: 'https://t.me/moonfrog',
   logo_url: 'https://cdn.example.com/logo.png',
-  channels: ['telegraph', 'telegram', 'binance'],
-  telegram_chat_id: '@moonfrog_announce',
+  channels: ['telegraph', 'call_channel', 'binance'],
   telegram_owner_id: 42,
   budget_cents: 100,
 };
@@ -36,8 +35,8 @@ function wireProviders(t: ReturnType<typeof makeApp>) {
     .on('www.binance.com/en/square/post/123456', () => new Response(articleHtml))
     .on('api.telegram.org/', (u) => {
       const method = u.pathname.split('/').pop();
-      if (method === 'sendPhoto') return json({ ok: true, result: { message_id: 7, chat: { id: -100, username: 'moonfrog_announce' } } });
-      if (method === 'getMe') return json({ ok: true, result: { id: 1, username: 'peak_bot' } });
+      if (method === 'sendPhoto') return json({ ok: true, result: { message_id: 7, chat: { id: -100, username: 'fullsendtrenches' } } });
+      if (method === 'getMe') return json({ ok: true, result: { id: 1, username: 'sticker_bot' } });
       if (method === 'uploadStickerFile') return json({ ok: true, result: { file_id: 'file' } });
       if (method === 'createNewStickerSet') return json({ ok: true, result: true });
       if (method === 'getStickerSet') {
@@ -62,10 +61,12 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('TELEGRAPH_TOKEN', 'TP');
     await t.setSetting('TELEGRAM_BOT_TOKEN', 'TG');
-    await t.setSetting('CALLBACK_URL', 'https://peak.example.com/hooks/content');
+    await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'TG');
+    await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
+    await t.setSetting('CALLBACK_URL', 'https://buybot.example.com/hooks/content');
     await t.setSetting('CALLBACK_SECRET', 'cb-secret');
     const received: Array<{ body: string; headers: Record<string, string> }> = [];
-    t.http.on('peak.example.com/hooks/content', (_u, init) => {
+    t.http.on('buybot.example.com/hooks/content', (_u, init) => {
       received.push({ body: String(init.body), headers: init.headers as Record<string, string> });
       return new Response('ok');
     });
@@ -81,8 +82,8 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(status('campaign_image')).toBe('delivered');
     expect(status('telegraph')).toBe('delivered');
     expect(o.jobs.find((j: any) => j.kind === 'telegraph').result.url).toBe('https://telegra.ph/Moon-Frog-01-01');
-    expect(status('telegram')).toBe('delivered');
-    expect(o.jobs.find((j: any) => j.kind === 'telegram').result.url).toBe('https://t.me/moonfrog_announce/7');
+    expect(status('call_channel')).toBe('delivered');
+    expect(o.jobs.find((j: any) => j.kind === 'call_channel').result.url).toBe('https://t.me/fullsendtrenches/7');
     expect(status('binance')).toBe('blocked');
     // Stickers wait while primary work (media render) is still queued.
     expect(status('sticker_art_0')).toBe('queued');
@@ -96,10 +97,10 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
       children: [{ tag: 'img', attrs: { src: `https://content.example.test/projects/${order.id}/assets/${imageAsset.id}` } }],
     });
     const photo = t.http.calls.find((c) => c.url.includes('/sendPhoto'))!.init.body as FormData;
-    expect(photo.get('caption')).toBe(`${liveCopy.x_post}\n\nhttps://content.example.test/projects/${order.id}`);
+    expect(photo.get('chat_id')).toBe('@fullsendtrenches');
+    expect(photo.get('caption')).toBe(`🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.x_post}\n\n💬 Telegram: https://t.me/moonfrog`);
     expect((photo.get('photo') as Blob).type).toBe('image/png');
-    expect(t.http.count('api.telegram.org/botTG/sendMessage')).toBe(0);
-    expect(o.x_handoff).toEqual({ text: liveCopy.x_post, image_url: `/v1/assets/${imageAsset.id}` });
+    expect(o.x_handoff).toBeUndefined();
 
     // Companion worker renders media.
     const media = (await t.api('POST', '/v1/render/claim')).body;
@@ -138,7 +139,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     o = (await t.api('GET', `/v1/orders/${order.id}`)).body;
     expect(o.jobs.filter((j: any) => !['delivered', 'skipped'].includes(j.status))).toEqual([]);
     expect(o.status).toBe('delivered');
-    expect(o.jobs.find((j: any) => j.kind === 'sticker_publish').result.url).toMatch(/^https:\/\/t\.me\/addstickers\/p.+_by_peak_bot$/);
+    expect(o.jobs.find((j: any) => j.kind === 'sticker_publish').result.url).toMatch(/^https:\/\/t\.me\/addstickers\/p.+_by_sticker_bot$/);
     // 5 text + 6 images * 12
     expect(o.reserved_cents).toBe(77);
     expect(t.http.count('api.telegram.org/botTG/uploadStickerFile')).toBe(5);
@@ -149,8 +150,8 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(events.every((e: any) => e.delivered)).toBe(true);
     expect(received.length).toBe(events.length);
     for (const r of received) {
-      const expected = createHmac('sha256', 'cb-secret').update(r.headers['X-Peak-Timestamp'] + '.' + r.body).digest('hex');
-      expect(r.headers['X-Peak-Signature']).toBe(expected);
+      const expected = createHmac('sha256', 'cb-secret').update(r.headers['X-Timestamp'] + '.' + r.body).digest('hex');
+      expect(r.headers['X-Signature']).toBe(expected);
       expect(JSON.parse(r.body).order_id).toBe(order.id);
     }
 
@@ -278,8 +279,9 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(dex.body.pairs[1].symbol).toBe('MFROG');
     expect((await t.api('POST', '/v1/connectors/gemini/probe', {})).status).toBe(424);
     await t.setSetting('TELEGRAM_BOT_TOKEN', 'TG');
-    expect((await t.api('POST', '/v1/connectors/telegram/probe', {})).body.bot.username).toBe('peak_bot');
-    expect(list.some((s: any) => s.id === 'cmc')).toBe(false);
+    expect((await t.api('POST', '/v1/connectors/sticker_pack/probe', {})).body.bot.username).toBe('sticker_bot');
+    expect(list.map((s: any) => s.id)).toEqual(['dexscreener', 'gemini', 'intake', 'binance', 'telegraph', 'call_channel', 'sticker_pack', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote']);
+    expect(JSON.stringify(list).toLowerCase()).not.toContain('peak');
     expect((await t.api('POST', '/v1/connectors/x/probe', {})).status).toBe(400);
   });
 });

@@ -17,7 +17,7 @@ const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
-const PUBLICATIONS = ['telegraph', 'binance', 'telegram', 'call_channel'];
+const PUBLICATIONS = ['telegraph', 'binance', 'call_channel'];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 
 type Leased = JobRow & { lease: string };
@@ -178,21 +178,6 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     }
     case 'binance':
       throw new SetupRequiredError('Binance Square requires the official publishing adapter in the companion worker and a Square API key.');
-    case 'telegram': {
-      if (!p.telegram_chat_id) throw new SetupRequiredError('Add an authorized Telegram delivery destination.');
-      botToken(ctx);
-      const bytes = await ctx.assets.get(image!.path);
-      if (!bytes) throw new SetupRequiredError('Campaign image file is missing.');
-      const caption = [copy.x_post, ctx.config.PUBLIC_HUB_ENABLED ? hubUrl(ctx, o.id) : ''].filter(Boolean).join('\n\n');
-      const r = await sendPhoto(ctx, p.telegram_chat_id, bytes, image!.mime, image!.name, caption);
-      const username = r.chat?.username;
-      return finish(ctx, j, {
-        message_id: r.message_id,
-        chat_id: r.chat?.id,
-        url: username ? `https://t.me/${username}/${r.message_id}` : null,
-        visibility: username ? 'public_channel' : 'private_message',
-      });
-    }
     case 'call_channel': {
       const channel = setting(ctx, 'CALL_CHANNEL_ID');
       if (!channel) throw new SetupRequiredError('Set CALL_CHANNEL_ID to the call channel (e.g. @fullsendtrenches).');
@@ -214,9 +199,9 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   throw new ValidationError(`Unknown job type ${j.kind}`);
 }
 
-export const DEFAULT_CALL_CHANNEL_LABEL = '🔥 TRENDING on Peak Buybot';
+export const DEFAULT_CALL_CHANNEL_LABEL = '🔥 TRENDING';
 
-/** Label (paid placement disclosure), the X-sized post, then the project's Telegram link from Peak. */
+/** Label, the X-sized post, then the project's Telegram link from the trending purchase. */
 export function callChannelCaption(ctx: ServiceContext, o: Order): string {
   const label = setting(ctx, 'CALL_CHANNEL_LABEL') || DEFAULT_CALL_CHANNEL_LABEL;
   const p = o.project;
@@ -441,9 +426,9 @@ export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise
         redirect: 'error',
         headers: {
           'Content-Type': 'application/json',
-          'X-Peak-Event-ID': e.id,
-          'X-Peak-Timestamp': ts,
-          'X-Peak-Signature': signCallback(secret, ts, payload),
+          'X-Event-ID': e.id,
+          'X-Timestamp': ts,
+          'X-Signature': signCallback(secret, ts, payload),
         },
         body: payload,
         signal: AbortSignal.timeout(8_000),

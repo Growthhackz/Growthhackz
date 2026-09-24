@@ -17,21 +17,22 @@ interface Source {
   url?: string;
 }
 
-/** Every source the product has discussed, with the direction actually implemented. Planned/handoff ones do nothing automatically. */
+/**
+ * Inputs (DEX Screener, Gemini, order intake) plus the only destinations we publish to.
+ * `planned` destinations are listed so setup can be tracked; nothing posts to them yet.
+ */
 export const SOURCES: Source[] = [
-  { id: 'dexscreener', name: 'DEX Screener', mode: 'fetch', credential: null, detail: 'Token pairs and market metadata by chain and contract.' },
-  { id: 'helius', name: 'Helius / Solana metadata', mode: 'planned fetch', credential: null, detail: 'Secondary token metadata and conflict checks need a Helius project key.' },
-  { id: 'gemini', name: 'Gemini', mode: 'generate', credential: 'GEMINI_API_KEY', detail: 'Structured copy and campaign/sticker artwork.' },
-  { id: 'telegraph', name: 'Telegraph', mode: 'fetch + publish', credential: 'TELEGRAPH_TOKEN', detail: 'Publishes the article with the campaign image embedded (needs PUBLIC_HUB_ENABLED so the image is reachable), then verifies the page.' },
-  { id: 'telegram', name: 'Telegram', mode: 'fetch + publish', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Posts the X-sized post as the caption of the campaign image to authorized chats, and creates sticker packs.' },
-  { id: 'call_channel', name: 'Call channel (Telegram)', mode: 'publish', credential: 'CALL_CHANNEL_BOT_TOKEN', detail: 'Our own channel (CALL_CHANNEL_ID), posted by our bot: the X-sized post with the campaign image and the project Telegram link. Every trending purchase from Peak posts here.' },
-  { id: 'binance', name: 'Binance Square', mode: 'publish + verify', credential: null, detail: 'Article with the campaign image as cover, via the official Square script on the companion worker; credentials stay on that worker.' },
-  { id: 'paragraph', name: 'Paragraph', mode: 'planned fetch + publish', credential: null, detail: 'Publication API candidate; requires a publication key and a current API contract test.', url: 'https://docs.paragraph.com/developers' },
-  { id: 'peak', name: 'Peak Buybot', mode: 'receive + push', credential: null, detail: 'Authenticated order intake, polling and signed delivery callbacks.' },
-  { id: 'x', name: 'X', mode: 'draft + handoff', credential: null, detail: 'One prepared post plus the campaign image (see x_handoff on the order); account posting needs user-context API access and is not active.' },
-  { id: 'coinranking', name: 'Coinranking', mode: 'submission handoff', credential: null, detail: 'Token listing form with external review; not an automatic publication.', url: 'https://coinranking.com/coin-listing' },
-  { id: 'coinvote', name: 'Coinvote', mode: 'submission handoff', credential: null, detail: 'Official coin submission flow; account review and visibility are external.', url: 'https://coinvote.cc/' },
-  { id: 'degenz', name: 'DegenZ newsroom', mode: 'planned PR publish', credential: null, detail: 'Default PR route pending newsroom endpoint and editorial authorization.' },
+  { id: 'dexscreener', name: 'DEX Screener', mode: 'input', credential: null, detail: 'Token name, ticker, logo and market data by chain and contract.' },
+  { id: 'gemini', name: 'Gemini', mode: 'input', credential: 'GEMINI_API_KEY', detail: 'The three posts and the campaign/sticker artwork.' },
+  { id: 'intake', name: 'Order intake', mode: 'receive + push', credential: null, detail: 'Authenticated order and trending intake, polling and signed callbacks.' },
+  { id: 'binance', name: 'Binance Square article', mode: 'publish + verify', credential: null, detail: 'Article with the campaign image as cover, via the official Square script on the companion worker.' },
+  { id: 'telegraph', name: 'Telegraph article', mode: 'publish + verify', credential: 'TELEGRAPH_TOKEN', detail: 'Article with the campaign image embedded (needs PUBLIC_HUB_ENABLED), then page verification.' },
+  { id: 'call_channel', name: 'Full Send Trenches channel post', mode: 'publish', credential: 'CALL_CHANNEL_BOT_TOKEN', detail: 'X-sized post with the campaign image and the project Telegram link, posted by our bot to CALL_CHANNEL_ID.' },
+  { id: 'sticker_pack', name: 'Telegram sticker pack', mode: 'publish + verify', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Five stickers from the project mascot, published as a set owned by the project (needs telegram_owner_id).' },
+  { id: 'reddit_moonshots', name: 'Reddit r/moonshots', mode: 'planned publish', credential: null, detail: 'Not built yet.', url: 'https://www.reddit.com/r/moonshots/' },
+  { id: 'reddit_solanamemecoins', name: 'Reddit r/solanamemecoins', mode: 'planned publish', credential: null, detail: 'Not built yet.', url: 'https://www.reddit.com/r/solanamemecoins/' },
+  { id: 'coinsniper', name: 'CoinSniper listing', mode: 'planned listing', credential: null, detail: 'Not built yet; account + browser automation.', url: 'https://coinsniper.net/' },
+  { id: 'coinvote', name: 'Coinvote listing', mode: 'planned listing', credential: null, detail: 'Not built yet; account + browser automation.', url: 'https://coinvote.cc/' },
 ];
 
 export function connectorList(ctx: ServiceContext) {
@@ -43,7 +44,7 @@ export function connectorList(ctx: ServiceContext) {
     if (s.id === 'dexscreener') status = 'ready';
     else if (s.credential) status = setting(ctx, s.credential) ? 'configured' : 'needs_key';
     else if (s.id === 'binance') status = workerOnline ? 'worker_online' : 'needs_worker';
-    else if (s.id === 'peak') status = hasKey ? 'api_key_created' : 'needs_api_key';
+    else if (s.id === 'intake') status = hasKey ? 'api_key_created' : 'needs_api_key';
     else if (s.mode.startsWith('planned')) status = 'planned';
     else status = 'handoff';
     return { ...s, status, last_seen: s.id === 'binance' && lastSeen ? new Date(lastSeen).toISOString() : null };
@@ -67,7 +68,7 @@ export async function probeConnector(ctx: ServiceContext, id: string, input: Rec
       return listModels(ctx);
     case 'telegraph':
       return { ok: true, account: await accountInfo(ctx) };
-    case 'telegram': {
+    case 'sticker_pack': {
       const bot = await telegram(ctx, 'getMe', {});
       return { ok: true, bot: { id: bot.id, username: bot.username, can_join_groups: bot.can_join_groups } };
     }
@@ -81,7 +82,7 @@ export async function probeConnector(ctx: ServiceContext, id: string, input: Rec
       return { ok: canPost, bot: bot.username, channel, status: member.status, can_post_messages: canPost };
     }
     case 'binance':
-    case 'peak':
+    case 'intake':
       return { ok: true, connectors: connectorList(ctx).filter((s) => s.id === id) };
   }
   throw new ValidationError('This source uses a reviewed handoff rather than an API probe.');

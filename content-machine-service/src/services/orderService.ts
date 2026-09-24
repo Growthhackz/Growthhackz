@@ -118,7 +118,7 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
   });
 }
 
-/** Maps a Peak trending purchase to an order that always includes the call-channel post. */
+/** Maps a trending purchase to an order that always includes the call-channel post. */
 export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   const parsed = trendingPurchaseSchema.safeParse(body);
   if (!parsed.success)
@@ -169,10 +169,6 @@ export function presentOrder(ctx: ServiceContext, o: Order) {
     budget_cents: o.budget_cents,
     reserved_cents: o.reserved_cents,
     hub_url: hubUrl(ctx, o.id),
-    /** X posting is a manual handoff: the one post plus the image to attach. */
-    x_handoff: o.copy
-      ? { text: o.copy.x_post, image_url: ((a) => (a ? assetUrl(a.id) : null))(o.assets.find((a) => a.kind === 'campaign_image')) }
-      : null,
     created_at: iso(o.created_at),
     updated_at: iso(o.updated_at),
     jobs: o.jobs.map((j) => ({

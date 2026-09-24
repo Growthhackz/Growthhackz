@@ -1,22 +1,29 @@
 # Content Machine Service
 
-The Peak Content Machine as a standalone microservice. It takes a token launch order from Peak Buybot and produces a project content kit:
+A standalone content microservice. It takes a token order (or a trending purchase) from the buybot and produces and publishes a project content kit:
 
 - **Token details:** name, ticker, logo and market data from DEX Screener.
 - **Copy (Gemini):** exactly three posts — one X-sized post (≤280 chars), one article and one press release — plus meme captions and trailer lines for the renderer.
 - **Artwork (Gemini):** a campaign image and five matching sticker designs.
-- **Rendered media:** memes, trailers and a Telegram sticker pack, made by the companion worker.
-- **Publishing:** every post carries the same generated campaign image. Each post is delivered only after its public URL has been checked.
+- **Rendered media:** memes, trailers and sticker PNGs, made by the companion worker.
+- **Callbacks:** each status change is sent to the buybot as a signed webhook.
 
-| Destination | Post | Image |
+### Destinations
+
+Only these. Every post carries the same campaign image, and nothing counts as delivered until its public URL is confirmed.
+
+| Destination | Content | Status |
 | --- | --- | --- |
-| Telegraph | Article | Embedded at the top (needs `PUBLIC_HUB_ENABLED` so Telegraph can load it) |
-| Binance Square | Article | Cover image, via the official `post-image.mjs` script on the worker |
-| Telegram | X post as the caption, plus the hub link when the hub is public | Sent as the photo |
-| Call channel (ours, e.g. @fullsendtrenches) | Label + X post + the project's Telegram link from Peak | Sent as the photo |
-| X (manual) | X post | `x_handoff` on the order gives the text and the image URL |
-| Hub / API | All three | Shown on the hub |
-- **Callbacks:** each status change is sent to Peak as a signed webhook.
+| Binance Square | Article, campaign image as cover | Live (companion worker) |
+| Telegraph | Article, campaign image embedded (needs `PUBLIC_HUB_ENABLED`) | Live |
+| Full Send Trenches channel | `🔥 TRENDING` + X-sized post + project Telegram link, with the image | Live (`call_channel`) |
+| Telegram sticker pack | Five stickers from the project mascot | Live (needs `telegram_owner_id`) |
+| Reddit r/moonshots | Post | Not built yet |
+| Reddit r/solanamemecoins | Post | Not built yet |
+| CoinSniper | Directory listing | Not built yet |
+| Coinvote | Directory listing | Not built yet |
+
+The press release is not sent anywhere automatically. It is available through the API and on the hub.
 
 It ports the handoff build (Next.js on Cloudflare D1/R2) to the same stack as `social-activity-service`: Fastify, `node:sqlite` and zod. Assets are stored on the local filesystem behind an `AssetStore` interface.
 
@@ -51,30 +58,25 @@ curl -X PUT localhost:4020/v1/settings -H "$A" -H 'content-type: application/jso
 # Other keys: TEXT_MODEL, IMAGE_MODEL, TELEGRAPH_TOKEN, TELEGRAM_BOT_TOKEN, CALLBACK_URL, CALLBACK_SECRET
 
 curl -X POST localhost:4020/v1/connectors/gemini/probe -H "$A"                  # read-only check; lists models
-curl -X POST localhost:4020/v1/keys -H "$A" -d '{"name":"peak-buybot"}' -H 'content-type: application/json'
+curl -X POST localhost:4020/v1/keys -H "$A" -d '{"name":"buybot"}' -H 'content-type: application/json'
 ```
 
-`GET /v1/connectors` lists every source and its status:
-
-- **Live:** DEX Screener, Gemini, Telegraph, Telegram, Binance (through the worker) and Peak.
-- **Handoff only:** X, Coinranking and Coinvote. The service prepares the content, and someone submits it by hand.
-- **Planned, not built:** Helius, Paragraph and DegenZ.
+`GET /v1/connectors` lists the inputs (DEX Screener, Gemini, order intake) and the destinations above, with each one's setup status. The four unbuilt destinations are listed as `planned`.
 
 Probes only read. They never publish anything or spend the order's allowance.
 
 ## Orders
 
-Create an order only after the payment is **confirmed** in Peak, and always send the same `order_id`:
+Create an order only after the payment is **confirmed** in the buybot, and always send the same `order_id`:
 
 ```bash
 curl -X POST localhost:4020/v1/orders -H "authorization: Bearer $SERVICE_KEY" -H 'content-type: application/json' -d '{
-  "order_id": "peak-1001",
+  "order_id": "order-1001",
   "chain": "solana",
   "contract_address": "So11111111111111111111111111111111111111112",
   "telegram_url": "https://t.me/yourproject",
   "logo_url": "https://example.com/mascot.png",
-  "channels": ["telegraph", "telegram"],
-  "telegram_chat_id": "@yourchannel",
+  "channels": ["telegraph", "binance", "call_channel"],
   "telegram_owner_id": 123456789,
   "approved_facts": [{"type":"kol_campaign","text":"...","source":"https://t.me/yourproject/12","confirmed":true}],
   "budget_cents": 100
@@ -113,10 +115,10 @@ Other routes:
 
 ## Trending purchases → call channel
 
-After a **confirmed** trending purchase, Peak Buybot calls:
+After a **confirmed** trending purchase, the buybot calls:
 
 ```bash
-curl -X POST localhost:4020/v1/peak/trending -H "authorization: Bearer $SERVICE_KEY" -H 'content-type: application/json' -d '{
+curl -X POST localhost:4020/v1/trending -H "authorization: Bearer $SERVICE_KEY" -H 'content-type: application/json' -d '{
   "purchase_id": "8841",
   "chain": "solana",
   "contract_address": "So11111111111111111111111111111111111111112",
@@ -128,11 +130,11 @@ curl -X POST localhost:4020/v1/peak/trending -H "authorization: Bearer $SERVICE_
 
 - **What it creates:** an order with ID `trending:<purchase_id>` that always includes the `call_channel` post. Add `channels` to publish anywhere else too.
 - **Retries are safe:** resending the same `purchase_id` returns the same order.
-- **Extra fields are ignored:** Peak can send its whole purchase record.
+- **Extra fields are ignored:** the buybot can send its whole purchase record.
 - **Order of work:** the post goes out after the copy and campaign image exist, as one photo message. The caption is:
 
   ```
-  🔥 TRENDING on Peak Buybot | Moon Frog ($MFROG)
+  🔥 TRENDING | Moon Frog ($MFROG)
 
   <X-sized post>
 
@@ -146,15 +148,15 @@ curl -X POST localhost:4020/v1/peak/trending -H "authorization: Bearer $SERVICE_
 3. Save the settings: `CALL_CHANNEL_BOT_TOKEN` and `CALL_CHANNEL_ID` (e.g. `@fullsendtrenches`). `CALL_CHANNEL_LABEL` is optional and changes the first line.
 4. Check with `POST /v1/connectors/call_channel/probe`. It confirms the bot can post in the channel, without posting anything.
 
-The call-channel bot is separate from `TELEGRAM_BOT_TOKEN`. The label is there because every call-channel post is a paid trending placement. If a send fails partway, the job is `uncertain` and is never re-posted automatically.
+The call-channel bot is separate from `TELEGRAM_BOT_TOKEN`. If a send fails partway, the job is `uncertain` and is never re-posted automatically.
 
 ## Callbacks
 
-Set `CALLBACK_URL` (public HTTPS; redirects are refused) and `CALLBACK_SECRET`. Delivery is at-least-once, with backoff and up to 8 attempts. The signature scheme matches the original, so Peak's existing `verifyCallback` still works:
+Set `CALLBACK_URL` (public HTTPS; redirects are refused) and `CALLBACK_SECRET`. Delivery is at-least-once, with backoff and up to 8 attempts. Verify with `verifyCallback` from `worker/client.mjs`:
 
-- `X-Peak-Event-ID`
-- `X-Peak-Timestamp`: Unix seconds
-- `X-Peak-Signature`: hex HMAC-SHA256 of `timestamp + '.' + rawBody`
+- `X-Event-ID`
+- `X-Timestamp`: Unix seconds
+- `X-Signature`: hex HMAC-SHA256 of `timestamp + '.' + rawBody`
 
 The event types are `order.accepted` and `delivery.updated`. `order_id` in the body is this service's order ID.
 
@@ -183,7 +185,7 @@ npm test                                            # render + callback-signatur
 
 For Binance, set `BINANCE_SQUARE_SKILL_DIR` (pinned checkout of `binance/binance-skills-hub` → `skills/binance/square-post`) and `BINANCE_SQUARE_OPENAPI_KEY` on the worker only.
 
-`worker/client.mjs` (`ContentMachineClient`, `verifyCallback`) is the client Peak Buybot should use for intake and polling.
+`worker/client.mjs` (`ContentMachineClient`, `verifyCallback`) is the client the buybot should use for intake and polling.
 
 ## Public hub
 

@@ -9,7 +9,7 @@ const purchase = {
   name: 'Moon Frog',
   symbol: 'MFROG',
   logo_url: 'https://cdn.example.com/logo.png',
-  // Extra Peak fields are ignored.
+  // Extra buybot fields are ignored.
   tier: 'top3',
   paid_sol: 2.5,
 };
@@ -36,21 +36,21 @@ async function drain(t: ReturnType<typeof makeApp>) {
   for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) return;
 }
 
-describe('Peak trending purchase → call channel', () => {
-  it('posts the X-sized post with the campaign image and the Peak Telegram link', async () => {
+describe('trending purchase → call channel', () => {
+  it('posts the X-sized post with the campaign image and the project Telegram link', async () => {
     const t = makeApp();
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'CALL');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
-    const key = (await t.api('POST', '/v1/keys', { name: 'peak' })).body.key;
+    const key = (await t.api('POST', '/v1/keys', { name: 'buybot' })).body.key;
 
-    const created = await t.call(key, 'POST', '/v1/peak/trending', purchase);
+    const created = await t.call(key, 'POST', '/v1/trending', purchase);
     expect(created.status).toBe(201);
     expect(created.body.order_id).toBe('trending:trend-77');
     expect(created.body.project.channels).toEqual(['call_channel']);
-    // Peak retries are idempotent.
-    const again = await t.call(key, 'POST', '/v1/peak/trending', purchase);
+    // Retries are idempotent.
+    const again = await t.call(key, 'POST', '/v1/trending', purchase);
     expect(again.status).toBe(200);
     expect(again.body.id).toBe(created.body.id);
 
@@ -64,7 +64,7 @@ describe('Peak trending purchase → call channel', () => {
     const form = call.init.body as FormData;
     expect(form.get('chat_id')).toBe('@fullsendtrenches');
     expect(form.get('caption')).toBe(
-      `🔥 TRENDING on Peak Buybot | Moon Frog ($MFROG)\n\n${liveCopy.x_post}\n\n💬 Telegram: https://t.me/moonfrog`,
+      `🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.x_post}\n\n💬 Telegram: https://t.me/moonfrog`,
     );
     expect((form.get('photo') as Blob).type).toBe('image/png');
     // Posted only once, and only after the campaign image existed.
@@ -77,10 +77,10 @@ describe('Peak trending purchase → call channel', () => {
   it('adds extra channels, uses a custom label, and rejects bad input', async () => {
     const t = makeApp();
     await t.setSetting('CALL_CHANNEL_LABEL', '📣 Sponsored trending');
-    const r = await t.api('POST', '/v1/peak/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
+    const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
     expect(r.body.project.channels).toEqual(['call_channel', 'telegraph']);
-    expect((await t.api('POST', '/v1/peak/trending', { ...purchase, telegram_url: 'https://example.com/x' })).status).toBe(400);
-    expect((await t.api('POST', '/v1/peak/trending', { ...purchase, purchase_id: undefined })).status).toBe(400);
+    expect((await t.api('POST', '/v1/trending', { ...purchase, telegram_url: 'https://example.com/x' })).status).toBe(400);
+    expect((await t.api('POST', '/v1/trending', { ...purchase, purchase_id: undefined })).status).toBe(400);
     expect((await t.api('PUT', '/v1/settings', { key: 'CALL_CHANNEL_ID', value: 'fullsendtrenches' })).status).toBe(400);
   });
 
@@ -89,7 +89,7 @@ describe('Peak trending purchase → call channel', () => {
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
-    const o = (await t.api('POST', '/v1/peak/trending', purchase)).body;
+    const o = (await t.api('POST', '/v1/trending', purchase)).body;
     await drain(t);
     let job = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs.find((j: any) => j.kind === 'call_channel');
     expect(job.status).toBe('blocked');

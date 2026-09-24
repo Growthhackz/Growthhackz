@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'telegram', 'call_channel'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel'] as const;
 
 const httpsUrl = z
   .string()
@@ -32,7 +32,6 @@ export const orderInputSchema = z
     colour: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#fc6b35'),
     approved_facts: z.array(approvedFactSchema).max(12).default([]),
     telegram_owner_id: z.number().int().positive().optional(),
-    telegram_chat_id: z.string().regex(/^-?\d+$|^@[a-zA-Z0-9_]{5,}$/).optional(),
     channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).default([]),
     budget_cents: z.number().int().min(10).max(500).default(100),
     demo: z.boolean().default(false),
@@ -47,7 +46,7 @@ export const orderInputSchema = z
 export type OrderInput = z.infer<typeof orderInputSchema>;
 
 /**
- * Peak Buybot's trending-purchase webhook. Unknown fields are ignored so Peak can send its full
+ * The buybot's trending-purchase webhook. Unknown fields are ignored so the buybot can send its full
  * purchase record; only the fields below reach the order. purchase_id makes retries idempotent.
  */
 export const trendingPurchaseSchema = z.object({
@@ -102,7 +101,6 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['media', 50],
   ['telegraph', 60],
   ['binance', 65],
-  ['telegram', 70],
   ['call_channel', 75],
   ['sticker_art_0', 100],
   ['sticker_art_1', 101],
@@ -114,7 +112,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'telegram', 'call_channel', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;

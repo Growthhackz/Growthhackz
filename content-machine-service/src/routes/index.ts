@@ -51,8 +51,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return reply.code(created ? 201 : 200).send(presentOrder(ctx, order));
   });
 
-  /** Peak Buybot calls this after a confirmed trending purchase; the order posts to the call channel. */
-  app.post('/v1/peak/trending', async (req, reply) => {
+  /** The buybot calls this after a confirmed trending purchase; the order posts to the call channel. */
+  app.post('/v1/trending', async (req, reply) => {
     const { order, created } = createTrendingOrder(ctx, req.body);
     return reply.code(created ? 201 : 200).send(presentOrder(ctx, order));
   });

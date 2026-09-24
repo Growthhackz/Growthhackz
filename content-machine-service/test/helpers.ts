@@ -112,7 +112,7 @@ export const demoInput = {
   order_id: 'test-order',
   chain: 'solana',
   contract_address: SOL,
-  telegram_url: 'https://t.me/PeakBuyBot',
+  telegram_url: 'https://t.me/DemoProject',
   name: 'Demo',
   symbol: 'DEMO',
   demo: true,

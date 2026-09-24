@@ -10,7 +10,7 @@ describe('auth and keys', () => {
     expect((await t.call('wrong-token', 'GET', '/v1/orders')).status).toBe(401);
     expect((await t.call(null, 'GET', '/health')).status).toBe(200);
 
-    const issued = await t.api('POST', '/v1/keys', { name: 'peak-buybot' });
+    const issued = await t.api('POST', '/v1/keys', { name: 'buybot' });
     expect(issued.status, JSON.stringify(issued.body)).toBe(201);
     expect(issued.body.key).toMatch(/^pk_[0-9a-f]{64}$/);
     const key = issued.body.key as string;
@@ -49,10 +49,10 @@ describe('order intake', () => {
 
   it('lowercases EVM addresses and normalises channels before hashing', async () => {
     const t = makeApp();
-    const base = { ...demoInput, chain: 'base', contract_address: '0xABCDEF0123456789abcdef0123456789ABCDEF01', channels: ['telegram', 'telegraph', 'telegram'] };
+    const base = { ...demoInput, chain: 'base', contract_address: '0xABCDEF0123456789abcdef0123456789ABCDEF01', channels: ['call_channel', 'telegraph', 'call_channel'] };
     const a = await t.api('POST', '/v1/orders', base);
     expect(a.body.project.contract_address).toBe('0xabcdef0123456789abcdef0123456789abcdef01');
-    const b = await t.api('POST', '/v1/orders', { ...base, contract_address: base.contract_address.toLowerCase(), channels: ['telegraph', 'telegram'] });
+    const b = await t.api('POST', '/v1/orders', { ...base, contract_address: base.contract_address.toLowerCase(), channels: ['telegraph', 'call_channel'] });
     expect(b.status).toBe(200);
     expect(b.body.id).toBe(a.body.id);
   });
@@ -122,7 +122,7 @@ describe('public hub', () => {
     expect((await off.call(null, 'GET', `/projects/${o1.id}`)).status).toBe(404);
 
     const t = makeApp({ PUBLIC_HUB_ENABLED: 'true' });
-    const order = (await t.api('POST', '/v1/orders', { ...demoInput, telegram_chat_id: '-100123', description: '<script>x</script>' })).body;
+    const order = (await t.api('POST', '/v1/orders', { ...demoInput, telegram_owner_id: 987654321, description: '<script>x</script>' })).body;
     await t.api('POST', '/v1/tick');
     const html = await t.call(null, 'GET', `/projects/${order.id}`);
     expect(html.status).toBe(200);
@@ -130,7 +130,7 @@ describe('public hub', () => {
     expect(String(html.body)).toContain('Demo');
     const hub = await t.call(null, 'GET', `/projects/${order.id}`, undefined, { accept: 'application/json' });
     expect(hub.body.project.name).toBe('Demo');
-    expect(JSON.stringify(hub.body)).not.toContain('-100123');
+    expect(JSON.stringify(hub.body)).not.toContain('987654321');
     expect(JSON.stringify(hub.body)).not.toContain('budget');
     // Public hub doesn't open the rest of the API.
     expect((await t.call(null, 'GET', `/v1/orders/${order.id}`)).status).toBe(401);

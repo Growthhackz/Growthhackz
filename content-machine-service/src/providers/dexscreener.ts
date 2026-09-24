@@ -13,7 +13,7 @@ export async function tokenPairs(ctx: ServiceContext, chain: string, address: st
 /** Fills name/symbol/logo from the deepest-liquidity pair; supplied values always win. */
 export async function enrich(ctx: ServiceContext, project: Project, demo: boolean): Promise<Project> {
   const p: Project = { ...project };
-  if (demo) return { ...p, name: p.name || 'Peak Demo', symbol: p.symbol || 'DEMO', enriched_at: nowMs(ctx), source: 'Demo input' };
+  if (demo) return { ...p, name: p.name || 'Demo Project', symbol: p.symbol || 'DEMO', enriched_at: nowMs(ctx), source: 'Demo input' };
   const sameToken = (a?: string) =>
     p.chain === 'solana' ? a === p.contract_address : a?.toLowerCase() === p.contract_address.toLowerCase();
   const pairs = (await tokenPairs(ctx, p.chain, p.contract_address)).filter(

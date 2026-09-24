@@ -38,7 +38,7 @@ export class Vault {
   }
 }
 
-/** Hex HMAC-SHA256 of `timestamp + '.' + body`, matching the Peak callback contract. */
+/** Hex HMAC-SHA256 of `timestamp + '.' + body`, the callback signature contract. */
 export function signCallback(secret: string, timestamp: string, body: string): string {
   return createHmac('sha256', secret).update(timestamp + '.' + body).digest('hex');
 }
