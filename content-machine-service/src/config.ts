@@ -34,6 +34,8 @@ const EnvSchema = z.object({
   CALL_CHANNEL_BOT_TOKEN: z.string().optional(),
   CALL_CHANNEL_ID: z.string().optional(),
   CALL_CHANNEL_LABEL: z.string().optional(),
+  /** Team member's numeric Telegram ID that owns every sticker pack (must have started the bot). */
+  STICKER_OWNER_ID: z.string().optional(),
 
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */

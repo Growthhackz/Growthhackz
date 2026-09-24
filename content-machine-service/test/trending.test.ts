@@ -118,3 +118,66 @@ describe('trending purchase → call channel', () => {
     expect(list.find((s: any) => s.id === 'call_channel').status).toBe('configured');
   });
 });
+
+describe('sticker pack for trending orders', () => {
+  it('uses one bot, a team-owned pack, and tells the buybot where to DM the link', async () => {
+    const t = makeApp();
+    wire(t);
+    const sets = new Set<string>();
+    t.http.on('api.telegram.org/botCALL/', async (u, init) => {
+      const method = u.pathname.split('/').pop();
+      if (method === 'sendPhoto') return json({ ok: true, result: { message_id: 501, chat: { id: -1001, username: 'fullsendtrenches' } } });
+      if (method === 'getMe') return json({ ok: true, result: { id: 9, username: 'Fullsendtrenchesbot' } });
+      if (method === 'uploadStickerFile') {
+        expect((init.body as FormData).get('user_id')).toBe('777');
+        return json({ ok: true, result: { file_id: 'f' } });
+      }
+      if (method === 'createNewStickerSet') {
+        const b = JSON.parse(String(init.body));
+        expect(b.user_id).toBe(777);
+        sets.add(b.name);
+        return json({ ok: true, result: true });
+      }
+      if (method === 'getStickerSet') {
+        const { name } = JSON.parse(String(init.body));
+        return sets.has(name) ? json({ ok: true, result: { stickers: [1, 2, 3, 4, 5] } }) : json({ ok: false }, 400);
+      }
+      return json({ ok: false }, 404);
+    });
+    const received: any[] = [];
+    t.http.on('buybot.example.com/hooks', (_u, init) => {
+      received.push(JSON.parse(String(init.body)));
+      return new Response('ok');
+    });
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'CALL'); // no TELEGRAM_BOT_TOKEN: one bot does both
+    await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
+    await t.setSetting('STICKER_OWNER_ID', '777');
+    await t.setSetting('CALLBACK_URL', 'https://buybot.example.com/hooks');
+    await t.setSetting('CALLBACK_SECRET', 's');
+
+    const o = (await t.api('POST', '/v1/trending', purchase)).body;
+    await drain(t);
+    const pngs = Array.from({ length: 5 }, (_, i) => ({ kind: `sticker_png_${i}`, mime: 'image/png', base64: pngBytes(512, 512).toString('base64') }));
+    // Media render first (memes/trailers), then stickers.
+    for (;;) {
+      const c = (await t.api('POST', '/v1/render/claim')).body;
+      if (!c) break;
+      const files =
+        c.job.kind === 'stickers'
+          ? pngs
+          : [
+              ...Array.from({ length: 8 }, (_, i) => ({ kind: `meme_${i}`, mime: 'image/png', base64: pngBytes().toString('base64') })),
+              ...['trailer_square', 'trailer_vertical'].map((kind) => ({ kind, mime: 'video/mp4', base64: Buffer.from('\0\0\0\x18ftypisom').toString('base64') })),
+            ];
+      expect((await t.api('POST', `/v1/render/${c.job.id}/complete`, { lease: c.job.lease, files })).status).toBe(200);
+      await drain(t);
+    }
+    const done = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+    expect(done.status).toBe('delivered');
+    const ready = received.find((e) => e.type === 'sticker_pack.ready');
+    expect(ready.external_order_id).toBe('trending:trend-77');
+    expect(ready.data.url).toMatch(/^https:\/\/t\.me\/addstickers\/p.+_by_Fullsendtrenchesbot$/);
+    expect(received.every((e) => e.external_order_id === 'trending:trend-77')).toBe(true);
+  });
+});

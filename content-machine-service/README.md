@@ -17,7 +17,7 @@ Only these. Every post carries the same campaign image, and nothing counts as de
 | Binance Square | Article, campaign image as cover | Live (companion worker) |
 | Telegraph | Article, campaign image embedded (needs `PUBLIC_HUB_ENABLED`) | Live |
 | Full Send Trenches channel | `🔥 TRENDING` + X-sized post + project Telegram link, with the image | Live (`call_channel`) |
-| Telegram sticker pack | Five stickers from the project mascot | Live (needs `telegram_owner_id`) |
+| Telegram sticker pack | Five stickers from the project mascot, owned by our team account (`STICKER_OWNER_ID`); the link goes to the buybot to DM the buyer | Live |
 | Reddit r/moonshots | Post | Not built yet |
 | Reddit r/solanamemecoins | Post | Not built yet |
 | CoinSniper | Directory listing | Not built yet |
@@ -158,7 +158,7 @@ Set `CALLBACK_URL` (public HTTPS; redirects are refused) and `CALLBACK_SECRET`. 
 - `X-Timestamp`: Unix seconds
 - `X-Signature`: hex HMAC-SHA256 of `timestamp + '.' + rawBody`
 
-The event types are `order.accepted` and `delivery.updated`. `order_id` in the body is this service's order ID.
+The event types are `order.accepted`, `delivery.updated` and `sticker_pack.ready` (`data.url` is the `t.me/addstickers/...` link for the buybot to DM to the buyer). Each body carries `order_id` (this service's ID) and `external_order_id` (the buybot's `order_id`, or `trending:<purchase_id>`).
 
 ## Companion worker (`worker/`)
 

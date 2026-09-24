@@ -193,8 +193,13 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
         url: username ? `https://t.me/${username}/${r.message_id}` : null,
       });
     }
-    case 'sticker_publish':
-      return finish(ctx, j, await publishStickers(ctx, o));
+    case 'sticker_publish': {
+      const pack = await publishStickers(ctx, o);
+      finish(ctx, j, pack);
+      // Dedicated event so the buybot can DM the pack link to the buyer.
+      recordEvent(ctx, o.id, 'sticker_pack.ready', { url: pack.url, name: pack.name, project: { name: o.project.name, symbol: o.project.symbol } });
+      return;
+    }
   }
   throw new ValidationError(`Unknown job type ${j.kind}`);
 }
@@ -211,7 +216,9 @@ export function callChannelCaption(ctx: ServiceContext, o: Order): string {
 
 async function publishStickers(ctx: ServiceContext, o: Order) {
   const p = o.project;
-  if (!p.telegram_owner_id) throw new SetupRequiredError('Add the Telegram sticker-owner user ID.');
+  // Packs are owned by a team account (STICKER_OWNER_ID) unless the order names an owner; buyers just add the link.
+  const ownerId = p.telegram_owner_id ?? Number(setting(ctx, 'STICKER_OWNER_ID'));
+  if (!ownerId) throw new SetupRequiredError('Set STICKER_OWNER_ID (a team member who has started the bot).');
   botToken(ctx);
   const me = await telegram(ctx, 'getMe', {});
   const name = `p${o.id.replaceAll('-', '').slice(0, 24)}_by_${me.username}`;
@@ -228,9 +235,9 @@ async function publishStickers(ctx: ServiceContext, o: Order) {
   for (const [i, a] of pngs.entries()) {
     const bytes = await ctx.assets.get(a.path);
     if (!bytes) throw new SetupRequiredError('Sticker asset missing.');
-    stickers.push({ sticker: await uploadStickerFile(ctx, p.telegram_owner_id, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i]] });
+    stickers.push({ sticker: await uploadStickerFile(ctx, ownerId, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i]] });
   }
-  await telegram(ctx, 'createNewStickerSet', { user_id: p.telegram_owner_id, name, title: `${(p.name ?? '').slice(0, 48)} Community`, stickers });
+  await telegram(ctx, 'createNewStickerSet', { user_id: ownerId, name, title: `${(p.name ?? '').slice(0, 48)} Community`, stickers });
   const check = await telegram(ctx, 'getStickerSet', { name });
   if (check.stickers?.length !== 5) throw new NotVerifiedError('Sticker set creation needs verification.');
   return { url: `https://t.me/addstickers/${name}`, name, count: 5 };
@@ -418,7 +425,15 @@ export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise
   let sent = 0;
   let failed = 0;
   for (const e of rows) {
-    const payload = JSON.stringify({ id: e.id, type: e.type, order_id: e.order_id, created: e.created_at, data: JSON.parse(e.data) });
+    const external = get<{ order_id: string }>(ctx.db, 'SELECT order_id FROM orders WHERE id = :id', { id: e.order_id })?.order_id ?? null;
+    const payload = JSON.stringify({
+      id: e.id,
+      type: e.type,
+      order_id: e.order_id,
+      external_order_id: external,
+      created: e.created_at,
+      data: JSON.parse(e.data),
+    });
     const ts = String(Math.floor(nowMs(ctx) / 1000));
     try {
       const r = await ctx.http(url, {

@@ -15,11 +15,13 @@ export const SETTING_KEYS = [
   'CALL_CHANNEL_BOT_TOKEN',
   'CALL_CHANNEL_ID',
   'CALL_CHANNEL_LABEL',
+  'STICKER_OWNER_ID',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
-export const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
-export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+// Gemini 2.5 retires in October 2026; these are the named replacements.
+export const DEFAULT_TEXT_MODEL = 'gemini-3.5-flash';
+export const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
 export function rawSetting(ctx: ServiceContext, key: string): string | null {
   return get<{ value: string }>(ctx.db, 'SELECT value FROM settings WHERE key = :key', { key })?.value ?? null;
@@ -46,6 +48,7 @@ export function saveSetting(ctx: ServiceContext, key: string, value: unknown): v
   if (key === 'CALL_CHANNEL_ID' && value && !/^-?\d+$|^@[a-zA-Z0-9_]{5,}$/.test(value))
     throw new ValidationError('CALL_CHANNEL_ID must be @channelname or a numeric chat ID');
   if (key === 'CALL_CHANNEL_LABEL' && value.length > 120) throw new ValidationError('CALL_CHANNEL_LABEL is limited to 120 characters');
+  if (key === 'STICKER_OWNER_ID' && value && !/^\d+$/.test(value)) throw new ValidationError('STICKER_OWNER_ID must be a numeric Telegram user ID');
   if (key.endsWith('_MODEL') && value && !/^gemini-[a-zA-Z0-9.-]+$/.test(value)) throw new ValidationError('Invalid model ID');
   setRawSetting(ctx, 'secret:' + key, ctx.vault.encrypt(value));
 }

@@ -3,9 +3,10 @@ import { jsonFetch } from '../lib/http.js';
 import type { ServiceContext } from '../services/context.js';
 import { setting } from '../services/settingsService.js';
 
+/** Sticker bot. Falls back to the call-channel bot so one bot can do both. */
 export function botToken(ctx: ServiceContext): string {
-  const token = setting(ctx, 'TELEGRAM_BOT_TOKEN');
-  if (!token) throw new SetupRequiredError('Connect the Telegram delivery bot.');
+  const token = setting(ctx, 'TELEGRAM_BOT_TOKEN') || setting(ctx, 'CALL_CHANNEL_BOT_TOKEN');
+  if (!token) throw new SetupRequiredError('Connect the sticker bot (TELEGRAM_BOT_TOKEN or CALL_CHANNEL_BOT_TOKEN).');
   return token;
 }
 
