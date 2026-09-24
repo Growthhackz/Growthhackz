@@ -1,0 +1,15 @@
+{
+  "name": "content-machine-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env worker.mjs",
+    "test": "node render.test.mjs"
+  },
+  "dependencies": {
+    "sharp": "0.35.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
