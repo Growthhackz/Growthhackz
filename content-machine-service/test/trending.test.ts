@@ -79,6 +79,8 @@ describe('trending purchase → call channel', () => {
     await t.setSetting('CALL_CHANNEL_LABEL', '📣 Sponsored trending');
     const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
     expect(r.body.project.channels).toEqual(['call_channel', 'telegraph']);
+    const withOwner = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x3', telegram_owner_id: 42 });
+    expect(withOwner.body.project.telegram_owner_id).toBe(42);
     expect((await t.api('POST', '/v1/trending', { ...purchase, telegram_url: 'https://example.com/x' })).status).toBe(400);
     expect((await t.api('POST', '/v1/trending', { ...purchase, purchase_id: undefined })).status).toBe(400);
     expect((await t.api('PUT', '/v1/settings', { key: 'CALL_CHANNEL_ID', value: 'fullsendtrenches' })).status).toBe(400);

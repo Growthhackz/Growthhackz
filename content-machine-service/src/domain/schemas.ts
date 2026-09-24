@@ -60,6 +60,8 @@ export const trendingPurchaseSchema = z.object({
   website_url: httpsUrl.optional(),
   x_url: httpsUrl.optional(),
   logo_url: httpsUrl.optional(),
+  /** Numeric Telegram user ID that will own the sticker pack; they must have started the sticker bot. */
+  telegram_owner_id: z.number().int().positive().optional(),
   /** Extra destinations on top of the call channel. */
   channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).optional(),
   budget_cents: z.number().int().min(10).max(500).optional(),
