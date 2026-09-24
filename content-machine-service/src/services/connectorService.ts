@@ -22,16 +22,15 @@ export const SOURCES: Source[] = [
   { id: 'dexscreener', name: 'DEX Screener', mode: 'fetch', credential: null, detail: 'Token pairs and market metadata by chain and contract.' },
   { id: 'helius', name: 'Helius / Solana metadata', mode: 'planned fetch', credential: null, detail: 'Secondary token metadata and conflict checks need a Helius project key.' },
   { id: 'gemini', name: 'Gemini', mode: 'generate', credential: 'GEMINI_API_KEY', detail: 'Structured copy and campaign/sticker artwork.' },
-  { id: 'telegraph', name: 'Telegraph', mode: 'fetch + publish', credential: 'TELEGRAPH_TOKEN', detail: 'Read the connected account and publish verified project articles.' },
-  { id: 'telegram', name: 'Telegram', mode: 'fetch + publish', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Read bot identity, post to authorized chats and create sticker packs.' },
-  { id: 'binance', name: 'Binance Square', mode: 'publish + verify', credential: null, detail: 'Official Square script on the companion worker; credentials stay on that worker.' },
+  { id: 'telegraph', name: 'Telegraph', mode: 'fetch + publish', credential: 'TELEGRAPH_TOKEN', detail: 'Publishes the article with the campaign image embedded (needs PUBLIC_HUB_ENABLED so the image is reachable), then verifies the page.' },
+  { id: 'telegram', name: 'Telegram', mode: 'fetch + publish', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Posts the X-sized post as the caption of the campaign image to authorized chats, and creates sticker packs.' },
+  { id: 'binance', name: 'Binance Square', mode: 'publish + verify', credential: null, detail: 'Article with the campaign image as cover, via the official Square script on the companion worker; credentials stay on that worker.' },
   { id: 'paragraph', name: 'Paragraph', mode: 'planned fetch + publish', credential: null, detail: 'Publication API candidate; requires a publication key and a current API contract test.', url: 'https://docs.paragraph.com/developers' },
   { id: 'peak', name: 'Peak Buybot', mode: 'receive + push', credential: null, detail: 'Authenticated order intake, polling and signed delivery callbacks.' },
-  { id: 'x', name: 'X', mode: 'draft + handoff', credential: null, detail: 'Three prepared posts; account posting needs user-context API access and is not active.' },
+  { id: 'x', name: 'X', mode: 'draft + handoff', credential: null, detail: 'One prepared post plus the campaign image (see x_handoff on the order); account posting needs user-context API access and is not active.' },
   { id: 'coinranking', name: 'Coinranking', mode: 'submission handoff', credential: null, detail: 'Token listing form with external review; not an automatic publication.', url: 'https://coinranking.com/coin-listing' },
   { id: 'coinvote', name: 'Coinvote', mode: 'submission handoff', credential: null, detail: 'Official coin submission flow; account review and visibility are external.', url: 'https://coinvote.cc/' },
   { id: 'degenz', name: 'DegenZ newsroom', mode: 'planned PR publish', credential: null, detail: 'Default PR route pending newsroom endpoint and editorial authorization.' },
-  { id: 'cmc', name: 'CoinMarketCap', mode: 'submission handoff', credential: null, detail: 'Official listing request form; review and approval happen on CoinMarketCap.', url: 'https://support.coinmarketcap.com/hc/en-us/requests/new' },
 ];
 
 export function connectorList(ctx: ServiceContext) {

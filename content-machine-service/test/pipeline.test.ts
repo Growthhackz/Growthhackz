@@ -36,7 +36,7 @@ function wireProviders(t: ReturnType<typeof makeApp>) {
     .on('www.binance.com/en/square/post/123456', () => new Response(articleHtml))
     .on('api.telegram.org/', (u) => {
       const method = u.pathname.split('/').pop();
-      if (method === 'sendMessage') return json({ ok: true, result: { message_id: 7, chat: { id: -100, username: 'moonfrog_announce' } } });
+      if (method === 'sendPhoto') return json({ ok: true, result: { message_id: 7, chat: { id: -100, username: 'moonfrog_announce' } } });
       if (method === 'getMe') return json({ ok: true, result: { id: 1, username: 'peak_bot' } });
       if (method === 'uploadStickerFile') return json({ ok: true, result: { file_id: 'file' } });
       if (method === 'createNewStickerSet') return json({ ok: true, result: true });
@@ -88,6 +88,19 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(status('sticker_art_0')).toBe('queued');
     expect(t.http.count('api.telegra.ph/createPage')).toBe(1);
 
+    // All three posts carry the same campaign image.
+    const imageAsset = o.assets.find((a: any) => a.kind === 'campaign_image');
+    const page = JSON.parse(String(t.http.calls.find((c) => c.url.includes('api.telegra.ph/createPage'))!.init.body));
+    expect(page.content[0]).toEqual({
+      tag: 'figure',
+      children: [{ tag: 'img', attrs: { src: `https://content.example.test/projects/${order.id}/assets/${imageAsset.id}` } }],
+    });
+    const photo = t.http.calls.find((c) => c.url.includes('/sendPhoto'))!.init.body as FormData;
+    expect(photo.get('caption')).toBe(`${liveCopy.x_post}\n\nhttps://content.example.test/projects/${order.id}`);
+    expect((photo.get('photo') as Blob).type).toBe('image/png');
+    expect(t.http.count('api.telegram.org/botTG/sendMessage')).toBe(0);
+    expect(o.x_handoff).toEqual({ text: liveCopy.x_post, image_url: `/v1/assets/${imageAsset.id}` });
+
     // Companion worker renders media.
     const media = (await t.api('POST', '/v1/render/claim')).body;
     expect(media.job.kind).toBe('media');
@@ -108,6 +121,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     const pub = (await t.api('POST', '/v1/publish/claim')).body;
     expect(pub.job.kind).toBe('binance');
     expect(pub.order.copy.headline).toBe(liveCopy.headline);
+    expect(pub.order.assets.some((a: any) => a.kind === 'campaign_image')).toBe(true);
     const done = await t.api('POST', `/v1/publish/${pub.job.id}/complete`, { lease: pub.job.lease, url: 'https://www.binance.com/en/square/post/123456' });
     expect(done.body.status).toBe('delivered');
 
@@ -183,8 +197,39 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(t.http.count('generativelanguage.googleapis.com/')).toBe(1);
   });
 
-  it('marks a publication uncertain when verification fails and requires reconciliation', async () => {
+  it('holds publications until the campaign image exists, and Telegraph until the image is public', async () => {
     const t = makeApp();
+    wireProviders(t);
+    t.http.on('generativelanguage.googleapis.com/', (_u, init) =>
+      JSON.parse(String(init.body)).generationConfig?.responseModalities
+        ? json({ candidates: [] })
+        : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+    );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    await t.setSetting('TELEGRAPH_TOKEN', 'TP');
+    const order = (await t.api('POST', '/v1/orders', { ...liveInput, order_id: 'noimg', channels: ['telegraph', 'binance'] })).body;
+    await drain(t);
+    let o = (await t.api('GET', `/v1/orders/${order.id}`)).body;
+    expect(o.jobs.find((j: any) => j.kind === 'campaign_image').status).not.toBe('delivered');
+    expect(o.jobs.find((j: any) => j.kind === 'telegraph').status).toBe('queued');
+    expect((await t.api('POST', '/v1/publish/claim')).body).toBeNull();
+    expect(t.http.count('api.telegra.ph/')).toBe(0);
+
+    const hubOff = makeApp();
+    wireProviders(hubOff);
+    await hubOff.setSetting('GEMINI_API_KEY', 'G');
+    await hubOff.setSetting('TELEGRAPH_TOKEN', 'TP');
+    const o2 = (await hubOff.api('POST', '/v1/orders', { ...liveInput, order_id: 'private', channels: ['telegraph'] })).body;
+    await drain(hubOff);
+    o = (await hubOff.api('GET', `/v1/orders/${o2.id}`)).body;
+    const tp = o.jobs.find((j: any) => j.kind === 'telegraph');
+    expect(tp.status).toBe('blocked');
+    expect(tp.error).toMatch(/PUBLIC_HUB_ENABLED/);
+    expect(hubOff.http.count('api.telegra.ph/')).toBe(0);
+  });
+
+  it('marks a publication uncertain when verification fails and requires reconciliation', async () => {
+    const t = makeApp({ PUBLIC_HUB_ENABLED: 'true' });
     wireProviders(t);
     t.http.on('telegra.ph/Moon-Frog-01-01', () => new Response('not yet', { status: 404 }));
     await t.setSetting('GEMINI_API_KEY', 'G');
@@ -197,6 +242,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(job.result.url).toBe('https://telegra.ph/Moon-Frog-01-01');
     await drain(t);
     expect(t.http.count('api.telegra.ph/createPage')).toBe(1);
+
     expect((await t.api('POST', `/v1/jobs/${job.id}/retry`)).status).toBe(409);
 
     t.http.on('telegra.ph/Moon-Frog-01-01', () => new Response(articleHtml));
@@ -233,6 +279,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect((await t.api('POST', '/v1/connectors/gemini/probe', {})).status).toBe(424);
     await t.setSetting('TELEGRAM_BOT_TOKEN', 'TG');
     expect((await t.api('POST', '/v1/connectors/telegram/probe', {})).body.bot.username).toBe('peak_bot');
-    expect((await t.api('POST', '/v1/connectors/cmc/probe', {})).status).toBe(400);
+    expect(list.some((s: any) => s.id === 'cmc')).toBe(false);
+    expect((await t.api('POST', '/v1/connectors/x/probe', {})).status).toBe(400);
   });
 });

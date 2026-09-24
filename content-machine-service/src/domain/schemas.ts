@@ -45,13 +45,19 @@ export const orderInputSchema = z
 
 export type OrderInput = z.infer<typeof orderInputSchema>;
 
+/**
+ * Three posts, each published with the same campaign image:
+ * - x_post: one X-sized post (also the Telegram photo caption and the hub summary)
+ * - article: long-form post (Telegraph, Binance Square)
+ * - press_release: press-release style post
+ * meme_captions and trailer_lines are renderer inputs, not posts.
+ */
+export const X_POST_MAX = 280;
 export const copySchema = z.object({
   headline: z.string().min(5).max(150),
+  x_post: z.string().min(10).max(X_POST_MAX),
   article: z.string().min(100).max(6500),
   press_release: z.string().min(100).max(6500),
-  telegram: z.string().min(10).max(3000),
-  x_posts: z.array(z.string().max(270)).length(3),
-  share_caption: z.string().max(500),
   meme_captions: z.array(z.string().max(100)).length(8),
   trailer_lines: z.array(z.string().max(70)).min(3).max(5),
 });

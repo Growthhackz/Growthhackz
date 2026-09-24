@@ -19,6 +19,17 @@ export async function telegram(ctx: ServiceContext, method: string, data: unknow
   return r.result;
 }
 
+/** Sends the image with the caption as one message (caption max 1024 chars). */
+export async function sendPhoto(ctx: ServiceContext, chatId: string, photo: Buffer, mime: string, name: string, caption: string) {
+  const f = new FormData();
+  f.set('chat_id', chatId);
+  f.set('caption', caption.slice(0, 1024));
+  f.set('photo', new Blob([new Uint8Array(photo)], { type: mime }), name);
+  const r = await jsonFetch(ctx.http, `https://api.telegram.org/bot${botToken(ctx)}/sendPhoto`, { method: 'POST', body: f });
+  if (!r.ok) throw new UpstreamError('Telegram rejected the request. Check bot permissions and the destination.');
+  return r.result;
+}
+
 export async function uploadStickerFile(ctx: ServiceContext, userId: number, png: Buffer, name: string): Promise<string> {
   const f = new FormData();
   f.set('user_id', String(userId));

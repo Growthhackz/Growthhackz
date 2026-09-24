@@ -25,4 +25,6 @@ export interface ServiceContext {
 
 export const nowMs = (ctx: ServiceContext) => ctx.clock.now().getTime();
 export const iso = (ms: number | null | undefined) => (ms ? new Date(ms).toISOString() : null);
+export const publicAssetUrl = (ctx: ServiceContext, orderId: string, assetId: string) =>
+  `${ctx.config.PUBLIC_BASE_URL.replace(/\/$/, '')}/projects/${orderId}/assets/${assetId}`;
 export const hubUrl = (ctx: ServiceContext, id: string) => `${ctx.config.PUBLIC_BASE_URL.replace(/\/$/, '')}/projects/${id}`;

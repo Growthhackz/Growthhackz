@@ -3,10 +3,18 @@
 The Peak Content Machine as a standalone microservice. It takes a token launch order from Peak Buybot and produces a project content kit:
 
 - **Token details:** name, ticker, logo and market data from DEX Screener.
-- **Copy (Gemini):** article, press release, Telegram post, three X posts, a share caption, meme captions and trailer lines.
+- **Copy (Gemini):** exactly three posts — one X-sized post (≤280 chars), one article and one press release — plus meme captions and trailer lines for the renderer.
 - **Artwork (Gemini):** a campaign image and five matching sticker designs.
 - **Rendered media:** memes, trailers and a Telegram sticker pack, made by the companion worker.
-- **Publishing:** Telegraph, Telegram and Binance Square. Each post is delivered only after its public URL has been checked.
+- **Publishing:** every post carries the same generated campaign image. Each post is delivered only after its public URL has been checked.
+
+| Destination | Post | Image |
+| --- | --- | --- |
+| Telegraph | Article | Embedded at the top (needs `PUBLIC_HUB_ENABLED` so Telegraph can load it) |
+| Binance Square | Article | Cover image, via the official `post-image.mjs` script on the worker |
+| Telegram | X post as the caption, plus the hub link when the hub is public | Sent as the photo |
+| X (manual) | X post | `x_handoff` on the order gives the text and the image URL |
+| Hub / API | All three | Shown on the hub |
 - **Callbacks:** each status change is sent to Peak as a signed webhook.
 
 It ports the handoff build (Next.js on Cloudflare D1/R2) to the same stack as `social-activity-service`: Fastify, `node:sqlite` and zod. Assets are stored on the local filesystem behind an `AssetStore` interface.
@@ -48,7 +56,7 @@ curl -X POST localhost:4020/v1/keys -H "$A" -d '{"name":"peak-buybot"}' -H 'cont
 `GET /v1/connectors` lists every source and its status:
 
 - **Live:** DEX Screener, Gemini, Telegraph, Telegram, Binance (through the worker) and Peak.
-- **Handoff only:** X, CoinMarketCap, Coinranking and Coinvote. The service prepares the content, and someone submits it by hand.
+- **Handoff only:** X, Coinranking and Coinvote. The service prepares the content, and someone submits it by hand.
 - **Planned, not built:** Helius, Paragraph and DegenZ.
 
 Probes only read. They never publish anything or spend the order's allowance.
@@ -83,7 +91,7 @@ curl -X POST localhost:4020/v1/orders -H "authorization: Bearer $SERVICE_KEY" -H
 
 (* = done by the companion worker.)
 
-Sticker work waits until every primary item is settled. A background loop (`TICK_INTERVAL_MS`) advances jobs and sends callbacks. To run steps without waiting, call `POST /v1/tick` or `POST /v1/orders/:id/process`.
+Publications wait until the campaign image is delivered; if the image can't be generated, they stay queued rather than going out without it. Sticker work waits until every primary item is settled. A background loop (`TICK_INTERVAL_MS`) advances jobs and sends callbacks. To run steps without waiting, call `POST /v1/tick` or `POST /v1/orders/:id/process`.
 
 | Job status | Meaning |
 | --- | --- |
@@ -118,7 +126,7 @@ The worker runs next to the bot and handles the work that needs local tools:
 
 - **Media:** eight 1080px meme PNGs and square and vertical H.264 trailers, built with ffmpeg and sharp.
 - **Stickers:** five transparent 512px sticker PNGs.
-- **Binance Square:** posts through Binance's official `square-post` script.
+- **Binance Square:** posts the article with the campaign image as its cover through Binance's official `square-post/scripts/post-image.mjs`.
 
 It uses a service key and polls four routes:
 

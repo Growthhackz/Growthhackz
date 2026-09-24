@@ -6,10 +6,10 @@ import { safeRemote } from '../lib/http.js';
 import { uid } from '../lib/ids.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
-import { botToken, telegram, uploadStickerFile } from '../providers/telegram.js';
+import { botToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { createPage } from '../providers/telegraph.js';
 import { verifyPublication } from '../providers/verify.js';
-import { hubUrl, nowMs, type ServiceContext } from './context.js';
+import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
 import { getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
 
@@ -17,6 +17,7 @@ const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
+const PUBLICATIONS = ['telegraph', 'binance', 'telegram'];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 
 type Leased = JobRow & { lease: string };
@@ -84,6 +85,8 @@ function ready(j: JobRow, o: Order): boolean {
   if (j.kind === 'media') return done('campaign_image');
   if (j.kind === 'stickers') return [0, 1, 2, 3, 4].every((i) => done('sticker_art_' + i));
   if (j.kind === 'sticker_publish') return done('stickers');
+  // Every post goes out with the campaign image attached.
+  if (PUBLICATIONS.includes(j.kind)) return done('campaign_image');
   return true;
 }
 
@@ -133,7 +136,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
       const copy = await generateCopy(ctx, o);
       run(ctx.db, 'UPDATE orders SET copy = :c WHERE id = :id', { c: copy, id: o.id });
       return finish(ctx, j, {
-        formats: ['article', 'press_release', 'telegram', 'x_posts', 'share_caption', 'meme_captions', 'trailer_lines'],
+        formats: ['x_post', 'article', 'press_release', 'meme_captions', 'trailer_lines'],
         demo: o.demo,
       });
     }
@@ -154,9 +157,16 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   const copy = o.copy;
   if (!copy) throw new SetupRequiredError('Copy has not been generated yet.');
 
+  const image = o.assets.find((a) => a.kind === 'campaign_image');
+  if (!image && PUBLICATIONS.includes(j.kind)) throw new SetupRequiredError('The campaign image is required before publishing.');
+
   switch (j.kind) {
     case 'telegraph': {
+      // Telegraph embeds by URL, so the image must be publicly reachable.
+      if (!ctx.config.PUBLIC_HUB_ENABLED)
+        throw new SetupRequiredError('Enable PUBLIC_HUB_ENABLED so Telegraph can embed the campaign image.');
       const page = await createPage(ctx, {
+        imageUrl: publicAssetUrl(ctx, o.id, image!.id),
         title: copy.headline,
         author: p.name ?? '',
         paragraphs: copy.article.split(/\n+/).filter(Boolean),
@@ -171,11 +181,10 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     case 'telegram': {
       if (!p.telegram_chat_id) throw new SetupRequiredError('Add an authorized Telegram delivery destination.');
       botToken(ctx);
-      const r = await telegram(ctx, 'sendMessage', {
-        chat_id: p.telegram_chat_id,
-        text: `Project announcement\n\n${copy.telegram}\n\n${hubUrl(ctx, o.id)}`,
-        link_preview_options: { is_disabled: false },
-      });
+      const bytes = await ctx.assets.get(image!.path);
+      if (!bytes) throw new SetupRequiredError('Campaign image file is missing.');
+      const caption = [copy.x_post, ctx.config.PUBLIC_HUB_ENABLED ? hubUrl(ctx, o.id) : ''].filter(Boolean).join('\n\n');
+      const r = await sendPhoto(ctx, p.telegram_chat_id, bytes, image!.mime, image!.name, caption);
       const username = r.chat?.username;
       return finish(ctx, j, {
         message_id: r.message_id,
@@ -322,7 +331,7 @@ export function publishClaim(ctx: ServiceContext) {
   );
   for (const j of rows) {
     const o = loadOrder(ctx, j.order_id);
-    if (o.demo || !o.copy) continue;
+    if (o.demo || !o.copy || !o.assets.some((a) => a.kind === 'campaign_image')) continue;
     const lease = uid();
     const t = nowMs(ctx);
     const r = run(
