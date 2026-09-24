@@ -136,3 +136,42 @@ export const ResolveReviewSchema = z.discriminatedUnion('resolution', [
   z.object({ resolution: z.literal('exists'), providerOrderId: z.string().min(1) }).strict(),
   z.object({ resolution: z.literal('not_created'), note: z.string().max(500).optional() }).strict(),
 ]);
+
+export const PackageRequestSchema = z
+  .object({
+    /** Where each part of the package is delivered. Items without a target are skipped. */
+    targets: z
+      .object({
+        /** X handle ("@name") or profile URL, for followers. */
+        twitterProfile: z.string().min(1).max(2048).optional(),
+        /** The post to boost (usually the pinned or best-performing tweet). */
+        tweet: z.string().min(1).max(2048).optional(),
+        telegram: z.string().min(1).max(2048).optional(),
+        website: z.string().min(1).max(2048).optional(),
+      })
+      .strict(),
+    /** Comment texts for the post. Comments are only ordered when these are provided. */
+    comments: z.array(z.string().trim().min(1).max(280)).max(100).optional(),
+    /** Include opt-in items such as Telegram premium members. */
+    include: z.array(z.string()).optional(),
+    /** Leave out items by key. */
+    exclude: z.array(z.string()).optional(),
+    /** Per-item quantity overrides, e.g. {"twitter_likes": 30}. */
+    quantities: z.record(z.number().int().positive()).optional(),
+    /** Override the preferred geo for every item. */
+    geo: z.enum(GEOS).optional(),
+    /** Allow raising a quantity above the package range when the service minimum requires it. */
+    allowAboveRange: z.boolean().optional(),
+  })
+  .strict();
+
+export type PackageRequest = z.infer<typeof PackageRequestSchema>;
+
+export const PackageOrderSchema = PackageRequestSchema.extend({
+  name: z.string().trim().min(1).max(200).optional(),
+  notes: z.string().max(5000).optional(),
+  budgetUsd: z.number().positive().optional(),
+  autoRefill: z.boolean().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  submit: z.boolean().optional(),
+}).strict();

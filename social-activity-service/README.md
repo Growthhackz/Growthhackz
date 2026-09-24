@@ -57,11 +57,58 @@ curl -X POST localhost:4010/v1/campaigns \
   }'
 ```
 
-- The request is rejected (400/409) before anything is sent if a link is malformed, a quantity is outside the service's min/max, no service is mapped, the estimate exceeds `budgetUsd`, or the same target already has an active order for that product.
+- The request is rejected (400/409) before anything is sent if a link is malformed, a quantity is outside the service's min/max, no service is mapped, the estimate exceeds `budgetUsd`, or the same target already has an active order on that service.
 - Before submitting, the service checks that the provider balance covers the whole batch. If it doesn't, you get a `402` and the orders stay as `draft`. Retry later with `POST /v1/campaigns/:id/submit`.
 - `"submit": false` creates drafts only.
 - Sending the same `Idempotency-Key` again returns the original campaign (`200`, `idempotent-replayed: true`) instead of ordering twice.
 - Website links get `utm_source`, `utm_medium` and `utm_campaign` added (unless already set, or `"utm": false`), so this traffic can be separated in analytics.
+
+## Packages (default orders)
+
+`starter` is a small, test-sized package. Deliveries are spread out so nothing arrives as one spike:
+
+| Item | Default | Range | Delivery |
+|---|---|---|---|
+| `telegram_members` | 10 | 5–10 | one delivery |
+| `telegram_premium` (opt-in) | 2 | 1–2 | one delivery |
+| `twitter_followers` | 50 | 25–50 | drip: 5 runs, one per day |
+| `twitter_likes` | 50 | 25–50 | drip: 5 runs, one per hour |
+| `twitter_retweets` | 25 | 25–50 | drip: 5 runs, every 90 min |
+| `twitter_comments` | your comment texts | 5–25 | one delivery (only if `comments` are sent) |
+| `website_traffic` | 1500 | 1000–2000 | drip: 3 runs, one per day |
+
+All items prefer `north_america` services. If no North America service is mapped for an item, it falls back to the `any` mapping and says so in the notes.
+
+**Fitting to the catalog:** the package adjusts to each service's limits and records every change in `notes`:
+
+- A quantity below the service minimum is raised to the minimum if that is still inside the item's range. If the minimum is above the range, the item is **skipped**, unless you pass `allowAboveRange: true`.
+- Drip-feed is reduced to fewer runs, or dropped to a single delivery, when each run would fall under the service minimum or the service has no drip-feed.
+
+Tiny Telegram orders (5–10 members, 1–2 premium) are below many panels' minimums, so check the preview.
+
+Always preview first:
+
+```bash
+curl -X POST localhost:4010/v1/packages/starter/preview -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{
+    "targets": {
+      "twitterProfile": "@yourhandle",
+      "tweet": "https://x.com/yourhandle/status/123",
+      "telegram": "https://t.me/yourchannel",
+      "website": "https://example.com/landing"
+    },
+    "comments": ["Great thread", "Saving this", "Agree with point 2", "Useful breakdown", "Following for more"],
+    "include": ["telegram_premium"]
+  }'
+```
+
+Then send the same body to `POST /v1/packages/starter/order`. It also accepts `name`, `budgetUsd`, `autoRefill`, `metadata`, `submit` and an `Idempotency-Key` header. Other options:
+
+- `exclude: ["website_traffic"]` drops items.
+- `quantities: {"twitter_likes": 30}` overrides a default.
+- `geo` changes the preferred geo for all items.
+
+Items with no target are skipped. You must pass the tweet URL yourself: the service doesn't call the X API, so it can't look up your pinned or top tweet.
 
 ## Order lifecycle
 
@@ -99,6 +146,9 @@ All `/v1` routes need `Authorization: Bearer $SERVICE_API_TOKEN`.
 | GET | `/v1/balance` | Provider balance, low-balance flag, ledger totals |
 | GET | `/v1/ledger` | Recent ledger entries |
 | POST | `/v1/ledger/funding` | Record a manual top-up |
+| GET | `/v1/packages` | Package definitions |
+| POST | `/v1/packages/:name/preview` | What a package would order right now, with cost and adjustments |
+| POST | `/v1/packages/:name/order` | Order a package as a campaign |
 | POST | `/v1/campaigns` | Create (and by default submit) a campaign |
 | GET | `/v1/campaigns`, `/v1/campaigns/:id` | Campaigns with orders, estimate and spend |
 | POST | `/v1/campaigns/:id/submit` | Submit remaining drafts |

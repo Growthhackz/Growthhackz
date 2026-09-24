@@ -2,12 +2,21 @@ import type { FastifyInstance } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
 import { campaigns, catalog, events, ledger, mappings, orders, providerCalls, refills } from '../db/repositories.js';
 import { GEOS, ORDER_STATUSES, PRODUCTS, PRODUCT_SPECS } from '../domain/products.js';
-import { CreateCampaignSchema, FundingSchema, ResolveReviewSchema, UpsertMappingSchema } from '../domain/schemas.js';
+import { PACKAGES } from '../domain/packages.js';
+import {
+  CreateCampaignSchema,
+  FundingSchema,
+  PackageOrderSchema,
+  PackageRequestSchema,
+  ResolveReviewSchema,
+  UpsertMappingSchema,
+} from '../domain/schemas.js';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 import { getBalanceSummary, recordFunding } from '../services/balanceService.js';
 import { syncCatalog } from '../services/catalogService.js';
 import { nowIso, type ServiceContext } from '../services/context.js';
 import { cancelOrder, createCampaign, resolveReview, submitCampaign, submitOrder } from '../services/orderService.js';
+import { packageToCampaign, planPackage } from '../services/packageService.js';
 import { refreshCampaign, refreshOrder } from '../services/pollingService.js';
 import {
   presentCampaign,
@@ -120,6 +129,33 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     const body = parse(FundingSchema, req.body);
     recordFunding(ctx, body.amountUsd, body.note);
     return reply.code(201).send({ ok: true });
+  });
+
+  // ------------------------------------------------------------ packages
+
+  app.get('/v1/packages', async () => ({ packages: Object.values(PACKAGES) }));
+
+  /** Show what a package would order against the current catalog, without ordering. */
+  app.post('/v1/packages/:name/preview', async (req) => {
+    const { name } = parse(z.object({ name: z.string() }), req.params);
+    return planPackage(ctx, name, parse(PackageRequestSchema, req.body));
+  });
+
+  app.post('/v1/packages/:name/order', async (req, reply) => {
+    const { name } = parse(z.object({ name: z.string() }), req.params);
+    const { name: campaignName, notes, budgetUsd, autoRefill, metadata, submit, ...request } = parse(PackageOrderSchema, req.body);
+    const header = req.headers['idempotency-key'];
+    const key = Array.isArray(header) ? header[0] : header;
+    if (key !== undefined && (key.length < 8 || key.length > 200)) {
+      throw new ValidationError('Idempotency-Key must be 8–200 characters');
+    }
+    const plan = await planPackage(ctx, name, request);
+    const input = packageToCampaign(plan, { name: campaignName, notes, budgetUsd, autoRefill, metadata, submit });
+    const { campaign, replayed } = await createCampaign(ctx, input, key);
+    return reply
+      .code(replayed ? 200 : 201)
+      .header('idempotent-replayed', String(replayed))
+      .send({ ...loadCampaign(campaign.id), packageLines: plan.lines });
   });
 
   // ----------------------------------------------------------- campaigns

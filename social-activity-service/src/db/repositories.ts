@@ -179,12 +179,12 @@ export const orders = {
       params,
     );
   },
-  activeWithLinkKey(db: Db, linkKey: string, product: string): OrderRow[] {
+  activeWithLinkKey(db: Db, linkKey: string, serviceId: string): OrderRow[] {
     return all<OrderRow>(
       db,
-      `SELECT * FROM orders WHERE link_key = :linkKey AND product = :product
+      `SELECT * FROM orders WHERE link_key = :linkKey AND service_id = :serviceId
          AND status IN ('draft', 'submitting', 'pending', 'in_progress', 'processing', 'needs_review')`,
-      { linkKey, product },
+      { linkKey, serviceId },
     );
   },
   list(db: Db, status: OrderStatus | undefined, limit: number, offset: number): OrderRow[] {

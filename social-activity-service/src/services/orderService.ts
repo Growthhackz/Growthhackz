@@ -15,7 +15,7 @@ interface PlannedOrder {
 }
 
 /** Validate an order against the catalog and turn it into a draft row. Makes no provider calls except catalog sync. */
-async function planOrder(
+export async function planOrder(
   ctx: ServiceContext,
   campaign: { id: string; name: string; autoRefill: boolean; geo?: Geo; premium?: boolean },
   input: OrderInput,
@@ -175,15 +175,15 @@ export async function createCampaign(
     );
   }
 
-  // Panels reject (or mis-count) a second active order on the same target for the same product.
+  // Panels reject (or mis-count) a second active order on the same target for the same service.
   const seen = new Set<string>();
   for (const [i, { row }] of planned.entries()) {
-    const key = `${row.product}|${row.link_key}`;
+    const key = `${row.service_id}|${row.link_key}`;
     if (seen.has(key)) throw new ConflictError(`orders[${i}]: duplicate ${row.product} order for ${row.link} in this campaign`);
     seen.add(key);
-    const clash = orders.activeWithLinkKey(ctx.db, row.link_key!, row.product);
+    const clash = orders.activeWithLinkKey(ctx.db, row.link_key!, row.service_id);
     if (clash.length > 0) {
-      throw new ConflictError(`orders[${i}]: ${row.product} for ${row.link} already has an active order`, {
+      throw new ConflictError(`orders[${i}]: ${row.product} for ${row.link} already has an active order on service ${row.service_id}`, {
         orderIds: clash.map((o) => o.id),
       });
     }
