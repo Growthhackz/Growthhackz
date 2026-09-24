@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Peak Swap API",
-    "version": "1.0.0",
-    "description": "Solana mainnet; customer wallet signing. Owner-private deployment until owner changes Site access. 125 bps total integrator fee."
+    "version": "2.0.0",
+    "description": "Solana mainnet; customer wallet signing. Swaps route directly through a single SOL-paired pool on Pump.fun, PumpSwap, Raydium (CPMM, AMM v4) or Meteora (DAMM v2, DLMM). Peak fee: 100 bps of the SOL side, charged on top for buys and from proceeds for sells. Owner-private deployment until owner changes Site access."
   },
   "servers": [
     {
@@ -43,7 +43,7 @@
     },
     "/tokens": {
       "get": {
-        "summary": "Search Jupiter tokens",
+        "summary": "Token metadata by mint address (SOL and USDC also by symbol)",
         "responses": {
           "200": {
             "description": "Success"
@@ -75,7 +75,7 @@
     },
     "/orders": {
       "post": {
-        "summary": "Create a fee-checked order",
+        "summary": "Create an order: simulated best-pool quote plus unsigned transaction including the Peak fee. One side must be SOL.",
         "responses": {
           "201": {
             "description": "Success"
@@ -143,7 +143,7 @@
     },
     "/execute": {
       "post": {
-        "summary": "Submit exact wallet-signed transaction",
+        "summary": "Submit the exact wallet-signed transaction to Solana. status: confirmed | failed | rejected | expired | unknown",
         "responses": {
           "200": {
             "description": "Success"

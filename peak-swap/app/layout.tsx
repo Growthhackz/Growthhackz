@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Peak Swap — Solana",
-  description: "Swap Solana tokens with Peak. Wallet-signed trades powered by Jupiter.",
+  description: "Swap Solana tokens with Peak. Wallet-signed trades direct on Pump.fun, Raydium and Meteora.",
   other: {
     "codex-preview": "development",
   },

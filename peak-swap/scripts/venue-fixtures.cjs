@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- standalone CommonJS dev script */
 // Dev-only. Run from a scratch directory with the SDK versions below installed:
 //   npm i @pump-fun/pump-sdk@2.0.0 @pump-fun/pump-swap-sdk@1.20.0 @raydium-io/raydium-sdk-v2@0.2.73-alpha @meteora-ag/cp-amm-sdk@1.4.10 @meteora-ag/dlmm@1.9.14 @solana/web3.js@1.98.4
 //   cp <pump-sdk>/src/idl/pump.json <pump-swap-sdk>/src/idl/pump_amm.json .

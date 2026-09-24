@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import {readFileSync,readdirSync,mkdirSync,writeFileSync,copyFileSync} from 'node:fs';
+import {readFileSync,readdirSync,mkdirSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 const files=dir=>readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(join(dir,e.name)):[join(dir,e.name)]);

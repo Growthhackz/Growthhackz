@@ -9,6 +9,7 @@ import { SOL_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, type Account } from '../li
 import { pumpCurveBuy, pumpCurveSell, pumpAmmBuy, pumpAmmSell, pumpAmmExtendPool, decodePumpPool, decodePumpGlobalRecipients, decodePumpAmmRecipients, discoverPump, PUMP, AMM, PUMP_PROGRAM, PUMP_AMM_PROGRAM } from '../lib/venues/pump';
 import { decodeCpmm, cpmmSwap, decodeAmmV4, ammV4Swap } from '../lib/venues/raydium';
 import { shortlist } from '../lib/router';
+import type { Route } from '../lib/venues/types';
 import { decodeDamm, dammSwap, decodeLbPair, binArraysForSwap, dlmmSwap } from '../lib/venues/meteora';
 
 const f = JSON.parse(readFileSync('tests/fixtures/venues.json', 'utf8'));
@@ -88,7 +89,7 @@ await test('Meteora DAMM v2 and DLMM match the Meteora SDK programs', () => {
 });
 
 await test('Router shortlists the deepest pools, at most two per venue', async () => {
-  const r = (venue: string, liquidity: number) => ({ venue, pool: venue + liquidity, liquidity: BigInt(liquidity), output: { kind: 'lamports' as const }, instructions: () => [] }) as any;
+  const r = (venue: Route['venue'], liquidity: number) => ({ venue, pool: venue + liquidity, liquidity: BigInt(liquidity), output: { kind: 'lamports' as const }, instructions: () => [] }) as Route;
   const picked = shortlist([r('raydium-cpmm', 5), r('raydium-cpmm', 9), r('raydium-cpmm', 7), r('meteora-dlmm', 0), r('pumpswap', 1)]);
-  assert.deepEqual(picked.map((p: any) => p.pool), ['raydium-cpmm9', 'raydium-cpmm7', 'pumpswap1']);
+  assert.deepEqual(picked.map(p => p.pool), ['raydium-cpmm9', 'raydium-cpmm7', 'pumpswap1']);
 });
