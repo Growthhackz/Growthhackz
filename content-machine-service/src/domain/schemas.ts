@@ -2,7 +2,17 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit'] as const;
+
+/** Pipeline kind → subreddit. The `reddit` channel turns on every entry. */
+export const REDDIT_SUBREDDITS: Record<string, string> = {
+  reddit_moonshots: 'moonshots',
+  reddit_solanamemecoins: 'solanamemecoins',
+};
+
+/** The channel that switches a pipeline kind on (kinds not listed are always on). */
+export const channelOf = (kind: string): string | null =>
+  REDDIT_SUBREDDITS[kind] ? 'reddit' : (CHANNELS as readonly string[]).includes(kind) ? kind : null;
 
 const httpsUrl = z
   .string()
@@ -69,18 +79,20 @@ export const trendingPurchaseSchema = z.object({
 export type TrendingPurchase = z.infer<typeof trendingPurchaseSchema>;
 
 /**
- * Three posts, each published with the same campaign image:
- * - x_post: one X-sized post (also the Telegram photo caption and the hub summary)
- * - article: long-form post (Telegraph, Binance Square)
- * - press_release: press-release style post
+ * Three pieces of content, published with the same campaign image:
+ * - article (+ headline): Binance Square, Telegraph, Reddit
+ * - social_post: a Telegram-sized post; the Full Send Trenches channel caption
+ * - short_post: one X-sized post; the hub summary
  * meme_captions and trailer_lines are renderer inputs, not posts.
  */
-export const X_POST_MAX = 280;
+export const SHORT_POST_MAX = 280;
+/** Leaves room in Telegram's 1024-char photo caption for the TRENDING line and the Telegram link. */
+export const SOCIAL_POST_MAX = 800;
 export const copySchema = z.object({
   headline: z.string().min(5).max(150),
-  x_post: z.string().min(10).max(X_POST_MAX),
   article: z.string().min(100).max(6500),
-  press_release: z.string().min(100).max(6500),
+  social_post: z.string().min(40).max(SOCIAL_POST_MAX),
+  short_post: z.string().min(10).max(SHORT_POST_MAX),
   meme_captions: z.array(z.string().max(100)).length(8),
   trailer_lines: z.array(z.string().max(70)).min(3).max(5),
 });
@@ -104,6 +116,8 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['telegraph', 60],
   ['binance', 65],
   ['call_channel', 75],
+  ['reddit_moonshots', 80],
+  ['reddit_solanamemecoins', 81],
   ['sticker_art_0', 100],
   ['sticker_art_1', 101],
   ['sticker_art_2', 102],
@@ -114,7 +128,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;

@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env worker.mjs",
-    "test": "node render.test.mjs"
+    "start": "node --env-file-if-exists=.env worker.mjs",
+    "test": "node render.test.mjs && node reddit.test.mjs"
   },
   "dependencies": {
+    "playwright": "1.56.1",
     "sharp": "0.35.4"
   },
   "engines": {

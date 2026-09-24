@@ -64,7 +64,7 @@ describe('trending purchase → call channel', () => {
     const form = call.init.body as FormData;
     expect(form.get('chat_id')).toBe('@fullsendtrenches');
     expect(form.get('caption')).toBe(
-      `🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.x_post}\n\n💬 Telegram: https://t.me/moonfrog`,
+      `🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.social_post}\n\n💬 Telegram: https://t.me/moonfrog`,
     );
     expect((form.get('photo') as Blob).type).toBe('image/png');
     // Posted only once, and only after the campaign image existed.

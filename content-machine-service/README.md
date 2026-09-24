@@ -3,7 +3,7 @@
 A standalone content microservice. It takes a token order (or a trending purchase) from the buybot and produces and publishes a project content kit:
 
 - **Token details:** name, ticker, logo and market data from DEX Screener.
-- **Copy (Gemini):** exactly three posts — one X-sized post (≤280 chars), one article and one press release — plus meme captions and trailer lines for the renderer.
+- **Copy (Gemini):** an article with a headline, a social post (Telegram-sized, ≤800 chars) and a short post (X-sized, ≤280 chars), plus meme captions and trailer lines for the renderer.
 - **Artwork (Gemini):** a campaign image and five matching sticker designs.
 - **Rendered media:** memes, trailers and sticker PNGs, made by the companion worker.
 - **Callbacks:** each status change is sent to the buybot as a signed webhook.
@@ -16,14 +16,13 @@ Only these. Every post carries the same campaign image, and nothing counts as de
 | --- | --- | --- |
 | Binance Square | Article, campaign image as cover | Live (companion worker) |
 | Telegraph | Article, campaign image embedded (needs `PUBLIC_HUB_ENABLED`) | Live |
-| Full Send Trenches channel | `🔥 TRENDING` + X-sized post + project Telegram link, with the image | Live (`call_channel`) |
+| Full Send Trenches channel | `🔥 TRENDING` + social post + project Telegram link, with the image | Live (`call_channel`) |
 | Telegram sticker pack | Five stickers from the project mascot, owned by our team account (`STICKER_OWNER_ID`); the link goes to the buybot to DM the buyer | Live |
-| Reddit r/moonshots | Post | Not built yet |
-| Reddit r/solanamemecoins | Post | Not built yet |
+| Reddit r/moonshots and r/solanamemecoins | Headline + article as a text post in each (image link at the top when the hub is public, Telegram link at the end) | Built (companion worker, scripted browser); not yet run against real Reddit |
 | CoinSniper | Directory listing | Not built yet |
 | Coinvote | Directory listing | Not built yet |
 
-The press release is not sent anywhere automatically. It is available through the API and on the hub.
+The short post is the hub summary; it isn't posted anywhere by itself.
 
 It ports the handoff build (Next.js on Cloudflare D1/R2) to the same stack as `social-activity-service`: Fastify, `node:sqlite` and zod. Assets are stored on the local filesystem behind an `AssetStore` interface.
 
@@ -90,11 +89,11 @@ curl -X POST localhost:4020/v1/orders -H "authorization: Bearer $SERVICE_KEY" -H
 
 ### Pipeline and statuses
 
-`metadata → copy → hub → campaign_image → media* → telegraph / binance* / telegram → sticker_art_0..4 → stickers* → sticker_publish`
+`metadata → copy → hub → campaign_image → media* → telegraph / binance* / call_channel / reddit_moonshots* / reddit_solanamemecoins* → sticker_art_0..4 → stickers* → sticker_publish`
 
 (* = done by the companion worker.)
 
-Publications wait until the campaign image is delivered; if the image can't be generated, they stay queued rather than going out without it. Sticker work waits until every primary item is settled. A background loop (`TICK_INTERVAL_MS`) advances jobs and sends callbacks. To run steps without waiting, call `POST /v1/tick` or `POST /v1/orders/:id/process`.
+Publications wait until the campaign image is delivered; if the image can't be generated, they stay queued rather than going out without it. Sticker work waits until the in-service primary items are settled (it doesn't wait on Binance or Reddit). A background loop (`TICK_INTERVAL_MS`) advances jobs and sends callbacks. To run steps without waiting, call `POST /v1/tick` or `POST /v1/orders/:id/process`.
 
 | Job status | Meaning |
 | --- | --- |
@@ -167,25 +166,41 @@ The worker runs next to the bot and handles the work that needs local tools:
 - **Media:** eight 1080px meme PNGs and square and vertical H.264 trailers, built with ffmpeg and sharp.
 - **Stickers:** five transparent 512px sticker PNGs.
 - **Binance Square:** posts the article with the campaign image as its cover through Binance's official `square-post/scripts/post-image.mjs`.
+- **Reddit:** logs in once with `REDDIT_USERNAME` / `REDDIT_PASSWORD` (session saved to `REDDIT_STATE_PATH`), submits a text post through old.reddit's submit form, reads back the post URL, and re-opens it logged-out to confirm it is visible. Login failures, CAPTCHAs and Reddit's "doing that too much" limit are reported as *not posted* and retried after 5 minutes; anything after the submit click that can't be confirmed becomes `uncertain`. It does not try to get around CAPTCHAs or bot checks, and Reddit's rules don't allow automating the website, so use an account you can afford to lose.
 
 It uses a service key and polls four routes:
 
 - `POST /v1/render/claim`
 - `/v1/render/:jobId/complete|fail`
 - `POST /v1/publish/claim`
-- `/v1/publish/:jobId/complete`
+- `/v1/publish/:jobId/complete|fail` (claim takes `{"kinds": [...]}`: `binance`, `reddit_moonshots`, `reddit_solanamemecoins`)
 
 Leases expire, so a crashed worker's job is picked up again. A crashed publication becomes `uncertain` instead.
 
 ```bash
 cd worker && npm install && cp .env.example .env   # needs ffmpeg + a font such as DejaVu Sans
 npm start
-npm test                                            # render + callback-signature test
+npm test                                            # render, callback signature, Reddit flow against a local fake
 ```
 
 For Binance, set `BINANCE_SQUARE_SKILL_DIR` (pinned checkout of `binance/binance-skills-hub` → `skills/binance/square-post`) and `BINANCE_SQUARE_OPENAPI_KEY` on the worker only.
 
 `worker/client.mjs` (`ContentMachineClient`, `verifyCallback`) is the client the buybot should use for intake and polling.
+
+## Deploy on Railway
+
+Two services from this repo, each with **Root Directory** set in Railway and a **volume mounted at `/data`**:
+
+| Service | Root directory | What it needs |
+| --- | --- | --- |
+| API | `content-machine-service` | Public domain (Settings → Networking → Generate Domain). Healthcheck `/health`. |
+| Worker | `content-machine-service/worker` | No domain. Chromium, ffmpeg and the pinned Binance scripts are baked into its image. |
+
+**API variables:** `ADMIN_API_TOKEN`, `CONFIG_ENCRYPTION_KEY` (never change it once set), `PUBLIC_BASE_URL=https://<the generated domain>`, `PUBLIC_HUB_ENABLED=true`, `STICKER_OWNER_ID`, `CALL_CHANNEL_ID=@fullsendtrenches`. Secrets (Gemini, Telegraph, the bot token, callback URL and secret) can be Railway variables too, or saved afterwards with `PUT /v1/settings`. Railway provides `PORT`.
+
+**Worker variables:** `CONTENT_MACHINE_URL` (the API's public URL, or `http://<api-service>.railway.internal:<PORT>` over private networking), `CONTENT_MACHINE_API_KEY` (issue one with `POST /v1/keys`), `BINANCE_SQUARE_OPENAPI_KEY`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`.
+
+Then check the setup with the connector probes: `GET /v1/connectors`, and `POST /v1/connectors/{gemini|telegraph|call_channel|sticker_pack}/probe`.
 
 ## Public hub
 
@@ -194,6 +209,7 @@ With `PUBLIC_HUB_ENABLED=true`, `GET /projects/:id` serves the project page as H
 ## Tests
 
 - `npm test`: auth and key scope; validation and idempotency; the demo pipeline; the allowance cap; encrypted settings; single-claim leases. It also runs the full live pipeline with providers faked at the HTTP layer: blocked-then-resumed jobs, uncertain Telegraph and Binance posts and their reconciliation, render validation, signed callbacks, the public hub and connector probes.
+- `worker`: `npm test` runs the renderer, the Binance cover-image publish and the Reddit script against a local fake Reddit (set `CHROMIUM_PATH` if Playwright's own Chromium isn't installed).
 - `npx tsx test/e2e-worker.ts`: the real server and the real worker (ffmpeg and sharp) talking over HTTP.
 
 ## Not yet verified live

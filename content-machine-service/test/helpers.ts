@@ -59,9 +59,9 @@ export function mp4Bytes(): Buffer {
 
 export const liveCopy = {
   headline: 'Moon Frog squad launches community kit',
-  x_post: 'The $MFROG squad is cooking. Community kit is live.',
+  short_post: 'The $MFROG squad is cooking. Community kit is live.',
+  social_post: '🔥 The $MFROG squad is cooking.\n\nMoon Frog community kit is live and the crew keeps growing.',
   article: 'Moon Frog brings its community together.\n'.repeat(5),
-  press_release: 'Moon Frog announces its community programme today.\n'.repeat(4),
   meme_captions: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
   trailer_lines: ['MOON FROG', 'COOKING', '$MFROG', 'JOIN'],
 };

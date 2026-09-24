@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, MAX_ATTEMPTS, orderInputSchema, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { channelOf, MAX_ATTEMPTS, orderInputSchema, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -103,7 +103,7 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
     for (const [kind, rank] of STAGES) {
       const skipped =
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
-        ((CHANNELS as readonly string[]).includes(kind) && !(input.channels as string[]).includes(kind));
+        (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!));
       run(ctx.db, 'INSERT INTO jobs (id, order_id, kind, rank, status, updated_at) VALUES (:id, :o, :kind, :rank, :status, :t)', {
         id: uid(),
         o: id,

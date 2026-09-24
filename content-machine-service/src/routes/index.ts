@@ -10,6 +10,7 @@ import {
   processOrder,
   publishClaim,
   publishComplete,
+  publishFailed,
   reconcile,
   renderClaim,
   renderFailed,
@@ -99,10 +100,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     const b = (req.body ?? {}) as { lease?: unknown; error?: unknown };
     return renderFailed(ctx, req.params.id, b.lease, b.error);
   });
-  app.post('/v1/publish/claim', async () => publishClaim(ctx));
+  app.post('/v1/publish/claim', async (req) => publishClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
   app.post<{ Params: Params }>('/v1/publish/:id/complete', async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown };
-    return publishComplete(ctx, req.params.id, b.lease, b.url);
+    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown };
+    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified);
+  });
+  app.post<{ Params: Params }>('/v1/publish/:id/fail', async (req) => {
+    const b = (req.body ?? {}) as { lease?: unknown; error?: unknown };
+    return publishFailed(ctx, req.params.id, b.lease, b.error);
   });
 
   // ---- admin ----

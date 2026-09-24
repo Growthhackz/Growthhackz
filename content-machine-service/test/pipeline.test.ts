@@ -84,7 +84,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(o.jobs.find((j: any) => j.kind === 'telegraph').result.url).toBe('https://telegra.ph/Moon-Frog-01-01');
     expect(status('call_channel')).toBe('delivered');
     expect(o.jobs.find((j: any) => j.kind === 'call_channel').result.url).toBe('https://t.me/fullsendtrenches/7');
-    expect(status('binance')).toBe('blocked');
+    expect(status('binance')).toBe('queued');
     // Stickers wait while primary work (media render) is still queued.
     expect(status('sticker_art_0')).toBe('queued');
     expect(t.http.count('api.telegra.ph/createPage')).toBe(1);
@@ -98,7 +98,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     });
     const photo = t.http.calls.find((c) => c.url.includes('/sendPhoto'))!.init.body as FormData;
     expect(photo.get('chat_id')).toBe('@fullsendtrenches');
-    expect(photo.get('caption')).toBe(`🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.x_post}\n\n💬 Telegram: https://t.me/moonfrog`);
+    expect(photo.get('caption')).toBe(`🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.social_post}\n\n💬 Telegram: https://t.me/moonfrog`);
     expect((photo.get('photo') as Blob).type).toBe('image/png');
     expect(o.x_handoff).toBeUndefined();
 
@@ -280,7 +280,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect((await t.api('POST', '/v1/connectors/gemini/probe', {})).status).toBe(424);
     await t.setSetting('TELEGRAM_BOT_TOKEN', 'TG');
     expect((await t.api('POST', '/v1/connectors/sticker_pack/probe', {})).body.bot.username).toBe('sticker_bot');
-    expect(list.map((s: any) => s.id)).toEqual(['dexscreener', 'gemini', 'intake', 'binance', 'telegraph', 'call_channel', 'sticker_pack', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote']);
+    expect(list.map((s: any) => s.id)).toEqual(['dexscreener', 'gemini', 'intake', 'binance', 'telegraph', 'call_channel', 'sticker_pack', 'reddit', 'coinsniper', 'coinvote']);
     expect(JSON.stringify(list).toLowerCase()).not.toContain('peak');
     expect((await t.api('POST', '/v1/connectors/x/probe', {})).status).toBe(400);
   });

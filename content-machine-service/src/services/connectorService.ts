@@ -29,8 +29,7 @@ export const SOURCES: Source[] = [
   { id: 'telegraph', name: 'Telegraph article', mode: 'publish + verify', credential: 'TELEGRAPH_TOKEN', detail: 'Article with the campaign image embedded (needs PUBLIC_HUB_ENABLED), then page verification.' },
   { id: 'call_channel', name: 'Full Send Trenches channel post', mode: 'publish', credential: 'CALL_CHANNEL_BOT_TOKEN', detail: 'X-sized post with the campaign image and the project Telegram link, posted by our bot to CALL_CHANNEL_ID.' },
   { id: 'sticker_pack', name: 'Telegram sticker pack', mode: 'publish + verify', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Five stickers from the project mascot, published as a set owned by the project (needs telegram_owner_id).' },
-  { id: 'reddit_moonshots', name: 'Reddit r/moonshots', mode: 'planned publish', credential: null, detail: 'Not built yet.', url: 'https://www.reddit.com/r/moonshots/' },
-  { id: 'reddit_solanamemecoins', name: 'Reddit r/solanamemecoins', mode: 'planned publish', credential: null, detail: 'Not built yet.', url: 'https://www.reddit.com/r/solanamemecoins/' },
+  { id: 'reddit', name: 'Reddit r/moonshots + r/solanamemecoins', mode: 'publish (worker)', credential: null, detail: 'Headline + article as a text post in each subreddit, via a scripted browser on the companion worker (REDDIT_USERNAME / REDDIT_PASSWORD there).' },
   { id: 'coinsniper', name: 'CoinSniper listing', mode: 'planned listing', credential: null, detail: 'Not built yet; account + browser automation.', url: 'https://coinsniper.net/' },
   { id: 'coinvote', name: 'Coinvote listing', mode: 'planned listing', credential: null, detail: 'Not built yet; account + browser automation.', url: 'https://coinvote.cc/' },
 ];
@@ -43,7 +42,7 @@ export function connectorList(ctx: ServiceContext) {
     let status: string;
     if (s.id === 'dexscreener') status = 'ready';
     else if (s.credential) status = setting(ctx, s.credential) ? 'configured' : 'needs_key';
-    else if (s.id === 'binance') status = workerOnline ? 'worker_online' : 'needs_worker';
+    else if (s.id === 'binance' || s.id === 'reddit') status = workerOnline ? 'worker_online' : 'needs_worker';
     else if (s.id === 'intake') status = hasKey ? 'api_key_created' : 'needs_api_key';
     else if (s.mode.startsWith('planned')) status = 'planned';
     else status = 'handoff';
