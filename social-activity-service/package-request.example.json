@@ -1,0 +1,16 @@
+{
+  "targets": {
+    "twitterProfile": "@yourhandle",
+    "tweet": "https://x.com/yourhandle/status/1234567890",
+    "telegram": "https://t.me/yourchannel",
+    "website": "https://example.com/landing"
+  },
+  "comments": [
+    "Replace these with comments that fit the post",
+    "Second comment",
+    "Third comment",
+    "Fourth comment",
+    "Fifth comment"
+  ],
+  "include": ["telegram_premium"]
+}

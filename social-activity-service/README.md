@@ -21,6 +21,24 @@ Requires Node ≥ 22.5 (uses the built-in `node:sqlite`).
 
 ### Going live with Followiz
 
+**Quick path.** With `FOLLOWIZ_API_KEY` set, run:
+
+```bash
+PROVIDER=followiz npm run setup:provider                  # balance, catalog sync, top 5 services per package item
+PROVIDER=followiz npm run setup:provider -- --apply       # also map each item to its top pick
+cp package-request.example.json my-request.json            # fill in your targets and comments
+PROVIDER=followiz npm run setup:provider -- --preview my-request.json
+```
+
+The script never places orders. Services are ranked by keyword matching on their names:
+
+- **Preferred:** the right platform and product, the package's region, a minimum that fits the package range, drip-feed, and refill for followers and members.
+- **Penalised:** services labelled bots or cheap.
+
+Review the list before `--apply`. `--overwrite` replaces existing mappings. The same data is available from `GET /v1/catalog/recommendations` and `POST /v1/catalog/recommendations/apply`.
+
+**Manual path:**
+
 1. Set `PROVIDER=followiz`, `FOLLOWIZ_API_KEY=...` and a `SERVICE_API_TOKEN`.
 2. `POST /v1/catalog/sync` pulls the current service list (it also syncs every 6 h).
 3. Find the services you want with `GET /v1/catalog/services?q=telegram`, then map each product to one:
@@ -142,6 +160,8 @@ All `/v1` routes need `Authorization: Bearer $SERVICE_API_TOKEN`.
 | GET | `/v1/products` | Products, order types, geos |
 | GET | `/v1/catalog/services?q=&includeInactive=` | Synced provider services |
 | POST | `/v1/catalog/sync` | Re-pull the service list now |
+| GET | `/v1/catalog/recommendations?package=` | Ranked services per package item |
+| POST | `/v1/catalog/recommendations/apply` | Map each item to its top pick |
 | GET / PUT / DELETE | `/v1/catalog/mappings` | Product + geo + premium → service id |
 | GET | `/v1/balance` | Provider balance, low-balance flag, ledger totals |
 | GET | `/v1/ledger` | Recent ledger entries |

@@ -17,6 +17,7 @@ import { syncCatalog } from '../services/catalogService.js';
 import { nowIso, type ServiceContext } from '../services/context.js';
 import { cancelOrder, createCampaign, resolveReview, submitCampaign, submitOrder } from '../services/orderService.js';
 import { packageToCampaign, planPackage } from '../services/packageService.js';
+import { applyRecommendations, recommendForPackage } from '../services/recommendService.js';
 import { refreshCampaign, refreshOrder } from '../services/pollingService.js';
 import {
   presentCampaign,
@@ -78,6 +79,17 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   });
 
   app.post('/v1/catalog/sync', async () => syncCatalog(ctx));
+
+  /** Rank catalog services for each package item (keyword match on names; review before applying). */
+  app.get('/v1/catalog/recommendations', async (req) => {
+    const q = parse(z.object({ package: z.string().default('starter'), limit: z.coerce.number().int().min(1).max(20).default(5) }), req.query);
+    return { package: q.package, items: recommendForPackage(ctx, q.package, q.limit) };
+  });
+
+  app.post('/v1/catalog/recommendations/apply', async (req) => {
+    const body = parse(z.object({ package: z.string().default('starter'), overwrite: z.boolean().default(false) }).strict(), req.body);
+    return { package: body.package, results: applyRecommendations(ctx, body.package, body.overwrite) };
+  });
 
   app.get('/v1/catalog/mappings', async () => ({
     mappings: mappings
