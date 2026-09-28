@@ -178,6 +178,22 @@ All `/v1` routes need `Authorization: Bearer $SERVICE_API_TOKEN`.
 | POST | `/v1/orders/:id/submit` \| `refresh` \| `cancel` \| `refill` \| `resolve` | Order actions |
 | GET | `/v1/provider-calls?action=` | Raw provider request/response log (API key never stored) |
 
+## Deploy to Railway
+
+Runs as its own Railway service (`Growthhackz` in the `content-empathy` project), separate from the content-machine API and worker, so a crash or bad deploy in one doesn't affect the others. Settings live on the service in Railway (config-as-code files are deprecated there):
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `/social-activity-service` |
+| Build / start | Railpack, `npm run build` / `npm start` |
+| Healthcheck | `/health` (a failing new deploy never replaces the running one) |
+| Restart | on failure, 10 retries; 1 replica |
+| Volume | `/data`, with `DATABASE_PATH=/data/social-activity.db` |
+| Watch paths | `/social-activity-service/**` |
+| Variables | `PORT=4010`, `PROVIDER=followiz`, `FOLLOWIZ_API_KEY`, `SERVICE_API_TOKEN` |
+
+Keep one replica. The background workers and SQLite assume a single instance. `.node-version` pins Node 22 for `node:sqlite`.
+
 ## Layout
 
 ```

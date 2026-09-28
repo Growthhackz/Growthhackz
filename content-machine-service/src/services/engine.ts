@@ -1,0 +1,619 @@
+import { all, get, run } from '../db/database.js';
+import {
+  DIRECTORY_HOSTS,
+  EXPECTED_RENDER_FILES,
+  IRREVERSIBLE,
+  LISTING_REVIEW_MAX_MS,
+  MAX_ATTEMPTS,
+  REDDIT_SUBREDDITS,
+  RENDER_KINDS,
+} from '../domain/schemas.js';
+import { AppError, ConflictError, isBlocking, NotVerifiedError, SetupRequiredError, UpstreamError, ValidationError } from '../lib/errors.js';
+import { signCallback } from '../lib/crypto.js';
+import { safeRemote } from '../lib/http.js';
+import { uid } from '../lib/ids.js';
+import { enrich } from '../providers/dexscreener.js';
+import { generateCopy, generateImage } from '../providers/gemini.js';
+import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
+import { createPage } from '../providers/telegraph.js';
+import { verifyPublication } from '../providers/verify.js';
+import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
+import { getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
+import { setRawSetting, setting } from './settingsService.js';
+
+const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
+const RENDER_LEASE_MS = 10 * 60_000;
+const JOB_LEASE_MS = 2 * 60_000;
+const PUBLISH_LEASE_MS = 3 * 60_000;
+const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
+
+type Leased = JobRow & { lease: string };
+
+function touchOrder(ctx: ServiceContext, orderId: string) {
+  run(ctx.db, 'UPDATE orders SET updated_at = :t WHERE id = :id', { id: orderId, t: nowMs(ctx) });
+}
+
+/** Completes a leased job. A stale lease (expired and re-claimed) is a no-op. */
+export function finish(ctx: ServiceContext, job: Leased, result: unknown, status: 'delivered' | 'skipped' = 'delivered') {
+  const r = run(
+    ctx.db,
+    `UPDATE jobs SET status = :status, result = :result, error = NULL, lease = NULL, lease_until = NULL, updated_at = :t
+     WHERE id = :id AND lease = :lease AND status = 'running'`,
+    { status, result, t: nowMs(ctx), id: job.id, lease: job.lease },
+  );
+  if (r.changes) recordEvent(ctx, job.order_id, 'delivery.updated', { job_id: job.id, kind: job.kind, status, result });
+}
+
+function fail(ctx: ServiceContext, job: Leased, err: unknown) {
+  const blocked = isBlocking(err);
+  const uncertain = IRREVERSIBLE.includes(job.kind) && !blocked;
+  const status = uncertain ? 'uncertain' : blocked ? 'blocked' : job.attempts < MAX_ATTEMPTS ? 'queued' : 'failed';
+  const message = err instanceof AppError ? err.message : 'Processing interrupted. Check the provider and retry safely.';
+  if (!(err instanceof AppError)) ctx.log.error({ job: job.id, kind: job.kind, err: String(err) }, 'job failed unexpectedly');
+  run(
+    ctx.db,
+    `UPDATE jobs SET status = :status, error = :error, available_at = :available,
+       attempts = CASE WHEN :refund = 1 THEN attempts - 1 ELSE attempts END,
+       lease = NULL, lease_until = NULL, updated_at = :t
+     WHERE id = :id AND lease = :lease`,
+    {
+      status,
+      error: message,
+      available: nowMs(ctx) + Math.min(300_000, 15_000 * 2 ** job.attempts),
+      // Missing setup or budget is not the job's fault, so it doesn't spend a retry.
+      refund: blocked,
+      t: nowMs(ctx),
+      id: job.id,
+      lease: job.lease,
+    },
+  );
+  recordEvent(ctx, job.order_id, 'delivery.updated', { job_id: job.id, kind: job.kind, status, error: message });
+}
+
+/** Leases that outlived their worker: publications become uncertain, everything else is retried or failed. */
+export function expireLeases(ctx: ServiceContext): number {
+  return run(
+    ctx.db,
+    `UPDATE jobs SET status = CASE WHEN kind IN (${IRREVERSIBLE_SQL}) THEN 'uncertain' WHEN attempts >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
+       error = 'The worker stopped before completion. External publications must be reconciled.',
+       lease = NULL, lease_until = NULL, updated_at = :t
+     WHERE status = 'running' AND lease_until < :t`,
+    { t: nowMs(ctx) },
+  ).changes;
+}
+
+function ready(j: JobRow, o: Order): boolean {
+  const done = (kind: string) => o.jobs.some((x) => x.kind === kind && x.status === 'delivered');
+  if (j.kind === 'metadata') return true;
+  if (!done('metadata')) return false;
+  if (j.kind === 'copy') return true;
+  if (!done('copy')) return false;
+  if (j.rank >= 100 && o.jobs.some((x) => x.rank < 100 && !WORKER_PUBLICATIONS.includes(x.kind) && ['queued', 'running'].includes(x.status)))
+    return false;
+  if (j.kind === 'media') return done('campaign_image');
+  if (j.kind === 'stickers') return [0, 1, 2, 3, 4].every((i) => done('sticker_art_' + i));
+  if (j.kind === 'sticker_publish') return done('stickers');
+  // Every post goes out with the campaign image attached.
+  if (PUBLICATIONS.includes(j.kind)) return done('campaign_image');
+  return true;
+}
+
+/** Atomically leases the next ready job on an order. `render` selects renderer-only kinds. */
+export function claim(ctx: ServiceContext, orderId: string, render = false): { job: Leased; order: Order } | null {
+  expireLeases(ctx);
+  const o = loadOrder(ctx, orderId);
+  const t = nowMs(ctx);
+  const candidates = o.jobs.filter(
+    (j) =>
+      j.status === 'queued' &&
+      j.available_at <= t &&
+      RENDER_KINDS.includes(j.kind) === render &&
+      // Binance and Reddit wait for the companion worker's publish claim.
+      !WORKER_PUBLICATIONS.includes(j.kind) &&
+      ready(j, o),
+  );
+  for (const j of candidates) {
+    const lease = uid();
+    const r = run(
+      ctx.db,
+      `UPDATE jobs SET status = 'running', lease = :lease, lease_until = :until, attempts = attempts + 1, updated_at = :t
+       WHERE id = :id AND status = 'queued'`,
+      { lease, until: t + (render ? RENDER_LEASE_MS : JOB_LEASE_MS), t, id: j.id },
+    );
+    if (r.changes) return { job: { ...j, lease, attempts: j.attempts + 1, status: 'running' }, order: o };
+  }
+  return null;
+}
+
+/** Runs at most one ready in-process job on the order. */
+export async function processOrder(ctx: ServiceContext, orderId: string): Promise<boolean> {
+  const c = claim(ctx, orderId);
+  if (!c) return false;
+  try {
+    await runJob(ctx, c.job, c.order);
+  } catch (err) {
+    fail(ctx, c.job, err);
+  }
+  touchOrder(ctx, orderId);
+  return true;
+}
+
+async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
+  const p = o.project;
+  switch (j.kind) {
+    case 'metadata': {
+      const project = await enrich(ctx, p, o.demo);
+      run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p: project, id: o.id });
+      return finish(ctx, j, { source: project.source, fetched_at: new Date(nowMs(ctx)).toISOString() });
+    }
+    case 'copy': {
+      const copy = await generateCopy(ctx, o);
+      run(ctx.db, 'UPDATE orders SET copy = :c WHERE id = :id', { c: copy, id: o.id });
+      return finish(ctx, j, {
+        formats: ['article', 'social_post', 'short_post', 'meme_captions', 'trailer_lines'],
+        demo: o.demo,
+      });
+    }
+    case 'hub':
+      return finish(ctx, j, {
+        url: hubUrl(ctx, o.id),
+        visibility: ctx.config.PUBLIC_HUB_ENABLED ? 'public' : 'private_until_hub_is_enabled',
+        label: 'Project announcement and community kit',
+      });
+  }
+  if (j.kind === 'campaign_image' || j.kind.startsWith('sticker_art_')) {
+    if (o.demo) return finish(ctx, j, { demo: true, note: 'Demo uses supplied artwork; no generation charged.' }, 'skipped');
+    const m = await generateImage(ctx, o, j.kind);
+    const ext = m.mime === 'image/jpeg' ? 'jpg' : m.mime.split('/')[1];
+    return finish(ctx, j, await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, m.mime, m.bytes));
+  }
+  if (o.demo) return finish(ctx, j, { demo: true, note: 'External publication disabled for demo orders.' }, 'skipped');
+  const copy = o.copy;
+  if (!copy) throw new SetupRequiredError('Copy has not been generated yet.');
+
+  const image = o.assets.find((a) => a.kind === 'campaign_image');
+  if (!image && PUBLICATIONS.includes(j.kind)) throw new SetupRequiredError('The campaign image is required before publishing.');
+
+  switch (j.kind) {
+    case 'telegraph': {
+      // Telegraph embeds by URL, so the image must be publicly reachable.
+      if (!ctx.config.PUBLIC_HUB_ENABLED)
+        throw new SetupRequiredError('Enable PUBLIC_HUB_ENABLED so Telegraph can embed the campaign image.');
+      const page = await createPage(ctx, {
+        imageUrl: publicAssetUrl(ctx, o.id, image!.id),
+        title: copy.headline,
+        author: p.name ?? '',
+        paragraphs: copy.article.split(/\n+/).filter(Boolean),
+        telegramUrl: p.telegram_url,
+      });
+      // Record the URL before verifying so an uncertain outcome can be reconciled without republishing.
+      run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: page, id: j.id, lease: j.lease });
+      return finish(ctx, j, await verifyPublication(ctx, page.url, 'telegraph', copy.headline));
+    }
+    case 'call_channel': {
+      const channel = setting(ctx, 'CALL_CHANNEL_ID');
+      if (!channel) throw new SetupRequiredError('Set CALL_CHANNEL_ID to the call channel (e.g. @fullsendtrenches).');
+      const token = callChannelToken(ctx);
+      const bytes = await ctx.assets.get(image!.path);
+      if (!bytes) throw new SetupRequiredError('Campaign image file is missing.');
+      const caption = callChannelCaption(ctx, o);
+      const r = await sendPhoto(ctx, channel, bytes, image!.mime, image!.name, caption, token);
+      const username = r.chat?.username;
+      return finish(ctx, j, {
+        message_id: r.message_id,
+        chat_id: r.chat?.id,
+        url: username ? `https://t.me/${username}/${r.message_id}` : null,
+      });
+    }
+    case 'sticker_publish': {
+      const pack = await publishStickers(ctx, o);
+      finish(ctx, j, pack);
+      // Dedicated event so the buybot can DM the pack link to the buyer.
+      recordEvent(ctx, o.id, 'sticker_pack.ready', { url: pack.url, name: pack.name, project: { name: o.project.name, symbol: o.project.symbol } });
+      return;
+    }
+  }
+  throw new ValidationError(`Unknown job type ${j.kind}`);
+}
+
+export const DEFAULT_CALL_CHANNEL_LABEL = '🔥 TRENDING';
+
+/** Label, the social post, then the project's Telegram link from the trending purchase. */
+export function callChannelCaption(ctx: ServiceContext, o: Order): string {
+  const label = setting(ctx, 'CALL_CHANNEL_LABEL') || DEFAULT_CALL_CHANNEL_LABEL;
+  const p = o.project;
+  const title = `${label} | ${p.name} ($${p.symbol})`;
+  return [title, o.copy!.social_post, `💬 Telegram: ${p.telegram_url}`].join('\n\n');
+}
+
+async function publishStickers(ctx: ServiceContext, o: Order) {
+  const p = o.project;
+  // Packs are owned by a team account (STICKER_OWNER_ID) unless the order names an owner; buyers just add the link.
+  const ownerId = p.telegram_owner_id ?? Number(setting(ctx, 'STICKER_OWNER_ID'));
+  if (!ownerId) throw new SetupRequiredError('Set STICKER_OWNER_ID (a team member who has started the bot).');
+  botToken(ctx);
+  const me = await telegram(ctx, 'getMe', {});
+  const name = `p${o.id.replaceAll('-', '').slice(0, 24)}_by_${me.username}`;
+  let existing: any;
+  try {
+    existing = await telegram(ctx, 'getStickerSet', { name });
+  } catch {
+    // Not created yet.
+  }
+  if (existing?.stickers?.length === 5) return { url: `https://t.me/addstickers/${name}`, name, count: 5 };
+  const pngs = o.assets.filter((a) => a.kind.startsWith('sticker_png_')).sort((a, b) => a.kind.localeCompare(b.kind));
+  if (pngs.length !== 5) throw new SetupRequiredError('Five normalized 512px sticker PNGs are required.');
+  const stickers = [];
+  for (const [i, a] of pngs.entries()) {
+    const bytes = await ctx.assets.get(a.path);
+    if (!bytes) throw new SetupRequiredError('Sticker asset missing.');
+    stickers.push({ sticker: await uploadStickerFile(ctx, ownerId, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i]] });
+  }
+  await telegram(ctx, 'createNewStickerSet', { user_id: ownerId, name, title: `${(p.name ?? '').slice(0, 48)} Community`, stickers });
+  const check = await telegram(ctx, 'getStickerSet', { name });
+  if (check.stickers?.length !== 5) throw new NotVerifiedError('Sticker set creation needs verification.');
+  return { url: `https://t.me/addstickers/${name}`, name, count: 5 };
+}
+
+/** Advances queued in-process work across orders, up to JOBS_PER_TICK jobs. */
+export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK) {
+  expireLeases(ctx);
+  const touched = new Set<string>();
+  let processed = 0;
+  while (processed < limit) {
+    const rows = all<{ order_id: string }>(
+      ctx.db,
+      `SELECT order_id FROM jobs WHERE status = 'queued' AND available_at <= :t AND kind NOT IN (${[...RENDER_KINDS, ...WORKER_PUBLICATIONS].map((k) => `'${k}'`).join(', ')})
+       GROUP BY order_id ORDER BY MIN(updated_at) LIMIT 25`,
+      { t: nowMs(ctx) },
+    );
+    let progressed = false;
+    for (const r of rows) {
+      if (processed >= limit) break;
+      if (await processOrder(ctx, r.order_id)) {
+        processed++;
+        progressed = true;
+        touched.add(r.order_id);
+      }
+    }
+    if (!progressed) break;
+  }
+  const callbacks = await deliverCallbacks(ctx);
+  return { processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
+}
+
+// ---- companion renderer ----
+
+export function renderClaim(ctx: ServiceContext) {
+  setRawSetting(ctx, 'renderer_last_seen', String(nowMs(ctx)));
+  const rows = all<{ order_id: string }>(
+    ctx.db,
+    `SELECT order_id FROM jobs WHERE status = 'queued' AND kind IN ('media', 'stickers') GROUP BY order_id ORDER BY MIN(updated_at) LIMIT 25`,
+  );
+  for (const r of rows) {
+    const c = claim(ctx, r.order_id, true);
+    if (c) return { job: { id: c.job.id, kind: c.job.kind, lease: c.job.lease, order_id: c.job.order_id }, order: getOrder(ctx, r.order_id) };
+  }
+  return null;
+}
+
+interface RenderFile {
+  kind: string;
+  mime: string;
+  base64: string;
+}
+
+function leasedJob(ctx: ServiceContext, jobId: string, lease: unknown, kinds: string[]): Leased {
+  if (typeof lease !== 'string') throw new ValidationError('lease is required');
+  const j = get<JobRow>(
+    ctx.db,
+    "SELECT * FROM jobs WHERE id = :id AND lease = :lease AND status = 'running' AND lease_until > :t",
+    { id: jobId, lease, t: nowMs(ctx) },
+  );
+  if (!j || !kinds.includes(j.kind)) throw new ConflictError('Lease expired or invalid');
+  return j as Leased;
+}
+
+export async function acceptRender(ctx: ServiceContext, jobId: string, lease: unknown, files: unknown) {
+  const j = leasedJob(ctx, jobId, lease, RENDER_KINDS);
+  const expected = EXPECTED_RENDER_FILES[j.kind]!;
+  if (!Array.isArray(files) || files.length !== expected.length || expected.some((k) => files.filter((f: RenderFile) => f?.kind === k).length !== 1))
+    throw new ValidationError('Render output is incomplete', { expected });
+  const decoded = (files as RenderFile[]).map((f) => {
+    const mime = f.kind.startsWith('trailer_') ? 'video/mp4' : 'image/png';
+    if (f.mime !== mime || typeof f.base64 !== 'string' || f.base64.length > 18_000_000) throw new ValidationError(`Invalid render file ${f.kind}`);
+    const bytes = Buffer.from(f.base64, 'base64');
+    if (mime === 'image/png' && bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new ValidationError(`Invalid PNG ${f.kind}`);
+    if (mime === 'video/mp4' && bytes.subarray(4, 8).toString() !== 'ftyp') throw new ValidationError(`Invalid MP4 ${f.kind}`);
+    if (j.kind === 'stickers' && (bytes.length < 24 || bytes.readUInt32BE(16) !== 512 || bytes.readUInt32BE(20) !== 512 || bytes.length > 512_000))
+      throw new ValidationError('Sticker must be 512×512 and under 512 KB');
+    return { kind: f.kind, mime, bytes };
+  });
+  const results = [];
+  for (const f of decoded) results.push(await saveAsset(ctx, j.order_id, f.kind, f.kind + (f.mime === 'video/mp4' ? '.mp4' : '.png'), f.mime, f.bytes));
+  finish(ctx, j, { assets: results });
+  touchOrder(ctx, j.order_id);
+  return getOrder(ctx, j.order_id);
+}
+
+export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown, error: unknown) {
+  const j = leasedJob(ctx, jobId, lease, RENDER_KINDS);
+  const message = String(error || 'Render failed').slice(0, 300);
+  const status = j.attempts < MAX_ATTEMPTS ? 'queued' : 'failed';
+  run(
+    ctx.db,
+    `UPDATE jobs SET status = :status, error = :error, lease = NULL, lease_until = NULL, available_at = :available, updated_at = :t
+     WHERE id = :id AND lease = :lease`,
+    { status, error: message, available: nowMs(ctx) + 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+  );
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status, error: message });
+  return { ok: true, status };
+}
+
+// ---- worker publications: Binance Square and Reddit ----
+
+export const WORKER_PUBLICATIONS = ['binance', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+
+/** What the worker should post; built here so the worker stays a thin publisher. */
+function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
+  const copy = o.copy!;
+  if (kind === 'binance') return { title: copy.headline, text: copy.article };
+  const image = o.assets.find((a) => a.kind === 'campaign_image');
+  if (DIRECTORY_HOSTS[kind]) {
+    const p = o.project;
+    const created = Number(p.market?.pair_created_at) || 0;
+    const paragraphs = copy.article.split(/\n+/).filter(Boolean);
+    let description = '';
+    for (const para of paragraphs) if ((description + '\n\n' + para).length <= 1000) description = description ? description + '\n\n' + para : para;
+    return {
+      site: kind,
+      listing: {
+        name: p.name,
+        symbol: p.symbol,
+        chain: p.chain,
+        contract_address: p.contract_address,
+        description: description || copy.article.slice(0, 1000),
+        short_description: copy.short_post,
+        website_url: p.website_url ?? null,
+        telegram_url: p.telegram_url,
+        x_url: p.x_url ?? null,
+        launch_date: p.launch_date ?? new Date(created || nowMs(ctx)).toISOString().slice(0, 10),
+        // The worker uploads the project logo when there is one, else the campaign image.
+        logo_url: p.logo_url ?? null,
+        image_asset_url: image ? `/v1/assets/${image.id}` : null,
+      },
+    };
+  }
+  const parts = [copy.article];
+  if (image && ctx.config.PUBLIC_HUB_ENABLED) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
+  parts.push(`Telegram: ${o.project.telegram_url}`);
+  return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };
+}
+
+/** Leases the next Binance or Reddit post. `kinds` lets a worker take only what it is configured for. */
+export function publishClaim(ctx: ServiceContext, kinds: unknown = ['binance']) {
+  expireLeases(ctx);
+  const wanted = (Array.isArray(kinds) ? kinds : ['binance']).filter((k): k is string => WORKER_PUBLICATIONS.includes(k));
+  if (!wanted.length) return null;
+  const rows = all<JobRow>(
+    ctx.db,
+    `SELECT * FROM jobs WHERE kind IN (${wanted.map((k) => `'${k}'`).join(', ')}) AND status IN ('queued', 'blocked')
+       AND attempts < ${MAX_ATTEMPTS} AND available_at <= :t ORDER BY updated_at LIMIT 20`,
+    { t: nowMs(ctx) },
+  );
+  for (const j of rows) {
+    const o = loadOrder(ctx, j.order_id);
+    if (o.demo || !o.copy || !o.assets.some((a) => a.kind === 'campaign_image')) continue;
+    const lease = uid();
+    const t = nowMs(ctx);
+    const r = run(
+      ctx.db,
+      `UPDATE jobs SET status = 'running', lease = :lease, lease_until = :until, attempts = attempts + 1, updated_at = :t
+       WHERE id = :id AND status IN ('queued', 'blocked')`,
+      { lease, until: t + PUBLISH_LEASE_MS, t, id: j.id },
+    );
+    if (r.changes)
+      return { job: { id: j.id, kind: j.kind, lease, order_id: j.order_id }, target: publishTarget(ctx, j.kind, o), order: getOrder(ctx, o.id) };
+  }
+  return null;
+}
+
+/** Reddit blocks server-side fetches, so the worker confirms the post logged-out and we check the URL's shape. */
+function redditResult(ctx: ServiceContext, kind: string, url: string) {
+  const u = safeRemote(url, ['www.reddit.com', 'old.reddit.com', 'reddit.com']);
+  const m = u.pathname.match(/^\/r\/([A-Za-z0-9_]+)\/comments\/[a-z0-9]+(\/|$)/);
+  if (!m || m[1]!.toLowerCase() !== REDDIT_SUBREDDITS[kind]!.toLowerCase())
+    throw new ValidationError(`Use the post URL in r/${REDDIT_SUBREDDITS[kind]}`);
+  return { url: `https://www.reddit.com${u.pathname}`, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
+}
+
+/** Coin pages only, on the directory's own host. */
+function directoryUrl(kind: string, url: unknown): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  try {
+    const u = safeRemote(url, DIRECTORY_HOSTS[kind]);
+    return /\/coins?\//i.test(u.pathname) ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown, submitted?: unknown) {
+  const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
+  if (DIRECTORY_HOSTS[j.kind] && submitted === true) {
+    const result = { submitted_at: new Date(nowMs(ctx)).toISOString(), url: directoryUrl(j.kind, url) };
+    run(
+      ctx.db,
+      `UPDATE jobs SET status = 'submitted', result = :r, error = NULL, lease = NULL, lease_until = NULL,
+         available_at = :a, updated_at = :t WHERE id = :id AND lease = :lease`,
+      { r: result, a: nowMs(ctx) + 30 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+    );
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'submitted', result });
+    return { status: 'submitted' };
+  }
+  if (typeof url === 'string' && url && !DIRECTORY_HOSTS[j.kind]) {
+    run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id', { r: { url }, id: j.id });
+    try {
+      if (j.kind === 'binance') finish(ctx, j, await verifyPublication(ctx, url, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
+      else if (verified === true) finish(ctx, j, redditResult(ctx, j.kind, url));
+      else throw new NotVerifiedError('Post not confirmed');
+      return { status: 'delivered' };
+    } catch {
+      // Fall through: the post may exist but isn't verified.
+    }
+  }
+  run(
+    ctx.db,
+    `UPDATE jobs SET status = 'uncertain', lease = NULL, lease_until = NULL,
+       error = 'Publication may exist; reconcile the post URL before any retry.', updated_at = :t WHERE id = :id`,
+    { t: nowMs(ctx), id: j.id },
+  );
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'uncertain' });
+  return { status: 'uncertain' };
+}
+
+/** The worker stopped before submitting anything (login failed, CAPTCHA shown, form missing): safe to retry. */
+export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown, error: unknown) {
+  const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
+  const message = String(error || 'Publishing failed before anything was posted').slice(0, 300);
+  run(
+    ctx.db,
+    `UPDATE jobs SET status = 'blocked', error = :error, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
+     WHERE id = :id AND lease = :lease`,
+    { error: message, a: nowMs(ctx) + 5 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+  );
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'blocked', error: message });
+  return { status: 'blocked' };
+}
+
+/** Hands the worker a submitted listing whose next check is due (the claim itself pushes the next check out an hour). */
+export function listingCheckClaim(ctx: ServiceContext) {
+  const kinds = Object.keys(DIRECTORY_HOSTS).map((k) => `'${k}'`).join(', ');
+  const j = get<JobRow>(
+    ctx.db,
+    `SELECT * FROM jobs WHERE status = 'submitted' AND kind IN (${kinds}) AND available_at <= :t ORDER BY available_at LIMIT 1`,
+    { t: nowMs(ctx) },
+  );
+  if (!j) return null;
+  run(ctx.db, 'UPDATE jobs SET available_at = :a WHERE id = :id', { a: nowMs(ctx) + 60 * 60_000, id: j.id });
+  return { job: { id: j.id, kind: j.kind, order_id: j.order_id }, submission: JSON.parse(j.result ?? '{}'), target: publishTarget(ctx, j.kind, loadOrder(ctx, j.order_id)) };
+}
+
+/** The worker looked for the live coin page. Delivered once it's public; failed if review takes over a week. */
+export function listingChecked(ctx: ServiceContext, jobId: string, url: unknown, live: unknown) {
+  const j = get<JobRow>(ctx.db, "SELECT * FROM jobs WHERE id = :id AND status = 'submitted'", { id: jobId });
+  if (!j || !DIRECTORY_HOSTS[j.kind]) throw new ConflictError('No listing awaiting review with this ID');
+  const submission = JSON.parse(j.result ?? '{}');
+  const coinUrl = directoryUrl(j.kind, url);
+  if (live === true && coinUrl) {
+    const result = { url: coinUrl, submitted_at: submission.submitted_at, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
+    run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", { r: result, t: nowMs(ctx), id: j.id });
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'delivered', result });
+    return { status: 'delivered', url: coinUrl };
+  }
+  if (nowMs(ctx) - Date.parse(submission.submitted_at ?? 0) > LISTING_REVIEW_MAX_MS) {
+    const error = 'The listing was not live a week after submission; check the account on the site.';
+    run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, updated_at = :t WHERE id = :id", { e: error, t: nowMs(ctx), id: j.id });
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+    return { status: 'failed' };
+  }
+  return { status: 'submitted' };
+}
+
+/** Admin records the real URL for an uncertain/blocked publication after checking the account. */
+export async function reconcile(ctx: ServiceContext, jobId: string, url: unknown) {
+  const j = get<JobRow>(ctx.db, 'SELECT * FROM jobs WHERE id = :id', { id: jobId });
+  if (!j || !['uncertain', 'blocked', 'submitted', 'failed'].includes(j.status) || !['telegraph', ...WORKER_PUBLICATIONS].includes(j.kind))
+    throw new ConflictError('This job cannot be reconciled with a post URL');
+  if (typeof url !== 'string') throw new ValidationError('url is required');
+  if (['submitted', 'failed'].includes(j.status) && !DIRECTORY_HOSTS[j.kind]) throw new ConflictError('This job cannot be reconciled with a post URL');
+  let result: Record<string, unknown>;
+  if (DIRECTORY_HOSTS[j.kind]) {
+    const coinUrl = directoryUrl(j.kind, url);
+    if (!coinUrl) throw new ValidationError(`Use the coin page URL on ${DIRECTORY_HOSTS[j.kind]![0]}`);
+    result = { url: coinUrl, verified_at: new Date(nowMs(ctx)).toISOString() };
+  } else if (REDDIT_SUBREDDITS[j.kind]) result = redditResult(ctx, j.kind, url);
+  else result = await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
+  const full = { ...result, manual_reconciliation: true };
+  run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", {
+    r: full,
+    t: nowMs(ctx),
+    id: j.id,
+  });
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'delivered', result: full });
+  return getOrder(ctx, j.order_id);
+}
+
+// ---- signed callbacks ----
+
+interface EventRow {
+  id: string;
+  order_id: string;
+  type: string;
+  data: string;
+  created_at: number;
+  attempts: number;
+}
+
+/** At-least-once delivery with exponential backoff; gives up after 8 attempts. */
+export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise<{ sent: number; failed: number }> {
+  const url = setting(ctx, 'CALLBACK_URL');
+  const secret = setting(ctx, 'CALLBACK_SECRET');
+  if (!url || !secret) return { sent: 0, failed: 0 };
+  safeRemote(url);
+  const rows = all<EventRow>(
+    ctx.db,
+    'SELECT * FROM events WHERE sent = 0 AND attempts < 8 AND available_at <= :t ORDER BY created_at LIMIT :batch',
+    { t: nowMs(ctx), batch },
+  );
+  let sent = 0;
+  let failed = 0;
+  for (const e of rows) {
+    const external = get<{ order_id: string }>(ctx.db, 'SELECT order_id FROM orders WHERE id = :id', { id: e.order_id })?.order_id ?? null;
+    const payload = JSON.stringify({
+      id: e.id,
+      type: e.type,
+      order_id: e.order_id,
+      external_order_id: external,
+      created: e.created_at,
+      data: JSON.parse(e.data),
+    });
+    const ts = String(Math.floor(nowMs(ctx) / 1000));
+    try {
+      const r = await ctx.http(url, {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Event-ID': e.id,
+          'X-Timestamp': ts,
+          'X-Signature': signCallback(secret, ts, payload),
+        },
+        body: payload,
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!r.ok) throw new UpstreamError(`Callback returned ${r.status}`);
+      run(ctx.db, 'UPDATE events SET sent = 1 WHERE id = :id', { id: e.id });
+      sent++;
+    } catch {
+      run(ctx.db, 'UPDATE events SET attempts = attempts + 1, available_at = :a WHERE id = :id', {
+        id: e.id,
+        a: nowMs(ctx) + Math.min(3_600_000, 30_000 * 2 ** e.attempts),
+      });
+      failed++;
+    }
+  }
+  return { sent, failed };
+}
+
+export function listEvents(ctx: ServiceContext, orderId: string) {
+  return all<EventRow & { sent: number }>(ctx.db, 'SELECT * FROM events WHERE order_id = :o ORDER BY created_at', { o: orderId }).map((e) => ({
+    id: e.id,
+    type: e.type,
+    data: JSON.parse(e.data),
+    created_at: new Date(e.created_at).toISOString(),
+    delivered: !!e.sent,
+    attempts: e.attempts,
+  }));
+}
