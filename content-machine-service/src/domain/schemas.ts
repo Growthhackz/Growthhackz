@@ -2,13 +2,25 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888'] as const;
 
-/** Directory listings: submitted by the worker, reviewed by the site, delivered once the coin page is live. */
+/**
+ * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
+ * press releases.
+ */
 export const DIRECTORY_HOSTS: Record<string, string[]> = {
   coinsniper: ['coinsniper.net', 'www.coinsniper.net'],
   coinvote: ['coinvote.cc', 'www.coinvote.cc'],
+  press_1888: ['www.1888pressrelease.com', '1888pressrelease.com'],
 };
+/** What the live page's path looks like on each of those sites. */
+export const LISTING_PATHS: Record<string, RegExp> = {
+  coinsniper: /\/coins?\//i,
+  coinvote: /\/coins?\//i,
+  press_1888: /-pr-\d+\.html$/i,
+};
+/** Press releases: the worker needs the release text, not a coin listing. */
+export const PRESS_KINDS = ['press_1888'];
 /** Give up waiting for a site's review after this long. */
 export const LISTING_REVIEW_MAX_MS = 7 * 24 * 60 * 60_000;
 
@@ -132,6 +144,8 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['reddit_solanamemecoins', 81],
   ['coinsniper', 85],
   ['coinvote', 86],
+  ['cmc_community', 87],
+  ['press_1888', 88],
   ['sticker_art_0', 100],
   ['sticker_art_1', 101],
   ['sticker_art_2', 102],
@@ -142,7 +156,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;

@@ -21,6 +21,8 @@ Only these. Every post carries the same campaign image, and nothing counts as de
 | Reddit r/moonshots and r/solanamemecoins | Headline + article as a text post in each (image link at the top when the hub is public, Telegram link at the end) | Built (companion worker, scripted browser); not yet run against real Reddit |
 | CoinSniper | Listing at coinsniper.net/submit | Built (companion worker); not yet run against the real form |
 | Coinvote | Listing at coinvote.cc/en/add-coin/released | Built (companion worker); not yet run against the real form |
+| CoinMarketCap community (`cmc_community`) | Social post + campaign image from our CMC profile's compose icon; verified on its public `coinmarketcap.com/community/post/<id>/` page | Built (companion worker); login, composer and image input checked on the real site, no real post made yet |
+| 1888PressRelease (`press_1888`) | Press release built from the article (headline ≤ 22 words, 750+ character plain-text body with the contract address), submitted through the form and its preview step; delivered once the release page is live | Built (companion worker); login and form fields checked on the real site, not yet submitted |
 
 The short post is the hub summary; it isn't posted anywhere by itself.
 
@@ -89,7 +91,7 @@ curl -X POST localhost:4020/v1/orders -H "authorization: Bearer $SERVICE_KEY" -H
 
 ### Pipeline and statuses
 
-`metadata → copy → hub → campaign_image → media* → telegraph / binance* / call_channel / reddit_moonshots* / reddit_solanamemecoins* / coinsniper* / coinvote* → sticker_art_0..4 → stickers* → sticker_publish`
+`metadata → copy → hub → campaign_image → media* → telegraph / binance* / call_channel / reddit_moonshots* / reddit_solanamemecoins* / coinsniper* / coinvote* / cmc_community* / press_1888* → sticker_art_0..4 → stickers* → sticker_publish`
 
 (* = done by the companion worker.)
 
@@ -170,13 +172,15 @@ The worker runs next to the bot and handles the work that needs local tools:
 - **Reddit:** logs in once with `REDDIT_USERNAME` / `REDDIT_PASSWORD` (session saved to `REDDIT_STATE_PATH`), submits a text post through old.reddit's submit form, reads back the post URL, and re-opens it logged-out to confirm it is visible. Login failures, CAPTCHAs and Reddit's "doing that too much" limit are reported as *not posted* and retried after 5 minutes; anything after the submit click that can't be confirmed becomes `uncertain`. It does not try to get around CAPTCHAs or bot checks, and Reddit's rules don't allow automating the website, so use an account you can afford to lose.
 
 - **Directory listings (CoinSniper, Coinvote):** logs in with that site's account (session saved in `DIRECTORY_STATE_DIR`), fills the submit form by matching each field's label (name, symbol, chain, contract, launch date, description, website, Telegram, X, logo upload, terms box), and submits. Any required field it can't fill stops the job *before* submitting, with a screenshot and the page's HTML in `DIRECTORY_DEBUG_DIR`. After submitting, the job is `submitted`; every hour the worker checks the site logged-out (the returned coin URL, else the new-coins page) and delivers the coin page URL once it's live. `npm run inspect coinsniper` (or `coinvote`) logs in and prints each form field and what would go in it, without submitting.
+- **CoinMarketCap community:** opens our profile (`CMC_PROFILE_HANDLE`, default `peakbuybot`), logs in with `CMC_EMAIL` / `CMC_PASSWORD` if the saved session (`CMC_STATE_PATH`, default in `DIRECTORY_STATE_DIR`) has expired, clicks the compose icon beside "All Posts", types the social post plus the Telegram link, attaches the campaign image and clicks Post. The post ID comes from CMC's own API response (or the newest matching post on the profile), and the service confirms the public post page before delivering it. A human check, an email verification code or a failed login is reported as *not posted*; anything after the Post click that can't be confirmed becomes `uncertain`.
+- **1888PressRelease:** logs in with `PRESS1888_USERNAME` / `PRESS1888_PASSWORD`, fills the free submission form (company `PRESS1888_COMPANY`, which must already exist on the account; contact `PRESS_CONTACT_NAME` / `PRESS_CONTACT_EMAIL`, optional `PRESS_CONTACT_PHONE` / `PRESS_CONTACT_ZIP`; category Banking & Financial, type General Press Release), goes through the preview page and clicks the final submit. The form's own validation alerts, a missing company or a preview page without a submit button stop it *before* anything is sent. After submitting, the job is `submitted`; the worker checks 1888's public daily news pages each hour and delivers the `…-pr-<id>.html` URL once the release is live (it fails after a week in review).
 
 It uses a service key and polls these routes:
 
 - `POST /v1/render/claim`
 - `/v1/render/:jobId/complete|fail`
 - `POST /v1/publish/claim`
-- `/v1/publish/:jobId/complete|fail` (claim takes `{"kinds": [...]}`: `binance`, `reddit_moonshots`, `reddit_solanamemecoins`, `coinsniper`, `coinvote`)
+- `/v1/publish/:jobId/complete|fail` (claim takes `{"kinds": [...]}`: `binance`, `reddit_moonshots`, `reddit_solanamemecoins`, `coinsniper`, `coinvote`, `cmc_community`, `press_1888`; `/v1/listings/check-claim` takes the same `{"kinds": [...]}`)
 - `POST /v1/listings/check-claim`, `/v1/listings/:jobId/checked`
 
 Leases expire, so a crashed worker's job is picked up again. A crashed publication becomes `uncertain` instead.
@@ -202,7 +206,7 @@ Two services from this repo, each with **Root Directory** set in Railway and a *
 
 **API variables:** `ADMIN_API_TOKEN`, `CONFIG_ENCRYPTION_KEY` (never change it once set), `PUBLIC_BASE_URL=https://<the generated domain>`, `PUBLIC_HUB_ENABLED=true`, `STICKER_OWNER_ID`, `CALL_CHANNEL_ID=@fullsendtrenches`. Secrets (Gemini, Telegraph, the bot token, callback URL and secret) can be Railway variables too, or saved afterwards with `PUT /v1/settings`. Railway provides `PORT`.
 
-**Worker variables:** `CONTENT_MACHINE_URL` (the API's public URL, or `http://<api-service>.railway.internal:<PORT>` over private networking), `CONTENT_MACHINE_API_KEY` (issue one with `POST /v1/keys`), `BINANCE_SQUARE_OPENAPI_KEY`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`, `COINSNIPER_EMAIL`, `COINSNIPER_PASSWORD`, `COINVOTE_EMAIL`, `COINVOTE_PASSWORD`.
+**Worker variables:** `CONTENT_MACHINE_URL` (the API's public URL, or `http://<api-service>.railway.internal:<PORT>` over private networking), `CONTENT_MACHINE_API_KEY` (issue one with `POST /v1/keys`), `BINANCE_SQUARE_OPENAPI_KEY`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`, `COINSNIPER_EMAIL`, `COINSNIPER_PASSWORD`, `COINVOTE_EMAIL`, `COINVOTE_PASSWORD`, `CMC_EMAIL`, `CMC_PASSWORD`, `CMC_PROFILE_HANDLE`, `PRESS1888_USERNAME`, `PRESS1888_PASSWORD`, `PRESS1888_COMPANY`, `PRESS_CONTACT_NAME`, `PRESS_CONTACT_EMAIL`.
 
 Then check the setup with the connector probes: `GET /v1/connectors`, and `POST /v1/connectors/{gemini|telegraph|call_channel|sticker_pack}/probe`.
 

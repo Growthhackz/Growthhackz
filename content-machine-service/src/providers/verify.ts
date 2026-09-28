@@ -5,6 +5,7 @@ import { nowMs, type ServiceContext } from '../services/context.js';
 const HOSTS: Record<string, string[]> = {
   telegraph: ['telegra.ph'],
   binance: ['www.binance.com', 'binance.com'],
+  cmc_community: ['coinmarketcap.com'],
 };
 
 /** Confirms a publication is publicly visible and, when a headline is given, that it is this project's article. */
@@ -12,6 +13,8 @@ export async function verifyPublication(ctx: ServiceContext, url: string, kind: 
   const u = safeRemote(url, HOSTS[kind] ?? ['t.me']);
   if (kind === 'binance' && !/^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?square\/post\/[0-9]+\/?$/.test(u.pathname))
     throw new ValidationError('Use the direct Binance Square article URL');
+  if (kind === 'cmc_community' && !/^\/community\/post\/[0-9]+\/?$/.test(u.pathname))
+    throw new ValidationError('Use the CoinMarketCap community post URL (coinmarketcap.com/community/post/<id>/)');
   if (kind === 'telegraph' && (!u.pathname.includes('-') || u.pathname === '/api'))
     throw new ValidationError('Use the direct Telegraph article URL');
   let r: Response;
