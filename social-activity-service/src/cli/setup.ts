@@ -17,6 +17,7 @@ import { syncCatalog } from '../services/catalogService.js';
 import type { ServiceContext } from '../services/context.js';
 import { planPackage } from '../services/packageService.js';
 import { applyRecommendations, recommendForPackage } from '../services/recommendService.js';
+import { createWurkRuntime } from '../wurk/x402.js';
 
 const quietLog = { info: () => {}, warn: () => {}, error: (o: unknown, m?: string) => console.error(m ?? '', o) };
 
@@ -32,7 +33,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const db = openDatabase(config.DATABASE_PATH);
   const provider = createProvider(config, (rec) => providerCalls.add(db, rec, new Date().toISOString()));
-  const ctx: ServiceContext = { db, provider, config, clock: systemClock, log: quietLog };
+  const ctx: ServiceContext = { db, provider, config, clock: systemClock, log: quietLog, wurk: createWurkRuntime(config) };
 
   console.log(`Provider: ${provider.name}\n`);
 

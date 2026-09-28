@@ -4,6 +4,7 @@ import { recoverInterruptedSubmissions } from '../services/orderService.js';
 import { pollDueOrders } from '../services/pollingService.js';
 import { pollOpenRefills, runAutoRefills } from '../services/refillService.js';
 import { getBalanceSummary } from '../services/balanceService.js';
+import { processWurk, recoverInterruptedWurk } from '../wurk/service.js';
 
 interface Job {
   name: string;
@@ -21,6 +22,7 @@ export class Scheduler {
 
   start(): void {
     recoverInterruptedSubmissions(this.ctx);
+    recoverInterruptedWurk(this.ctx);
     const c = this.ctx.config;
     const jobs: Job[] = [
       { name: 'catalog-sync', everyMs: c.CATALOG_SYNC_INTERVAL_MS, runOnStart: true, fn: () => syncCatalog(this.ctx) },
@@ -34,6 +36,8 @@ export class Scheduler {
           await pollOpenRefills(this.ctx);
         },
       },
+      // WURK package purchases and the delayed Telegram batch. Durable: state lives in wurk_components.
+      { name: 'wurk', everyMs: c.WURK_TICK_MS, runOnStart: true, fn: () => processWurk(this.ctx) },
       // Logs a warning when the balance drops under LOW_BALANCE_ALERT_USD.
       { name: 'balance-check', everyMs: c.REFILL_CHECK_INTERVAL_MS, runOnStart: true, fn: () => getBalanceSummary(this.ctx) },
     ];

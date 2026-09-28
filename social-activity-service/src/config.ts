@@ -42,6 +42,27 @@ const EnvSchema = z.object({
   /** UTM params appended to website traffic links so the traffic can be segmented. */
   TRAFFIC_UTM_SOURCE: z.string().default('growthhackz'),
   TRAFFIC_UTM_MEDIUM: z.string().default('test-traffic'),
+
+  // --- WURK (x402, USDC on Solana). Separate from PROVIDER: the WURK package never calls Followiz. ---
+  WURK_BASE_URL: z.string().url().default('https://wurkapi.fun'),
+  /** Dedicated Peak wallet: base58 64-byte secret, 128-char hex, or a solana-keygen JSON array. Server-side only. */
+  WURK_SOLANA_PRIVATE_KEY: z.string().optional(),
+  /** Nothing is signed unless this is true and the key is set; otherwise orders stop at the quote. */
+  WURK_LIVE_PAYMENTS_ENABLED: bool.default('false'),
+  /** Recipients we will pay. Checked against every live quote; a change puts the order in needs_attention. */
+  WURK_PAYTO_ALLOWLIST: z.string().default('SAT8g2xU7AFy7eUmNJ9SNrM6yYo7LDCi13GXJ8Ez9kC'),
+  /** Per-component ceilings (USDC). Baseline quotes from 2026-09-28: 1.40 / 2.25 / 0.45. */
+  WURK_MAX_FOLLOWERS_USDC: z.coerce.number().positive().default(1.4),
+  WURK_MAX_POST_MIX_USDC: z.coerce.number().positive().default(2.25),
+  WURK_MAX_TG_BATCH_USDC: z.coerce.number().positive().default(0.45),
+  WURK_PACKAGE_MAX_USDC: z.coerce.number().positive().default(4.55),
+  WURK_DAILY_MAX_USDC: z.coerce.number().positive().default(25),
+  WURK_SMOKE_MAX_USDC: z.coerce.number().positive().default(1),
+  /** Default delay before the second 15-member Telegram batch; admins can change it at runtime. */
+  WURK_TG_SECOND_BATCH_DELAY_MIN: z.coerce.number().int().min(0).max(24 * 60).default(30),
+  WURK_TICK_MS: z.coerce.number().int().positive().default(15_000),
+  WURK_STATUS_POLL_MS: z.coerce.number().int().positive().default(10 * 60_000),
+  SOLANA_RPC_URL: z.string().url().default('https://api.mainnet-beta.solana.com'),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
