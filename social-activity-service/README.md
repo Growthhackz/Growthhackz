@@ -52,6 +52,16 @@ Review the list before `--apply`. `--overwrite` replaces existing mappings. The 
    A single order can also skip the mapping by passing `serviceId`.
 4. Fund the Followiz account on their site, and optionally record it with `POST /v1/ledger/funding`.
 
+## Deploy to Railway
+
+Build, start, health check and replica settings are in `railway.json`.
+
+1. `npm i -g @railway/cli && railway login`, then `./scripts/railway-setup.sh`. It creates the project, adds this service from the repo, attaches a volume at `/data`, sets the variables (including a generated `SERVICE_API_TOKEN`, printed at the end) and a public domain.
+2. In the dashboard, open the service's settings and set **Root Directory** to `social-activity-service` and **Config file** to `/social-activity-service/railway.json`. The CLI can't set these two.
+3. To go live, set `FOLLOWIZ_API_KEY` and `PROVIDER=followiz`, then run `railway ssh --service social-activity-service -- npm run setup:provider:prod`.
+
+Keep it at one replica. SQLite on the volume can't be shared between instances, and the workers would run twice. Other services in the same project reach it at `http://social-activity-service.railway.internal:$PORT`.
+
 ## Placing orders
 
 ```bash

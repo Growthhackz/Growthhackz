@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "setup:provider": "tsx --disable-warning=ExperimentalWarning src/cli/setup.ts"
+    "setup:provider": "tsx --disable-warning=ExperimentalWarning src/cli/setup.ts",
+    "setup:provider:prod": "node --disable-warning=ExperimentalWarning dist/cli/setup.js"
   },
   "dependencies": {
     "fastify": "^5.12.5",
