@@ -3,6 +3,7 @@ import type { Config } from '../config.js';
 import type { Db } from '../db/database.js';
 import type { Clock } from '../lib/clock.js';
 import type { SocialProvider } from '../providers/types.js';
+import type { WurkRuntime } from '../wurk/x402.js';
 
 export interface Logger {
   info(obj: object | string, msg?: string): void;
@@ -16,6 +17,8 @@ export interface ServiceContext {
   config: Config;
   clock: Clock;
   log: Logger | FastifyBaseLogger;
+  /** WURK x402 client and signer (separate from `provider`). */
+  wurk: WurkRuntime;
 }
 
 export function nowIso(ctx: ServiceContext): string {

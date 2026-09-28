@@ -178,6 +178,68 @@ All `/v1` routes need `Authorization: Bearer $SERVICE_API_TOKEN`.
 | POST | `/v1/orders/:id/submit` \| `refresh` \| `cancel` \| `refill` \| `resolve` | Order actions |
 | GET | `/v1/provider-calls?action=` | Raw provider request/response log (API key never stored) |
 
+## WURK package (x402)
+
+One customer package, four WURK purchases paid in USDC on Solana over x402. It never calls Followiz.
+
+| Component | WURK route | Baseline quote (2026-09-28) |
+| --- | --- | ---: |
+| 20 followers from X blue-verified accounts | `/solana/xfollowers/xverified?handle=…&amount=20` | 1.40 USDC |
+| 30 likes, 30 reposts, 30 comments on one post (regular workers) | `/solana/xraid/custom?url=…&likes=30&reposts=30&comments=30&bookmarks=0` | 2.25 USDC |
+| 15 Telegram members, first batch | `/solana/tgmembers?join=…&amount=15` | 0.45 USDC |
+| 15 Telegram members, second batch (30 min later by default) | same | 0.45 USDC |
+
+4.55 USDC is the provider cost, not a sale price. Only the followers are blue-verified. WURK has no geographic targeting and no guaranteed completion time. WURK documents `join` as the tgmembers invite-link parameter, so that is what's sent.
+
+### How a purchase is paid
+
+1. Unpaid `GET` → WURK answers `402` with the live quote.
+2. The quote is checked before anything is signed: exact `wurkapi.fun` host over HTTPS and an approved `/solana/` route; Solana mainnet (`solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`); USDC (`EPjFWdd5…Dt1v`); `payTo` on `WURK_PAYTO_ALLOWLIST`; amount at or below the component ceiling, the package ceiling and the daily ceiling; customer payment confirmed; kill switch off; wallet holds enough USDC. Any failure puts the component in `needs_attention`. A raised quote is never approved automatically.
+3. The payment intent is saved, the payment is signed with `@x402/svm` (capped at exactly the quoted amount), marked `signed`, then the same URL is retried with `PAYMENT-SIGNATURE`.
+4. `200` → `paid_job_created` with WURK's job ID, link, transaction and raw response. A definite `400/402/409` means it didn't settle. A timeout, `5xx` or a response that can't be read → `reconcile_required`. Those are never paid again automatically.
+
+A component with a payment in `signed`, `settled` or `reconcile_required` can't be paid a second time: retries, manual status changes and restarts all refuse it. On startup, anything that stopped after signing becomes `reconcile_required`.
+
+WURK documents no status endpoint for social jobs. If a paid response includes a `statusUrl`, it is polled, and completion is taken only from an explicit `completed`/`status` field. Otherwise the component stays `paid_job_created` until an admin marks it `completed` or `partial` after checking X or Telegram. `paid_job_created` means WURK accepted and funded the job, not that the actions happened.
+
+A `409` on the second Telegram batch (WURK still has the first one running) defers it 10 minutes at a time, up to 12 times, then raises `needs_attention`. It never creates a duplicate.
+
+### Setup
+
+1. **Wallet.** Create a new Solana keypair used only for this (`solana-keygen new -o wurk.json`). Fund it with USDC on Solana mainnet. Keep a small float, for example 10–25 USDC. WURK's facilitator pays the network fee (`feePayer` in the quote), so the wallet needs only a little SOL, if any, for its USDC token account.
+2. **Railway variables:** `WURK_SOLANA_PRIVATE_KEY` (contents of `wurk.json`, or base58/hex), leave `WURK_LIVE_PAYMENTS_ENABLED=false` at first. Optional: `SOLANA_RPC_URL` for a paid RPC (the public one rate-limits), and the ceilings in `.env.example`.
+3. **Check it:** `GET /v1/wurk/status` shows the derived wallet address, USDC balance, what's missing for live mode and today's spend. The key is never returned or logged.
+4. **Retail price:** `PUT /v1/wurk/settings {"retailPriceUsd": …}`. Customer packages can't be created until it's set. There is no default.
+5. **Quote-only check** (never pays): `npm run wurk -- quote --x @handle --post https://x.com/h/status/1 --tg https://t.me/group`, or `POST /v1/wurk/quote`. It shows the four quotes, the total, and any target WURK refuses (blocked or capped).
+6. **$1 live test:** set `WURK_LIVE_PAYMENTS_ENABLED=true`, then `npm run wurk -- smoke --post <a test post>` (quote only) and add `--execute` to pay WURK's small raid (25 likes, 10 reposts, 10 comments, 70 views). Use a test post, not a customer's. It prints the job response, transaction and whatever WURK's `statusUrl` returns. On Railway, run it with `railway run --service Growthhackz npm run wurk:prod -- smoke …` after a build.
+
+### Checkout handoff
+
+This service has no storefront checkout. The storefront does:
+
+1. `POST /v1/wurk/packages` with `{xProfile, xPost, telegram, customerRef}` and an `Idempotency-Key` → package in `pending_payment` (targets validated and normalized).
+2. Take the customer's payment at the retail price.
+3. `POST /v1/wurk/packages/:id/payment-received {"paymentRef": "<checkout id>"}` once payment is confirmed. This queues followers, the post mix and the first Telegram batch, and schedules the second batch. It is idempotent.
+4. Show `GET /v1/wurk/packages/:id/progress`: package and item statuses only, with no costs, wallet or job details.
+
+Admin testing without a customer payment: create with `"test": true` (no retail price needed), then call `payment-received` yourself.
+
+### Admin API
+
+| Method | Path | |
+| --- | --- | --- |
+| GET | `/v1/wurk/status` | Wallet address, balance, live readiness, ceilings, spend today |
+| PUT | `/v1/wurk/settings` | `killSwitch`, `tgSecondBatchDelayMinutes`, `retailPriceUsd` (audited) |
+| POST | `/v1/wurk/quote` | Quote-only diagnostic |
+| GET | `/v1/wurk/packages`, `/v1/wurk/packages/:id` | Components with targets, quantities, quotes, costs, job IDs/links, payments, errors, audit trail |
+| POST | `/v1/wurk/packages/:id/pause` \| `resume` | Hold or release a package |
+| POST | `/v1/wurk/components/:id/run` | Run a due component now |
+| POST | `/v1/wurk/components/:id/retry` | Re-queue a `needs_attention` component (refused if any payment may have settled) |
+| POST | `/v1/wurk/components/:id/reconcile` | `{settled, jobId?, jobLink?, transaction?, note}` after checking the wallet on a Solana explorer or with WURK support |
+| POST | `/v1/wurk/components/:id/status` | Manual correction `{status, note}`, audited |
+
+Package status is rolled up from its components: `pending_payment`, `reconcile_required`, `needs_attention`, `completed`, `partial`, `quoting`, `in_progress`, `scheduled`, `queued` (first match wins).
+
 ## Deploy to Railway
 
 Runs as its own Railway service (`Growthhackz` in the `content-empathy` project), separate from the content-machine API and worker, so a crash or bad deploy in one doesn't affect the others. Settings live on the service in Railway (config-as-code files are deprecated there):
@@ -190,7 +252,7 @@ Runs as its own Railway service (`Growthhackz` in the `content-empathy` project)
 | Restart | on failure, 10 retries; 1 replica |
 | Volume | `/data`, with `DATABASE_PATH=/data/social-activity.db` |
 | Watch paths | `/social-activity-service/**` |
-| Variables | `PORT=4010`, `PROVIDER=followiz`, `FOLLOWIZ_API_KEY`, `SERVICE_API_TOKEN` |
+| Variables | `PORT=4010`, `PROVIDER=followiz`, `FOLLOWIZ_API_KEY`, `SERVICE_API_TOKEN`; WURK: see above |
 
 Keep one replica. The background workers and SQLite assume a single instance. `.node-version` pins Node 22 for `node:sqlite`.
 

@@ -136,4 +136,90 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_provider_calls_created ON provider_calls(created_at);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      -- WURK package: one customer order, four WURK purchases paid over x402. Money in micros (= USDC base units).
+      CREATE TABLE wurk_packages (
+        id                   TEXT PRIMARY KEY,
+        idempotency_key      TEXT UNIQUE,
+        customer_ref         TEXT,
+        test                 INTEGER NOT NULL DEFAULT 0,
+        x_handle             TEXT NOT NULL,
+        x_post_url           TEXT NOT NULL,
+        tg_url               TEXT NOT NULL,
+        retail_price_micros  INTEGER,
+        cost_ceiling_micros  INTEGER NOT NULL,
+        payment_ref          TEXT,
+        paid_at              TEXT,
+        paused               INTEGER NOT NULL DEFAULT 0,
+        created_at           TEXT NOT NULL,
+        updated_at           TEXT NOT NULL
+      );
+
+      CREATE TABLE wurk_components (
+        id               TEXT PRIMARY KEY,
+        package_id       TEXT NOT NULL REFERENCES wurk_packages(id),
+        kind             TEXT NOT NULL,
+        request_url      TEXT NOT NULL,
+        quantities       TEXT NOT NULL,
+        status           TEXT NOT NULL,
+        ceiling_micros   INTEGER NOT NULL,
+        quoted_micros    INTEGER,
+        settled_micros   INTEGER,
+        provider_job_id  TEXT,
+        job_link         TEXT,
+        status_url       TEXT,
+        provider_raw     TEXT,
+        last_error       TEXT,
+        scheduled_for    TEXT,
+        defer_count      INTEGER NOT NULL DEFAULT 0,
+        attempts         INTEGER NOT NULL DEFAULT 0,
+        next_check_at    TEXT,
+        completed_at     TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        UNIQUE (package_id, kind)
+      );
+      CREATE INDEX idx_wurk_components_due ON wurk_components(status, scheduled_for);
+
+      -- Written before anything is signed. component_id is NULL for the $1 smoke test.
+      CREATE TABLE wurk_payments (
+        id               TEXT PRIMARY KEY,
+        component_id     TEXT REFERENCES wurk_components(id),
+        purpose          TEXT NOT NULL,
+        request_url      TEXT NOT NULL,
+        status           TEXT NOT NULL,
+        amount_micros    INTEGER NOT NULL,
+        pay_to           TEXT NOT NULL,
+        asset            TEXT NOT NULL,
+        network          TEXT NOT NULL,
+        transaction_id   TEXT,
+        response_status  INTEGER,
+        response_body    TEXT,
+        error            TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+      );
+      CREATE INDEX idx_wurk_payments_component ON wurk_payments(component_id);
+      CREATE INDEX idx_wurk_payments_created ON wurk_payments(created_at);
+
+      CREATE TABLE wurk_settings (
+        key         TEXT PRIMARY KEY,
+        value       TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+
+      CREATE TABLE wurk_audit (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_id    TEXT,
+        component_id  TEXT,
+        actor         TEXT NOT NULL,
+        action        TEXT NOT NULL,
+        detail        TEXT,
+        created_at    TEXT NOT NULL
+      );
+      CREATE INDEX idx_wurk_audit_package ON wurk_audit(package_id, id);
+    `,
+  },
 ];

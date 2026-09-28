@@ -9,12 +9,15 @@ import { createProvider } from './providers/registry.js';
 import { ProviderAmbiguousError, ProviderRejectedError, type SocialProvider } from './providers/types.js';
 import { registerRoutes } from './routes/index.js';
 import type { ServiceContext } from './services/context.js';
+import { registerWurkRoutes } from './wurk/routes.js';
+import { createWurkRuntime, type WurkRuntime } from './wurk/x402.js';
 
 export interface BuildAppOptions {
   config: Config;
   db?: Db;
   provider?: SocialProvider;
   clock?: Clock;
+  wurk?: WurkRuntime;
 }
 
 export interface BuiltApp {
@@ -41,7 +44,8 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
         app.log.error({ err: String(err) }, 'failed to record provider call');
       }
     });
-  const ctx: ServiceContext = { db, provider, config, clock, log: app.log };
+  const wurk = opts.wurk ?? createWurkRuntime(config);
+  const ctx: ServiceContext = { db, provider, config, clock, log: app.log, wurk };
 
   if (config.SERVICE_API_TOKEN) {
     const expected = Buffer.from(`Bearer ${config.SERVICE_API_TOKEN}`);
@@ -81,6 +85,7 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
   }));
 
   registerRoutes(app, ctx);
+  registerWurkRoutes(app, ctx);
   app.addHook('onClose', async () => {
     if (!opts.db) db.close();
   });
