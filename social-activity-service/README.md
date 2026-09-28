@@ -180,17 +180,19 @@ All `/v1` routes need `Authorization: Bearer $SERVICE_API_TOKEN`.
 
 ## Deploy to Railway
 
-`railway.json` configures the build (`npm run build`), start (`npm start`), a `/health` healthcheck and a single replica. `.node-version` pins Node 22 (needed for `node:sqlite`).
+Runs as its own Railway service (`Growthhackz` in the `content-empathy` project), separate from the content-machine API and worker, so a crash or bad deploy in one doesn't affect the others. Settings live on the service in Railway (config-as-code files are deprecated there):
 
-1. In Railway, create a service from the `growthhackz/growthhackz` GitHub repo.
-2. In the service **Settings**, set **Root Directory** to `/social-activity-service` and **Config file path** to `/social-activity-service/railway.json`. Railway does not look for the config file inside the root directory on its own.
-3. Attach a **Volume** mounted at `/data`, and set `DATABASE_PATH=/data/social-activity.db`. Without a volume the SQLite database is wiped on every deploy.
-4. Set variables: `SERVICE_API_TOKEN` (16+ chars), `PROVIDER=followiz`, `FOLLOWIZ_API_KEY`. Leave `PORT` unset; Railway provides it.
-5. Generate a domain under **Networking**, then call `GET /health` to check it.
+| Setting | Value |
+| --- | --- |
+| Root directory | `/social-activity-service` |
+| Build / start | Railpack, `npm run build` / `npm start` |
+| Healthcheck | `/health` (a failing new deploy never replaces the running one) |
+| Restart | on failure, 10 retries; 1 replica |
+| Volume | `/data`, with `DATABASE_PATH=/data/social-activity.db` |
+| Watch paths | `/social-activity-service/**` |
+| Variables | `PORT=4010`, `PROVIDER=followiz`, `FOLLOWIZ_API_KEY`, `SERVICE_API_TOKEN` |
 
-Keep one replica. The background workers and SQLite assume a single instance.
-
-From the CLI (`npm i -g @railway/cli`, then `railway login` and `railway link`), you can deploy the current checkout from the repo root with `railway up`.
+Keep one replica. The background workers and SQLite assume a single instance. `.node-version` pins Node 22 for `node:sqlite`.
 
 ## Layout
 
