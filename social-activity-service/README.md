@@ -178,6 +178,20 @@ All `/v1` routes need `Authorization: Bearer $SERVICE_API_TOKEN`.
 | POST | `/v1/orders/:id/submit` \| `refresh` \| `cancel` \| `refill` \| `resolve` | Order actions |
 | GET | `/v1/provider-calls?action=` | Raw provider request/response log (API key never stored) |
 
+## Deploy to Railway
+
+`railway.json` configures the build (`npm run build`), start (`npm start`), a `/health` healthcheck and a single replica. `.node-version` pins Node 22 (needed for `node:sqlite`).
+
+1. In Railway, create a service from the `growthhackz/growthhackz` GitHub repo.
+2. In the service **Settings**, set **Root Directory** to `/social-activity-service` and **Config file path** to `/social-activity-service/railway.json`. Railway does not look for the config file inside the root directory on its own.
+3. Attach a **Volume** mounted at `/data`, and set `DATABASE_PATH=/data/social-activity.db`. Without a volume the SQLite database is wiped on every deploy.
+4. Set variables: `SERVICE_API_TOKEN` (16+ chars), `PROVIDER=followiz`, `FOLLOWIZ_API_KEY`. Leave `PORT` unset; Railway provides it.
+5. Generate a domain under **Networking**, then call `GET /health` to check it.
+
+Keep one replica. The background workers and SQLite assume a single instance.
+
+From the CLI (`npm i -g @railway/cli`, then `railway login` and `railway link`), you can deploy the current checkout from the repo root with `railway up`.
+
 ## Layout
 
 ```
