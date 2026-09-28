@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { channelOf, MAX_ATTEMPTS, orderInputSchema, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -17,6 +17,7 @@ export interface OrderRow {
   demo: number;
   created_at: number;
   updated_at: number;
+  completed_at: number | null;
 }
 
 export interface JobRow {
@@ -31,6 +32,7 @@ export interface JobRow {
   lease_until: number | null;
   result: string | null;
   error: string | null;
+  deadline_at: number | null;
   updated_at: number;
 }
 
@@ -104,21 +106,24 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
       const skipped =
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
         (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!));
-      run(ctx.db, 'INSERT INTO jobs (id, order_id, kind, rank, status, updated_at) VALUES (:id, :o, :kind, :rank, :status, :t)', {
-        id: uid(),
-        o: id,
-        kind,
-        rank,
-        status: skipped ? 'skipped' : 'queued',
-        t,
-      });
+      run(
+        ctx.db,
+        'INSERT INTO jobs (id, order_id, kind, rank, status, deadline_at, updated_at) VALUES (:id, :o, :kind, :rank, :status, :deadline, :t)',
+        { id: uid(), o: id, kind, rank, status: skipped ? 'skipped' : 'queued', deadline: skipped ? null : t + deadlineMs(kind), t },
+      );
     }
     recordEvent(ctx, id, 'order.accepted', { order_id: input.order_id });
     return { order: loadOrder(ctx, id), created: true };
   });
 }
 
-/** Maps a trending purchase to an order that always includes the call-channel post. */
+/** Channels every trending order gets (TRENDING_CHANNELS), plus whatever the buybot asks for. */
+export function trendingChannels(ctx: ServiceContext, extra: string[] = []): string[] {
+  const defaults = ctx.config.TRENDING_CHANNELS.split(',').map((c) => c.trim()).filter((c) => (CHANNELS as readonly string[]).includes(c));
+  return [...new Set([...defaults, ...extra, 'call_channel'])];
+}
+
+/** Maps a trending purchase to an order with the default trending channels. */
 export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   const parsed = trendingPurchaseSchema.safeParse(body);
   if (!parsed.success)
@@ -127,7 +132,7 @@ export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
       parsed.error.issues,
     );
   const { purchase_id, channels = [], ...rest } = parsed.data;
-  return createOrder(ctx, { ...rest, order_id: `trending:${purchase_id}`, channels: [...channels, 'call_channel'] });
+  return createOrder(ctx, { ...rest, order_id: `trending:${purchase_id}`, channels: trendingChannels(ctx, channels) });
 }
 
 export function loadOrder(ctx: ServiceContext, id: string): Order {
@@ -218,9 +223,12 @@ export function retryJob(ctx: ServiceContext, id: string) {
   if (j.attempts >= MAX_ATTEMPTS) throw new ConflictError('Three-attempt limit reached; inspect the provider before proceeding.');
   run(
     ctx.db,
-    "UPDATE jobs SET status = 'queued', error = NULL, available_at = 0, updated_at = :t WHERE id = :id AND status IN ('blocked', 'failed')",
-    { id, t: nowMs(ctx) },
+    // A retry gets a fresh deadline, and the order reports again when everything is final.
+    `UPDATE jobs SET status = 'queued', error = NULL, available_at = 0, deadline_at = :deadline, updated_at = :t
+     WHERE id = :id AND status IN ('blocked', 'failed')`,
+    { id, t: nowMs(ctx), deadline: nowMs(ctx) + deadlineMs(j.kind) },
   );
+  run(ctx.db, 'UPDATE orders SET completed_at = NULL WHERE id = :id', { id: j.order_id });
   return getOrder(ctx, j.order_id);
 }
 

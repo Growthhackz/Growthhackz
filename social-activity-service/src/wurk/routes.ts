@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError } from '../lib/errors.js';
 import { fromMicros } from '../lib/money.js';
 import type { ServiceContext } from '../services/context.js';
 import { quoteOnly } from './diagnostics.js';
-import { COMPONENT_STATUSES, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
+import { COMPONENT_STATUSES, PRESETS, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
 import {
   auditTrail,
   componentsOf,
@@ -87,8 +87,10 @@ function presentPackageAdmin(ctx: ServiceContext, p: WurkPackageRow) {
     status: packageStatus(p, comps),
     paused: p.paused === 1,
     test: p.test === 1,
+    preset: p.preset,
+    bundled: p.bundled === 1,
     customerRef: p.customer_ref,
-    targets: { xProfile: `https://x.com/${p.x_handle}`, xPost: p.x_post_url, telegram: p.tg_url },
+    targets: { xProfile: p.x_handle ? `https://x.com/${p.x_handle}` : null, xPost: p.x_post_url, telegram: p.tg_url || null },
     retailPriceUsd: usd(p.retail_price_micros),
     costCeilingUsdc: usd(p.cost_ceiling_micros),
     costSettledUsdc: comps.reduce((s, c) => s + (c.settled_micros ?? 0), 0) / 1e6,
@@ -104,6 +106,7 @@ const LABELS: Record<ComponentKind, string> = {
   post_mix: `${WURK_PACKAGE.likes} likes, ${WURK_PACKAGE.reposts} reposts and ${WURK_PACKAGE.comments} comments on your post`,
   tg_batch_1: `${WURK_PACKAGE.tgBatch} Telegram members (first batch)`,
   tg_batch_2: `${WURK_PACKAGE.tgBatch} Telegram members (second batch)`,
+  small_raid: 'Engagement on your X post (25 likes, 10 reposts, 10 comments, 70 views)',
 };
 
 const CUSTOMER_STATUS: Record<PackageStatus, string> = {
@@ -188,7 +191,20 @@ export function registerWurkRoutes(app: FastifyInstance, ctx: ServiceContext): v
   app.post('/v1/wurk/quote', async (req) => quoteOnly(ctx, parse(TargetsSchema, req.body)));
 
   app.post('/v1/wurk/packages', async (req, reply) => {
-    const b = parse(TargetsSchema.extend({ customerRef: z.string().max(200).optional(), test: z.boolean().default(false) }).strict(), req.body);
+    const b = parse(
+      z
+        .object({
+          preset: z.enum(PRESETS).default('full'),
+          xProfile: z.string().min(1).max(200).optional(),
+          xPost: z.string().min(1).max(300),
+          telegram: z.string().min(1).max(200).optional(),
+          customerRef: z.string().max(200).optional(),
+          test: z.boolean().default(false),
+          bundled: z.boolean().default(false),
+        })
+        .strict(),
+      req.body,
+    );
     const header = req.headers['idempotency-key'];
     const key = Array.isArray(header) ? header[0] : header;
     if (key !== undefined && (key.length < 8 || key.length > 200)) throw new ValidationError('Idempotency-Key must be 8–200 characters');

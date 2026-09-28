@@ -74,7 +74,7 @@ describe('demo pipeline', () => {
     expect((await t.api('POST', '/v1/render/claim')).body).toBeNull();
     expect((await t.api('POST', '/v1/publish/claim')).body).toBeNull();
     const events = (await t.api('GET', `/v1/orders/${order.id}/events`)).body.events;
-    expect(events.map((e: any) => e.type)).toEqual(['order.accepted', 'delivery.updated', 'delivery.updated', 'delivery.updated']);
+    expect(events.map((e: any) => e.type)).toEqual(['order.accepted', 'delivery.updated', 'delivery.updated', 'delivery.updated', 'order.completed']);
   });
 });
 

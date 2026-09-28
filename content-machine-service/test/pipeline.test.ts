@@ -85,8 +85,8 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(status('call_channel')).toBe('delivered');
     expect(o.jobs.find((j: any) => j.kind === 'call_channel').result.url).toBe('https://t.me/fullsendtrenches/7');
     expect(status('binance')).toBe('queued');
-    // Stickers wait while primary work (media render) is still queued.
-    expect(status('sticker_art_0')).toBe('queued');
+    // Sticker artwork depends only on the content, not on publications or the media render.
+    expect(status('sticker_art_0')).toBe('delivered');
     expect(t.http.count('api.telegra.ph/createPage')).toBe(1);
 
     // All three posts carry the same campaign image.

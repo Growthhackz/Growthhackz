@@ -222,4 +222,12 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_wurk_audit_package ON wurk_audit(package_id, id);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      -- small_raid (the trending default) or full. Bundled packages are paid as part of another product.
+      ALTER TABLE wurk_packages ADD COLUMN preset TEXT NOT NULL DEFAULT 'full';
+      ALTER TABLE wurk_packages ADD COLUMN bundled INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];

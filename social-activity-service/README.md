@@ -191,6 +191,15 @@ One customer package, four WURK purchases paid in USDC on Solana over x402. It n
 
 4.55 USDC is the provider cost, not a sale price. Only the followers are blue-verified. WURK has no geographic targeting and no guaranteed completion time. WURK documents `join` as the tgmembers invite-link parameter, so that is what's sent.
 
+### Presets
+
+`POST /v1/wurk/packages` takes `preset`:
+
+- `small_raid` (the trending default): only `xPost`. One purchase of WURK's $1 small raid (25 likes, 10 reposts, 10 comments, 70 views), capped by `WURK_MAX_SMALL_RAID_USDC` (1.00).
+- `full`: the four-purchase package above. It's saved so it can be switched in later with `SOCIAL_BOOST_PRESET=full` on the content machine.
+
+`bundled: true` marks a package paid as part of another product (a trending purchase), so it needs no retail price of its own. The content machine creates these with `Idempotency-Key: cm-<order id>`, then calls `payment-received` with the trending order ID.
+
 ### How a purchase is paid
 
 1. Unpaid `GET` → WURK answers `402` with the live quote.

@@ -17,9 +17,10 @@ import {
   renderClaim,
   renderFailed,
   tick,
+  orderReport,
 } from '../services/engine.js';
 import { publicHub, renderHub } from '../services/hubService.js';
-import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, presentOrder, readAsset, retryJob } from '../services/orderService.js';
+import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, loadOrder, presentOrder, readAsset, retryJob } from '../services/orderService.js';
 import { saveSetting, settingsSummary } from '../services/settingsService.js';
 
 type Params = { id: string };
@@ -67,6 +68,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
 
   app.get<{ Params: Params }>('/v1/orders/by-external-id/:id', async (req) => findByExternalId(ctx, req.params.id));
   app.get<{ Params: Params }>('/v1/orders/:id', async (req) => getOrder(ctx, req.params.id));
+  /** Final report: success URLs, failures with reasons, and anything still pending with its deadline. */
+  app.get<{ Params: Params }>('/v1/orders/:id/report', async (req) => orderReport(ctx, loadOrder(ctx, req.params.id)));
+  app.get<{ Params: Params }>('/v1/orders/by-external-id/:id/report', async (req) =>
+    orderReport(ctx, loadOrder(ctx, findByExternalId(ctx, req.params.id).id)),
+  );
   app.get<{ Params: Params }>('/v1/orders/:id/events', async (req) => {
     getOrder(ctx, req.params.id);
     return { events: listEvents(ctx, req.params.id) };

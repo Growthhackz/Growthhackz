@@ -38,7 +38,7 @@ async function drain(t: ReturnType<typeof makeApp>) {
 
 describe('trending purchase → call channel', () => {
   it('posts the X-sized post with the campaign image and the project Telegram link', async () => {
-    const t = makeApp();
+    const t = makeApp({ TRENDING_CHANNELS: '' });
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'CALL');
@@ -75,7 +75,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('adds extra channels, uses a custom label, and rejects bad input', async () => {
-    const t = makeApp();
+    const t = makeApp({ TRENDING_CHANNELS: '' });
     await t.setSetting('CALL_CHANNEL_LABEL', '📣 Sponsored trending');
     const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
     expect(r.body.project.channels).toEqual(['call_channel', 'telegraph']);
@@ -87,7 +87,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('blocks without the call bot, and never reposts after an ambiguous failure', async () => {
-    const t = makeApp();
+    const t = makeApp({ TRENDING_CHANNELS: '' });
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
@@ -108,7 +108,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('probes that the bot can post in the channel', async () => {
-    const t = makeApp();
+    const t = makeApp({ TRENDING_CHANNELS: '' });
     wire(t);
     await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'CALL');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
@@ -121,7 +121,7 @@ describe('trending purchase → call channel', () => {
 
 describe('sticker pack for trending orders', () => {
   it('uses one bot, a team-owned pack, and tells the buybot where to DM the link', async () => {
-    const t = makeApp();
+    const t = makeApp({ TRENDING_CHANNELS: '' });
     wire(t);
     const sets = new Set<string>();
     t.http.on('api.telegram.org/botCALL/', async (u, init) => {
