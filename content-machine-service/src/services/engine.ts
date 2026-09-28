@@ -3,7 +3,9 @@ import {
   DIRECTORY_HOSTS,
   EXPECTED_RENDER_FILES,
   IRREVERSIBLE,
+  LISTING_PATHS,
   LISTING_REVIEW_MAX_MS,
+  PRESS_KINDS,
   MAX_ATTEMPTS,
   REDDIT_SUBREDDITS,
   RENDER_KINDS,
@@ -25,7 +27,7 @@ const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
-const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', 'cmc_community', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 
 type Leased = JobRow & { lease: string };
@@ -353,13 +355,15 @@ export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown,
 
 // ---- worker publications: Binance Square and Reddit ----
 
-export const WORKER_PUBLICATIONS = ['binance', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 
 /** What the worker should post; built here so the worker stays a thin publisher. */
 function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
   if (kind === 'binance') return { title: copy.headline, text: copy.article };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
+  if (kind === 'cmc_community')
+    return { text: `${copy.social_post}\n\nTelegram: ${o.project.telegram_url}`, image_asset_url: image ? `/v1/assets/${image.id}` : null };
   if (DIRECTORY_HOSTS[kind]) {
     const p = o.project;
     const created = Number(p.market?.pair_created_at) || 0;
@@ -383,12 +387,39 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
         logo_url: p.logo_url ?? null,
         image_asset_url: image ? `/v1/assets/${image.id}` : null,
       },
+      ...(PRESS_KINDS.includes(kind) ? { release: pressRelease(o) } : {}),
     };
   }
   const parts = [copy.article];
   if (image && ctx.config.PUBLIC_HUB_ENABLED) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
   parts.push(`Telegram: ${o.project.telegram_url}`);
   return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };
+}
+
+/**
+ * A plain-text release for press sites (1888: headline up to 22 words, body of 750+ characters, no HTML). The
+ * contract address is in the body so the live page can be matched to this project.
+ */
+function pressRelease(o: Order) {
+  const p = o.project;
+  const copy = o.copy!;
+  const headline = copy.headline.split(/\s+/).slice(0, 22).join(' ');
+  const facts = [
+    `${p.name}${p.symbol ? ` ($${p.symbol})` : ''} trades on ${p.chain[0]!.toUpperCase() + p.chain.slice(1)}. Contract address: ${p.contract_address}.`,
+    `Community: ${p.telegram_url}${p.x_url ? ` | X: ${p.x_url}` : ''}${p.website_url ? ` | Website: ${p.website_url}` : ''}`,
+    'This release is for information only and is not financial advice. Cryptocurrencies are volatile; do your own research.',
+  ];
+  const extra = [
+    `About ${p.name}: ${p.description || copy.social_post}`,
+    `How to get involved: join the ${p.name} Telegram community at ${p.telegram_url} for launch updates, community events and announcements from the team${p.x_url ? `, and follow ${p.x_url} on X` : ''}.`,
+    copy.short_post,
+  ];
+  const parts = [copy.article, ...facts];
+  // 1888 rejects bodies under 750 characters.
+  while (parts.join('\n\n').length < 750 && extra.length) parts.splice(parts.length - 1, 0, extra.shift()!);
+  const body = parts.join('\n\n').replace(/[<>]/g, '');
+  const keywords = [p.name, p.symbol, p.chain, 'crypto', 'memecoin', 'token launch'].filter(Boolean).join(', ');
+  return { headline, summary: copy.short_post, body, keywords, website_url: p.website_url ?? p.telegram_url };
 }
 
 /** Leases the next Binance or Reddit post. `kinds` lets a worker take only what it is configured for. */
@@ -428,12 +459,17 @@ function redditResult(ctx: ServiceContext, kind: string, url: string) {
   return { url: `https://www.reddit.com${u.pathname}`, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
 }
 
-/** Coin pages only, on the directory's own host. */
+/** The opening words of the CMC post, used to match its public page. */
+function cmcSnippet(o: Order): string | undefined {
+  return o.copy?.social_post.split(/\s+/).slice(0, 12).join(' ');
+}
+
+/** The site's own live-page URLs only (coin pages, press release pages). */
 function directoryUrl(kind: string, url: unknown): string | null {
   if (typeof url !== 'string' || !url) return null;
   try {
     const u = safeRemote(url, DIRECTORY_HOSTS[kind]);
-    return /\/coins?\//i.test(u.pathname) ? u.href : null;
+    return (LISTING_PATHS[kind] ?? /\/coins?\//i).test(u.pathname) ? u.href : null;
   } catch {
     return null;
   }
@@ -456,6 +492,7 @@ export async function publishComplete(ctx: ServiceContext, jobId: string, lease:
     run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id', { r: { url }, id: j.id });
     try {
       if (j.kind === 'binance') finish(ctx, j, await verifyPublication(ctx, url, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
+      else if (j.kind === 'cmc_community') finish(ctx, j, await verifyPublication(ctx, url, 'cmc_community', cmcSnippet(loadOrder(ctx, j.order_id))));
       else if (verified === true) finish(ctx, j, redditResult(ctx, j.kind, url));
       else throw new NotVerifiedError('Post not confirmed');
       return { status: 'delivered' };
@@ -488,8 +525,10 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
 }
 
 /** Hands the worker a submitted listing whose next check is due (the claim itself pushes the next check out an hour). */
-export function listingCheckClaim(ctx: ServiceContext) {
-  const kinds = Object.keys(DIRECTORY_HOSTS).map((k) => `'${k}'`).join(', ');
+export function listingCheckClaim(ctx: ServiceContext, wanted?: unknown) {
+  const allowed = Array.isArray(wanted) ? wanted.filter((k): k is string => typeof k === 'string' && !!DIRECTORY_HOSTS[k]) : Object.keys(DIRECTORY_HOSTS);
+  if (!allowed.length) return null;
+  const kinds = allowed.map((k) => `'${k}'`).join(', ');
   const j = get<JobRow>(
     ctx.db,
     `SELECT * FROM jobs WHERE status = 'submitted' AND kind IN (${kinds}) AND available_at <= :t ORDER BY available_at LIMIT 1`,
@@ -534,6 +573,7 @@ export async function reconcile(ctx: ServiceContext, jobId: string, url: unknown
     if (!coinUrl) throw new ValidationError(`Use the coin page URL on ${DIRECTORY_HOSTS[j.kind]![0]}`);
     result = { url: coinUrl, verified_at: new Date(nowMs(ctx)).toISOString() };
   } else if (REDDIT_SUBREDDITS[j.kind]) result = redditResult(ctx, j.kind, url);
+  else if (j.kind === 'cmc_community') result = await verifyPublication(ctx, url, j.kind, cmcSnippet(loadOrder(ctx, j.order_id)));
   else result = await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
   const full = { ...result, manual_reconciliation: true };
   run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", {

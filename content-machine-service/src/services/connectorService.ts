@@ -32,6 +32,8 @@ export const SOURCES: Source[] = [
   { id: 'reddit', name: 'Reddit r/moonshots + r/solanamemecoins', mode: 'publish (worker)', credential: null, detail: 'Headline + article as a text post in each subreddit, via a scripted browser on the companion worker (REDDIT_USERNAME / REDDIT_PASSWORD there).' },
   { id: 'coinsniper', name: 'CoinSniper listing', mode: 'submit + review (worker)', credential: null, detail: 'Submitted at coinsniper.net/submit by the worker (COINSNIPER_EMAIL / COINSNIPER_PASSWORD); delivered once the coin page is live.', url: 'https://coinsniper.net/submit' },
   { id: 'coinvote', name: 'Coinvote listing', mode: 'submit + review (worker)', credential: null, detail: 'Submitted at coinvote.cc/en/add-coin/released by the worker (COINVOTE_EMAIL / COINVOTE_PASSWORD); delivered once the coin page is live.', url: 'https://coinvote.cc/en/add-coin/released' },
+  { id: 'cmc_community', name: 'CoinMarketCap community post', mode: 'publish + verify (worker)', credential: null, detail: 'Social post + campaign image on our CMC community profile, posted by the worker (CMC_EMAIL / CMC_PASSWORD, CMC_PROFILE_HANDLE); verified on its public post page.', url: 'https://coinmarketcap.com/community/' },
+  { id: 'press_1888', name: '1888PressRelease', mode: 'submit + review (worker)', credential: null, detail: 'Press release from the article, submitted by the worker (PRESS1888_USERNAME / PRESS1888_PASSWORD, company PRESS1888_COMPANY); delivered once the release page is live.', url: 'https://www.1888pressrelease.com/submit-free-press-release.html' },
 ];
 
 export function connectorList(ctx: ServiceContext) {
@@ -42,7 +44,7 @@ export function connectorList(ctx: ServiceContext) {
     let status: string;
     if (s.id === 'dexscreener') status = 'ready';
     else if (s.credential) status = setting(ctx, s.credential) ? 'configured' : 'needs_key';
-    else if (['binance', 'reddit', 'coinsniper', 'coinvote'].includes(s.id)) status = workerOnline ? 'worker_online' : 'needs_worker';
+    else if (['binance', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888'].includes(s.id)) status = workerOnline ? 'worker_online' : 'needs_worker';
     else if (s.id === 'intake') status = hasKey ? 'api_key_created' : 'needs_api_key';
     else if (s.mode.startsWith('planned')) status = 'planned';
     else status = 'handoff';

@@ -204,7 +204,7 @@ export async function directoryCycle(client, {submit = submitListing, check = ch
       else await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null});
     } finally { await rm(logo.dir, {recursive: true, force: true}); }
   }
-  const due = await client.request('listings/check-claim', {});
+  const due = await client.request('listings/check-claim', {kinds: sites});
   if (due && sites.includes(due.job.kind)) {
     const r = await check(due.job.kind, due.target.listing, due.submission).catch(() => ({live: false}));
     await client.request(`listings/${due.job.id}/checked`, r);

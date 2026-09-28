@@ -108,7 +108,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted);
   });
   /** Directory listings waiting on the site's review: the worker checks whether the coin page is live yet. */
-  app.post('/v1/listings/check-claim', async () => listingCheckClaim(ctx));
+  app.post('/v1/listings/check-claim', async (req) => listingCheckClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
   app.post<{ Params: Params }>('/v1/listings/:id/checked', async (req) => {
     const b = (req.body ?? {}) as { url?: unknown; live?: unknown };
     return listingChecked(ctx, req.params.id, b.url, b.live);
