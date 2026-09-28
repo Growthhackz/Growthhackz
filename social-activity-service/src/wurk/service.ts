@@ -7,10 +7,12 @@ import {
   COMPONENT_STATUSES,
   componentPlans,
   normalizeTargets,
+  packageCeilingMicros,
   TargetError,
   type ComponentKind,
   type ComponentStatus,
   type PackageStatus,
+  type Preset,
 } from './package.js';
 import { assertApprovedUrl, checkQuote, readChallenge, readSettlement, WurkSetupError } from './x402.js';
 
@@ -21,6 +23,8 @@ export interface WurkPackageRow {
   idempotency_key: string | null;
   customer_ref: string | null;
   test: number;
+  preset: Preset;
+  bundled: number;
   x_handle: string;
   x_post_url: string;
   tg_url: string;
@@ -186,12 +190,15 @@ export function packageStatus(p: WurkPackageRow, comps: WurkComponentRow[]): Pac
 // -------------------------------------------------------------- creation
 
 export interface CreatePackageInput {
-  xProfile: string;
+  preset?: Preset;
+  xProfile?: string;
   xPost: string;
-  telegram: string;
+  telegram?: string;
   customerRef?: string;
   /** Admin test orders skip the retail price requirement. */
   test?: boolean;
+  /** Included in another product (e.g. a trending purchase): no retail price of its own. */
+  bundled?: boolean;
 }
 
 export function createPackage(ctx: ServiceContext, input: CreatePackageInput, idempotencyKey?: string): { pkg: WurkPackageRow; replayed: boolean } {
@@ -201,13 +208,14 @@ export function createPackage(ctx: ServiceContext, input: CreatePackageInput, id
   }
   let targets;
   try {
-    targets = normalizeTargets(input);
+    targets = normalizeTargets(input, input.preset ?? 'full');
   } catch (err) {
     if (err instanceof TargetError) throw new ValidationError(err.message);
     throw err;
   }
   const settings = getSettings(ctx);
-  if (!input.test && settings.retailPriceUsd === null)
+  const preset = input.preset ?? 'full';
+  if (!input.test && !input.bundled && settings.retailPriceUsd === null)
     throw new ValidationError('Set the WURK package retail price first (PUT /v1/wurk/settings retailPriceUsd)');
 
   const id = newId('wpk');
@@ -215,23 +223,25 @@ export function createPackage(ctx: ServiceContext, input: CreatePackageInput, id
   transaction(ctx.db, () => {
     run(
       ctx.db,
-      `INSERT INTO wurk_packages (id, idempotency_key, customer_ref, test, x_handle, x_post_url, tg_url, retail_price_micros,
-         cost_ceiling_micros, created_at, updated_at)
-       VALUES (:id, :key, :ref, :test, :h, :post, :tg, :retail, :ceiling, :t, :t)`,
+      `INSERT INTO wurk_packages (id, idempotency_key, customer_ref, test, preset, bundled, x_handle, x_post_url, tg_url,
+         retail_price_micros, cost_ceiling_micros, created_at, updated_at)
+       VALUES (:id, :key, :ref, :test, :preset, :bundled, :h, :post, :tg, :retail, :ceiling, :t, :t)`,
       {
         id,
         key: idempotencyKey,
         ref: input.customerRef,
         test: !!input.test,
+        preset,
+        bundled: !!input.bundled,
         h: targets.xHandle,
         post: targets.xPostUrl,
         tg: targets.tgUrl,
-        retail: input.test || settings.retailPriceUsd === null ? null : toMicros(settings.retailPriceUsd),
-        ceiling: toMicros(ctx.config.WURK_PACKAGE_MAX_USDC),
+        retail: input.test || input.bundled || settings.retailPriceUsd === null ? null : toMicros(settings.retailPriceUsd),
+        ceiling: packageCeilingMicros(ctx.config, preset),
         t,
       },
     );
-    for (const plan of componentPlans(ctx.config, targets)) {
+    for (const plan of componentPlans(ctx.config, targets, preset)) {
       run(
         ctx.db,
         `INSERT INTO wurk_components (id, package_id, kind, request_url, quantities, status, ceiling_micros, created_at, updated_at)
@@ -240,7 +250,7 @@ export function createPackage(ctx: ServiceContext, input: CreatePackageInput, id
       );
     }
   });
-  audit(ctx, { packageId: id, actor: 'api', action: 'package.created', detail: { customerRef: input.customerRef, test: !!input.test } });
+  audit(ctx, { packageId: id, actor: 'api', action: 'package.created', detail: { customerRef: input.customerRef, test: !!input.test, preset, bundled: !!input.bundled } });
   return { pkg: getPackage(ctx, id), replayed: false };
 }
 

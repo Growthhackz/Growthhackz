@@ -81,4 +81,14 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      -- Per-item auto-fail time (NULL = none), and when every item reached a final state.
+      ALTER TABLE jobs ADD COLUMN deadline_at INTEGER;
+      ALTER TABLE orders ADD COLUMN completed_at INTEGER;
+      -- Orders from before this change don't send a late order.completed.
+      UPDATE orders SET completed_at = updated_at;
+    `,
+  },
 ];

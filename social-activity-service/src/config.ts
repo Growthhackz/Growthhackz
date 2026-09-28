@@ -56,6 +56,8 @@ const EnvSchema = z.object({
   WURK_MAX_POST_MIX_USDC: z.coerce.number().positive().default(2.25),
   WURK_MAX_TG_BATCH_USDC: z.coerce.number().positive().default(0.45),
   WURK_PACKAGE_MAX_USDC: z.coerce.number().positive().default(4.55),
+  /** The $1 small raid preset (25 likes, 10 reposts, 10 comments, 70 views). */
+  WURK_MAX_SMALL_RAID_USDC: z.coerce.number().positive().default(1),
   WURK_DAILY_MAX_USDC: z.coerce.number().positive().default(25),
   WURK_SMOKE_MAX_USDC: z.coerce.number().positive().default(1),
   /** Default delay before the second 15-member Telegram batch; admins can change it at runtime. */

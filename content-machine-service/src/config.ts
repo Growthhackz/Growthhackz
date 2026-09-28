@@ -37,6 +37,14 @@ const EnvSchema = z.object({
   /** Team member's numeric Telegram ID that owns every sticker pack (must have started the bot). */
   STICKER_OWNER_ID: z.string().optional(),
 
+  /** social-activity-service (private network URL) for the social_boost item. */
+  SOCIAL_ACTIVITY_URL: z.string().url().optional(),
+  SOCIAL_ACTIVITY_TOKEN: z.string().optional(),
+  /** WURK preset for trending orders: the $1 small raid now; `full` is the saved four-purchase package. */
+  SOCIAL_BOOST_PRESET: z.enum(['small_raid', 'full']).default('small_raid'),
+  /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
+  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost'),
+
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */
   TICK_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),

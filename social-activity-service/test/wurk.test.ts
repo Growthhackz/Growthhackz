@@ -394,4 +394,37 @@ describe('WURK fulfillment', () => {
     expect(s.usdcBalance).toBe(100);
     expect(JSON.stringify(s)).not.toContain('test-key');
   });
+
+  it('small_raid preset: bundled package from just the post, one $1 purchase', async () => {
+    const { ctx, api, signed, wurk } = setup();
+    const created = await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: 'https://x.com/peakbuybot/status/99', customerRef: 'trending:1' }, { 'idempotency-key': 'cm-order-1' });
+    expect(created.status).toBe(201);
+    expect(created.body.preset).toBe('small_raid');
+    expect(created.body.retailPriceUsd).toBeNull();
+    expect(created.body.costCeilingUsdc).toBe(1);
+    expect(created.body.components.map((c: any) => [c.kind, c.target])).toEqual([
+      ['small_raid', 'https://wurkapi.fun/solana/xraid/small?url=https%3A%2F%2Fx.com%2Fpeakbuybot%2Fstatus%2F99'],
+    ]);
+    await api('POST', `/v1/wurk/packages/${created.body.id}/payment-received`, { paymentRef: 'trending:1' });
+    await processWurk(ctx);
+    const detail = (await api('GET', `/v1/wurk/packages/${created.body.id}`)).body;
+    expect(detail.status).toBe('in_progress');
+    expect(detail.components[0].jobLink).toMatch(/^https:\/\/wurk\.fun\/custom\//);
+    expect(signed).toEqual(['1000000']);
+    expect(wurk.state.requests.every((r) => r.url.includes('/solana/xraid/small'))).toBe(true);
+    const progress = (await api('GET', `/v1/wurk/packages/${created.body.id}/progress`)).body;
+    expect(progress.items[0].item).toContain('25 likes');
+  });
+
+  it('small_raid refuses a quote above $1 and the full preset still needs all three targets', async () => {
+    const { ctx, api, wurk, signed } = setup();
+    wurk.state.price['/solana/xraid/small'] = '1500000';
+    const p = (await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: 'https://x.com/a/status/1' })).body;
+    await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: 'x' });
+    await processWurk(ctx);
+    expect((await api('GET', `/v1/wurk/packages/${p.id}`)).body.status).toBe('needs_attention');
+    expect(signed).toHaveLength(0);
+    expect((await api('POST', '/v1/wurk/packages', { preset: 'full', bundled: true, xPost: 'https://x.com/a/status/1' })).status).toBe(400);
+  });
 });
+

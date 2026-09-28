@@ -1,5 +1,7 @@
 import { all, get, run } from '../db/database.js';
 import {
+  deadlineMs,
+  dependenciesOf,
   DIRECTORY_HOSTS,
   EXPECTED_RENDER_FILES,
   IRREVERSIBLE,
@@ -9,6 +11,8 @@ import {
   MAX_ATTEMPTS,
   REDDIT_SUBREDDITS,
   RENDER_KINDS,
+  SOURCE_LABELS,
+  STEP_LABELS,
 } from '../domain/schemas.js';
 import { AppError, ConflictError, isBlocking, NotVerifiedError, SetupRequiredError, UpstreamError, ValidationError } from '../lib/errors.js';
 import { signCallback } from '../lib/crypto.js';
@@ -17,6 +21,7 @@ import { uid } from '../lib/ids.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
+import { socialActivity } from '../providers/socialActivity.js';
 import { createPage } from '../providers/telegraph.js';
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
@@ -50,7 +55,9 @@ export function finish(ctx: ServiceContext, job: Leased, result: unknown, status
 function fail(ctx: ServiceContext, job: Leased, err: unknown) {
   const blocked = isBlocking(err);
   const uncertain = IRREVERSIBLE.includes(job.kind) && !blocked;
-  const status = uncertain ? 'uncertain' : blocked ? 'blocked' : job.attempts < MAX_ATTEMPTS ? 'queued' : 'failed';
+  // The social service being briefly unavailable (e.g. redeploying) retries until the item's deadline.
+  const transient = job.kind === 'social_boost' && err instanceof UpstreamError;
+  const status = uncertain ? 'uncertain' : blocked ? 'blocked' : transient || job.attempts < MAX_ATTEMPTS ? 'queued' : 'failed';
   const message = err instanceof AppError ? err.message : 'Processing interrupted. Check the provider and retry safely.';
   if (!(err instanceof AppError)) ctx.log.error({ job: job.id, kind: job.kind, err: String(err) }, 'job failed unexpectedly');
   run(
@@ -63,8 +70,8 @@ function fail(ctx: ServiceContext, job: Leased, err: unknown) {
       status,
       error: message,
       available: nowMs(ctx) + Math.min(300_000, 15_000 * 2 ** job.attempts),
-      // Missing setup or budget is not the job's fault, so it doesn't spend a retry.
-      refund: blocked,
+      // Missing setup, budget or a transient outage is not the job's fault, so it doesn't spend a retry.
+      refund: blocked || transient,
       t: nowMs(ctx),
       id: job.id,
       lease: job.lease,
@@ -87,12 +94,11 @@ export function expireLeases(ctx: ServiceContext): number {
 
 function ready(j: JobRow, o: Order): boolean {
   const done = (kind: string) => o.jobs.some((x) => x.kind === kind && x.status === 'delivered');
-  if (j.kind === 'metadata') return true;
+  // The social boost needs nothing from the content pipeline.
+  if (j.kind === 'social_boost' || j.kind === 'metadata') return true;
   if (!done('metadata')) return false;
   if (j.kind === 'copy') return true;
   if (!done('copy')) return false;
-  if (j.rank >= 100 && o.jobs.some((x) => x.rank < 100 && !WORKER_PUBLICATIONS.includes(x.kind) && ['queued', 'running'].includes(x.status)))
-    return false;
   if (j.kind === 'media') return done('campaign_image');
   if (j.kind === 'stickers') return [0, 1, 2, 3, 4].every((i) => done('sticker_art_' + i));
   if (j.kind === 'sticker_publish') return done('stickers');
@@ -157,6 +163,8 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
         demo: o.demo,
       });
     }
+    case 'social_boost':
+      return startSocialBoost(ctx, j, o);
     case 'hub':
       return finish(ctx, j, {
         url: hubUrl(ctx, o.id),
@@ -186,7 +194,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
         imageUrl: publicAssetUrl(ctx, o.id, image!.id),
         title: copy.headline,
         author: p.name ?? '',
-        paragraphs: copy.article.split(/\n+/).filter(Boolean),
+        paragraphs: [...copy.article.split(/\n+/).filter(Boolean), ...extraLinks(p)],
         telegramUrl: p.telegram_url,
       });
       // Record the URL before verifying so an uncertain outcome can be reconciled without republishing.
@@ -281,6 +289,8 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     }
     if (!progressed) break;
   }
+  await pollSocialBoosts(ctx);
+  settleOrders(ctx);
   const callbacks = await deliverCallbacks(ctx);
   return { processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
 }
@@ -357,13 +367,29 @@ export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown,
 
 export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 
+/**
+ * Every post carries the project's Telegram link; longer posts (articles) also carry X and the website. The copy
+ * itself is written without links so these are always exact.
+ */
+export function links(p: Order['project'], long: boolean): string {
+  const lines = [`Telegram: ${p.telegram_url}`];
+  if (long && p.x_url) lines.push(`X: ${p.x_url}`);
+  if (long && p.website_url) lines.push(`Website: ${p.website_url}`);
+  return lines.join('\n');
+}
+
+/** X and website lines for article pages that already link Telegram separately. */
+function extraLinks(p: Order['project']): string[] {
+  return links(p, true).split('\n').slice(1);
+}
+
 /** What the worker should post; built here so the worker stays a thin publisher. */
 function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
-  if (kind === 'binance') return { title: copy.headline, text: copy.article };
+  if (kind === 'binance') return { title: copy.headline, text: `${copy.article}\n\n${links(o.project, true)}` };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
   if (kind === 'cmc_community')
-    return { text: `${copy.social_post}\n\nTelegram: ${o.project.telegram_url}`, image_asset_url: image ? `/v1/assets/${image.id}` : null };
+    return { text: `${copy.social_post}\n\n${links(o.project, false)}`, image_asset_url: image ? `/v1/assets/${image.id}` : null };
   if (DIRECTORY_HOSTS[kind]) {
     const p = o.project;
     const created = Number(p.market?.pair_created_at) || 0;
@@ -392,7 +418,7 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   }
   const parts = [copy.article];
   if (image && ctx.config.PUBLIC_HUB_ENABLED) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
-  parts.push(`Telegram: ${o.project.telegram_url}`);
+  parts.push(links(o.project, true));
   return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };
 }
 
@@ -656,4 +682,155 @@ export function listEvents(ctx: ServiceContext, orderId: string) {
     delivered: !!e.sent,
     attempts: e.attempts,
   }));
+}
+
+// ---- social boost (social-activity-service) ----
+
+/** Creates the bundled WURK package for this order (idempotent per order) and hands it off for polling. */
+async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
+  if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
+  const p = o.project;
+  if (!p.x_post_url) return finish(ctx, j, { reason: 'The order has no X post URL to raid.' }, 'skipped');
+  const preset = ctx.config.SOCIAL_BOOST_PRESET;
+  const pkg = await socialActivity<{ id: string }>(
+    ctx,
+    'POST',
+    '/v1/wurk/packages',
+    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'full' ? { xProfile: p.x_url, telegram: p.telegram_url } : {}) },
+    { 'idempotency-key': `cm-${o.id}` },
+  );
+  await socialActivity(ctx, 'POST', `/v1/wurk/packages/${pkg.id}/payment-received`, { paymentRef: o.order_id, actor: 'content-machine' });
+  const result = { package_id: pkg.id, preset };
+  const r = run(
+    ctx.db,
+    `UPDATE jobs SET status = 'submitted', result = :r, error = NULL, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
+     WHERE id = :id AND lease = :lease AND status = 'running'`,
+    { r: result, a: nowMs(ctx) + 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+  );
+  if (r.changes) recordEvent(ctx, o.id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'submitted', result });
+}
+
+const BOOST_OK = ['paid_job_created', 'in_progress', 'completed', 'partial'];
+
+/** Delivered once WURK has accepted and been paid for the job; problems are shown until the deadline fails it. */
+export async function pollSocialBoosts(ctx: ServiceContext): Promise<number> {
+  const rows = all<JobRow>(ctx.db, "SELECT * FROM jobs WHERE kind = 'social_boost' AND status = 'submitted' AND available_at <= :t LIMIT 20", {
+    t: nowMs(ctx),
+  });
+  for (const j of rows) {
+    const prev = JSON.parse(j.result ?? '{}');
+    let pkg: any;
+    try {
+      pkg = await socialActivity(ctx, 'GET', `/v1/wurk/packages/${prev.package_id}`);
+    } catch (err) {
+      run(ctx.db, 'UPDATE jobs SET error = :e, available_at = :a, updated_at = :t WHERE id = :id', {
+        e: err instanceof AppError ? err.message : 'Social activity service is unreachable',
+        a: nowMs(ctx) + 2 * 60_000,
+        t: nowMs(ctx),
+        id: j.id,
+      });
+      continue;
+    }
+    const jobs = (pkg.components ?? []).map((c: any) => ({ kind: c.kind, status: c.status, job_id: c.providerJobId, job_link: c.jobLink }));
+    if (BOOST_OK.includes(pkg.status)) {
+      const result = { ...prev, status: pkg.status, url: jobs.find((x: any) => x.job_link)?.job_link ?? null, jobs, cost_usdc: pkg.costSettledUsdc };
+      run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id AND status = 'submitted'", {
+        r: result,
+        t: nowMs(ctx),
+        id: j.id,
+      });
+      recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'delivered', result });
+      continue;
+    }
+    const problem = ['needs_attention', 'reconcile_required'].includes(pkg.status)
+      ? (pkg.components ?? []).map((c: any) => c.lastError).filter(Boolean).join('; ') || pkg.status
+      : null;
+    run(ctx.db, 'UPDATE jobs SET error = :e, result = :r, available_at = :a, updated_at = :t WHERE id = :id', {
+      e: problem,
+      r: { ...prev, status: pkg.status, jobs },
+      a: nowMs(ctx) + (problem ? 5 : 1) * 60_000,
+      t: nowMs(ctx),
+      id: j.id,
+    });
+  }
+  return rows.length;
+}
+
+// ---- deadlines, dependencies and the final report ----
+
+const FINAL = ['delivered', 'skipped', 'failed', 'uncertain'];
+
+/**
+ * Fails items whose deadline passed (never while running, never uncertain ones, which need reconciling), fails
+ * items whose dependency failed, and emits `order.completed` with the report once every item is final.
+ */
+export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded: number; completed: number } {
+  const t = nowMs(ctx);
+  let timedOut = 0;
+  for (const j of all<JobRow>(ctx.db, "SELECT * FROM jobs WHERE status IN ('queued', 'blocked', 'submitted') AND deadline_at IS NOT NULL AND deadline_at <= :t", { t })) {
+    const hours = Math.round(deadlineMs(j.kind) / 3_600_000);
+    const error = `Timed out after ${hours}h (${j.status}${j.error ? `: ${j.error}` : ''})`.slice(0, 500);
+    if (run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, updated_at = :t WHERE id = :id AND status = :s", { e: error, t, id: j.id, s: j.status }).changes) {
+      recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+      timedOut++;
+    }
+  }
+  let cascaded = 0;
+  const open = all<{ order_id: string }>(ctx.db, "SELECT DISTINCT order_id FROM jobs WHERE status IN ('queued', 'blocked')", {});
+  for (const { order_id } of open) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const jobs = all<JobRow>(ctx.db, 'SELECT * FROM jobs WHERE order_id = :o', { o: order_id });
+      const byKind = new Map(jobs.map((x) => [x.kind, x]));
+      for (const j of jobs.filter((x) => x.status === 'queued' || x.status === 'blocked')) {
+        const dead = dependenciesOf(j.kind).find((k) => byKind.get(k)?.status === 'failed');
+        if (!dead) continue;
+        const error = `Not started: ${dead} failed`;
+        run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, updated_at = :t WHERE id = :id", { e: error, t, id: j.id });
+        recordEvent(ctx, order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+        cascaded++;
+        changed = true;
+      }
+    }
+  }
+  let completed = 0;
+  const pending = all<{ id: string }>(
+    ctx.db,
+    `SELECT o.id FROM orders o WHERE o.completed_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')}))`,
+    {},
+  );
+  for (const { id } of pending) {
+    if (!run(ctx.db, 'UPDATE orders SET completed_at = :t WHERE id = :id AND completed_at IS NULL', { t, id }).changes) continue;
+    recordEvent(ctx, id, 'order.completed', orderReport(ctx, loadOrder(ctx, id)));
+    completed++;
+  }
+  return { timedOut, cascaded, completed };
+}
+
+/** Every outcome in one place: public URLs that went out, what failed (and why), and what is still in progress. */
+export function orderReport(ctx: ServiceContext, o: Order) {
+  const successes: Array<{ source: string; label: string; url: string | null }> = [];
+  const failures: Array<{ source: string; label: string; status: string; error: string | null }> = [];
+  const pending: Array<{ source: string; label: string; status: string; deadline_at: string | null; note: string | null }> = [];
+  for (const j of o.jobs) {
+    if (j.status === 'skipped') continue;
+    const label = SOURCE_LABELS[j.kind] ?? STEP_LABELS[j.kind] ?? j.kind;
+    const result = j.result ? JSON.parse(j.result) : {};
+    if (j.status === 'delivered') {
+      if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label, url: result.url ?? null });
+    } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
+    else if (j.status === 'uncertain')
+      failures.push({ source: j.kind, label, status: 'unconfirmed', error: j.error ?? 'May have been published; needs checking before any retry.' });
+    else pending.push({ source: j.kind, label, status: j.status, deadline_at: j.deadline_at ? new Date(j.deadline_at).toISOString() : null, note: j.error });
+  }
+  return {
+    order_id: o.order_id,
+    complete: pending.length === 0,
+    project: { name: o.project.name, symbol: o.project.symbol, chain: o.project.chain, contract_address: o.project.contract_address },
+    successes,
+    failures,
+    pending,
+  };
 }

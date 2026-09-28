@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -34,6 +34,16 @@ export const REDDIT_SUBREDDITS: Record<string, string> = {
 export const channelOf = (kind: string): string | null =>
   REDDIT_SUBREDDITS[kind] ? 'reddit' : (CHANNELS as readonly string[]).includes(kind) ? kind : null;
 
+/** One X post (the raid target for social_boost). */
+const xPostUrl = z
+  .string()
+  .url()
+  .max(300)
+  .refine((v) => {
+    const u = new URL(v);
+    return u.protocol === 'https:' && /^(www\.|mobile\.)?(x|twitter)\.com$/.test(u.hostname) && /^\/[A-Za-z0-9_]{1,15}\/status\/\d+\/?$/.test(u.pathname);
+  }, 'Use an X post URL like https://x.com/user/status/123');
+
 const httpsUrl = z
   .string()
   .url()
@@ -58,6 +68,8 @@ export const orderInputSchema = z
     telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link'),
     website_url: httpsUrl.optional(),
     x_url: httpsUrl.optional(),
+    /** The X post the social boost raids. */
+    x_post_url: xPostUrl.optional(),
     logo_url: httpsUrl.optional(),
     colour: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#fc6b35'),
     /** Token launch date for directory listings; defaults to the DEX pair's creation date. */
@@ -91,6 +103,8 @@ export const trendingPurchaseSchema = z.object({
   description: z.string().max(2500).optional(),
   website_url: httpsUrl.optional(),
   x_url: httpsUrl.optional(),
+  /** The X post the social boost raids (the $1 WURK small raid by default). */
+  x_post_url: xPostUrl.optional(),
   logo_url: httpsUrl.optional(),
   /** Token launch date for directory listings; defaults to the DEX pair's creation date. */
   launch_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -132,6 +146,8 @@ export type Project = OrderInput & {
 
 /** Delivery pipeline, in rank order. Rank >= 100 (stickers) waits until every primary item settles. */
 export const STAGES: ReadonlyArray<readonly [string, number]> = [
+  // Independent of the content: starts as soon as the order arrives.
+  ['social_boost', 5],
   ['metadata', 10],
   ['copy', 20],
   ['hub', 30],
@@ -167,4 +183,76 @@ export type JobStatus = 'queued' | 'running' | 'submitted' | 'delivered' | 'skip
 export const EXPECTED_RENDER_FILES: Record<string, string[]> = {
   media: ['meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_5', 'meme_6', 'meme_7', 'trailer_square', 'trailer_vertical'],
   stickers: ['sticker_png_0', 'sticker_png_1', 'sticker_png_2', 'sticker_png_3', 'sticker_png_4'],
+};
+
+const HOUR = 60 * 60_000;
+/**
+ * How long each item may take from the order (or an admin retry) before it is failed automatically. Directory and
+ * press items include the site's review time.
+ */
+export const DEADLINE_MS: Record<string, number> = {
+  social_boost: 24 * HOUR,
+  metadata: 1 * HOUR,
+  copy: 2 * HOUR,
+  hub: 2 * HOUR,
+  campaign_image: 3 * HOUR,
+  media: 6 * HOUR,
+  telegraph: 6 * HOUR,
+  call_channel: 6 * HOUR,
+  binance: 12 * HOUR,
+  cmc_community: 12 * HOUR,
+  reddit_moonshots: 12 * HOUR,
+  reddit_solanamemecoins: 12 * HOUR,
+  coinsniper: 8 * 24 * HOUR,
+  coinvote: 8 * 24 * HOUR,
+  press_1888: 8 * 24 * HOUR,
+  sticker_art_0: 6 * HOUR,
+  sticker_art_1: 6 * HOUR,
+  sticker_art_2: 6 * HOUR,
+  sticker_art_3: 6 * HOUR,
+  sticker_art_4: 6 * HOUR,
+  stickers: 8 * HOUR,
+  sticker_publish: 10 * HOUR,
+};
+export const deadlineMs = (kind: string) => DEADLINE_MS[kind] ?? 24 * HOUR;
+
+/** What each item needs delivered first. A failed dependency fails its dependents at once. */
+export function dependenciesOf(kind: string): string[] {
+  if (kind === 'social_boost' || kind === 'metadata') return [];
+  if (kind === 'copy') return ['metadata'];
+  if (kind === 'hub' || kind === 'campaign_image' || kind.startsWith('sticker_art_')) return ['copy'];
+  if (kind === 'stickers') return ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'sticker_art_3', 'sticker_art_4'];
+  if (kind === 'sticker_publish') return ['stickers'];
+  // media and every publication go out with the campaign image.
+  return ['campaign_image'];
+}
+
+/** Names used in the order report. Items not listed are internal steps, reported only when they fail. */
+export const SOURCE_LABELS: Record<string, string> = {
+  social_boost: 'X raid (WURK)',
+  hub: 'Project hub',
+  telegraph: 'Telegraph article',
+  binance: 'Binance Square article',
+  call_channel: 'Call channel post',
+  reddit_moonshots: 'Reddit r/moonshots',
+  reddit_solanamemecoins: 'Reddit r/solanamemecoins',
+  coinsniper: 'CoinSniper listing',
+  coinvote: 'Coinvote listing',
+  cmc_community: 'CoinMarketCap community post',
+  press_1888: '1888PressRelease',
+  sticker_publish: 'Telegram sticker pack',
+};
+
+/** Internal steps, named when they fail in the report. */
+export const STEP_LABELS: Record<string, string> = {
+  metadata: 'Token metadata',
+  copy: 'Content (article and posts)',
+  campaign_image: 'Campaign image',
+  media: 'Memes and trailers',
+  sticker_art_0: 'Sticker artwork',
+  sticker_art_1: 'Sticker artwork',
+  sticker_art_2: 'Sticker artwork',
+  sticker_art_3: 'Sticker artwork',
+  sticker_art_4: 'Sticker artwork',
+  stickers: 'Sticker rendering',
 };

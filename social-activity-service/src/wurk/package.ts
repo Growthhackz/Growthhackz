@@ -5,7 +5,14 @@ import { toMicros } from '../lib/money.js';
 export const SOLANA_MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-export const COMPONENT_KINDS = ['verified_followers', 'post_mix', 'tg_batch_1', 'tg_batch_2'] as const;
+export const COMPONENT_KINDS = ['verified_followers', 'post_mix', 'tg_batch_1', 'tg_batch_2', 'small_raid'] as const;
+
+/**
+ * `small_raid`: WURK's $1 preset raid on one X post (25 likes, 10 reposts, 10 comments, 70 views), the current
+ * default for trending orders. `full`: the four-purchase package below, kept to switch in later.
+ */
+export const PRESETS = ['small_raid', 'full'] as const;
+export type Preset = (typeof PRESETS)[number];
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 
 export const COMPONENT_STATUSES = [
@@ -36,6 +43,7 @@ export const WURK_PACKAGE = {
 export const APPROVED_ROUTES = ['/solana/xfollowers/xverified', '/solana/xraid/custom', '/solana/tgmembers', '/solana/xraid/small'];
 
 export interface WurkTargets {
+  /** Empty for presets that don't use it (small_raid needs only the post). */
   xHandle: string;
   xProfileUrl: string;
   xPostUrl: string;
@@ -45,7 +53,17 @@ export interface WurkTargets {
 export class TargetError extends Error {}
 
 /** Accepts a profile URL or @handle, one post URL and a public t.me group/channel link or @handle. */
-export function normalizeTargets(input: { xProfile: string; xPost: string; telegram: string }): WurkTargets {
+export function normalizeTargets(input: { xProfile?: string; xPost: string; telegram?: string }, preset: Preset = 'full'): WurkTargets {
+  if (preset === 'small_raid') {
+    try {
+      const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
+      return { xHandle: '', xProfileUrl: '', xPostUrl, tgUrl: '' };
+    } catch (err) {
+      if (err instanceof LinkError) throw new TargetError(err.message);
+      throw err;
+    }
+  }
+  if (!input.xProfile || !input.telegram) throw new TargetError('The full package needs xProfile, xPost and telegram');
   try {
     const raw = input.xProfile.trim();
     const xHandle = /^@?[A-Za-z0-9_]{1,15}$/.test(raw)
@@ -68,8 +86,21 @@ export interface ComponentPlan {
   ceilingMicros: number;
 }
 
-export function componentPlans(config: Config, t: WurkTargets): ComponentPlan[] {
+export function packageCeilingMicros(config: Config, preset: Preset): number {
+  return toMicros(preset === 'small_raid' ? config.WURK_MAX_SMALL_RAID_USDC : config.WURK_PACKAGE_MAX_USDC);
+}
+
+export function componentPlans(config: Config, t: WurkTargets, preset: Preset = 'full'): ComponentPlan[] {
   const base = config.WURK_BASE_URL.replace(/\/$/, '');
+  if (preset === 'small_raid')
+    return [
+      {
+        kind: 'small_raid',
+        url: `${base}/solana/xraid/small?${new URLSearchParams({ url: t.xPostUrl })}`,
+        quantities: { likes: 25, reposts: 10, comments: 10, views: 70 },
+        ceilingMicros: toMicros(config.WURK_MAX_SMALL_RAID_USDC),
+      },
+    ];
   const q = (path: string, params: Record<string, string | number>) =>
     `${base}${path}?${new URLSearchParams(Object.entries(params).map(([k, v]): [string, string] => [k, String(v)])).toString()}`;
   // WURK documents `join` as the tgmembers invite-link parameter.
