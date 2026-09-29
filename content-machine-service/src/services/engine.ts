@@ -745,6 +745,17 @@ export async function pollSocialBoosts(ctx: ServiceContext): Promise<number> {
     const problem = ['needs_attention', 'reconcile_required'].includes(pkg.status)
       ? (pkg.components ?? []).map((c: any) => c.lastError).filter(Boolean).join('; ') || pkg.status
       : null;
+    // Dry run (no wallet / live payments off) can't succeed without a config change: fail now, not after 24h.
+    if (problem && /^Dry run/.test(problem)) {
+      run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, result = :r, updated_at = :t WHERE id = :id AND status = 'submitted'", {
+        e: problem,
+        r: { ...prev, status: pkg.status, jobs },
+        t: nowMs(ctx),
+        id: j.id,
+      });
+      recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error: problem });
+      continue;
+    }
     run(ctx.db, 'UPDATE jobs SET error = :e, result = :r, available_at = :a, updated_at = :t WHERE id = :id', {
       e: problem,
       r: { ...prev, status: pkg.status, jobs },
