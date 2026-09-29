@@ -146,7 +146,7 @@ export type Project = OrderInput & {
   source?: string;
   market?: Record<string, unknown>;
   /** How x_post_url was chosen when the order didn't supply one. */
-  x_post_source?: 'pinned' | 'top_recent' | 'latest';
+  x_post_source?: 'pinned' | 'latest';
 };
 
 /** Delivery pipeline, in rank order. Rank >= 100 (stickers) waits until every primary item settles. */

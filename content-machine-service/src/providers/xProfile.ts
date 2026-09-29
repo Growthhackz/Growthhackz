@@ -4,18 +4,17 @@ import { nowMs, type ServiceContext } from '../services/context.js';
 
 /**
  * Finds the X post to raid from a profile URL, with no account or paid API: the same logged-out (guest) endpoints
- * x.com's own web client uses. The pinned post wins; otherwise the best-performing recent original post; otherwise
- * the latest original post. Query IDs and the web bearer change occasionally, so they are configurable.
+ * x.com's own web client uses. The pinned post wins; otherwise the most recent original post (not a reply or
+ * retweet). Query IDs and the web bearer change occasionally, so they are configurable.
  */
 
 const HOUR = 3_600_000;
-const RECENT_MS = 14 * 24 * HOUR;
 const HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 const RESERVED = new Set(['home', 'i', 'intent', 'search', 'explore', 'share', 'hashtag', 'settings', 'messages', 'notifications']);
 
 export interface RaidPost {
   url: string;
-  source: 'pinned' | 'top_recent' | 'latest';
+  source: 'pinned' | 'latest';
   tweet_id: string;
 }
 
@@ -148,13 +147,7 @@ export async function findRaidPost(ctx: ServiceContext, profileUrl: string | und
       /^\d{1,25}$/.test(x.rest_id),
   );
   if (!own.length) return null;
-  const at = (x: any) => Date.parse(x.legacy.created_at) || 0;
-  const score = (x: any) => (x.legacy.favorite_count ?? 0) + 2 * (x.legacy.retweet_count ?? 0) + (x.legacy.reply_count ?? 0);
-  const recent = own.filter((x) => nowMs(ctx) - at(x) <= RECENT_MS);
-  if (recent.length) {
-    const top = recent.sort((a, b) => score(b) - score(a) || at(b) - at(a))[0];
-    return { url: postUrl(screen, top.rest_id), source: 'top_recent', tweet_id: top.rest_id };
-  }
-  const latest = own.sort((a, b) => at(b) - at(a))[0];
+  // Newest first by post ID (IDs are time-ordered), so an unparseable date can't pick an old post.
+  const latest = own.sort((a, b) => (BigInt(b.rest_id) > BigInt(a.rest_id) ? 1 : -1))[0];
   return { url: postUrl(screen, latest.rest_id), source: 'latest', tweet_id: latest.rest_id };
 }
