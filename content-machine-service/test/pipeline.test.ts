@@ -269,6 +269,23 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(o.jobs.find((j: any) => j.kind === 'binance').status).toBe('uncertain');
   });
 
+  it('accepts the Binance OpenAPI success when the public page is behind a bot challenge', async () => {
+    const t = makeApp();
+    wireProviders(t);
+    t.http.on('www.binance.com/en/square/post/777', () => new Response('<html>challenge</html>', { status: 202 }));
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    await t.api('POST', '/v1/orders', { ...liveInput, order_id: 'bn2', channels: ['binance'] });
+    await drain(t);
+    const url = 'https://www.binance.com/en/square/post/777';
+    let pub = (await t.api('POST', '/v1/publish/claim')).body;
+    expect((await t.api('POST', `/v1/publish/${pub.job.id}/complete`, { lease: pub.job.lease, url, verified: true })).body.status).toBe('delivered');
+    // Without the script's success signal the same page stays unconfirmed.
+    await t.api('POST', '/v1/orders', { ...liveInput, order_id: 'bn3', channels: ['binance'] });
+    await drain(t);
+    pub = (await t.api('POST', '/v1/publish/claim')).body;
+    expect((await t.api('POST', `/v1/publish/${pub.job.id}/complete`, { lease: pub.job.lease, url })).body.status).toBe('uncertain');
+  });
+
   it('probes connectors read-only', async () => {
     const t = makeApp();
     wireProviders(t);

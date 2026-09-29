@@ -517,7 +517,16 @@ export async function publishComplete(ctx: ServiceContext, jobId: string, lease:
   if (typeof url === 'string' && url && !DIRECTORY_HOSTS[j.kind]) {
     run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id', { r: { url }, id: j.id });
     try {
-      if (j.kind === 'binance') finish(ctx, j, await verifyPublication(ctx, url, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
+      if (j.kind === 'binance') {
+        try {
+          finish(ctx, j, await verifyPublication(ctx, url, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
+        } catch (err) {
+          // Binance's public pages challenge server-side fetches; the OpenAPI's own success (with a post URL) stands in.
+          const u = safeRemote(url, ['www.binance.com', 'binance.com']);
+          if (verified !== true || !/\/square\/post\/[0-9]+\/?$/.test(u.pathname)) throw err;
+          finish(ctx, j, { url, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'binance_openapi' });
+        }
+      }
       else if (j.kind === 'cmc_community') finish(ctx, j, await verifyPublication(ctx, url, 'cmc_community', cmcSnippet(loadOrder(ctx, j.order_id))));
       else if (verified === true) finish(ctx, j, redditResult(ctx, j.kind, url));
       else throw new NotVerifiedError('Post not confirmed');
