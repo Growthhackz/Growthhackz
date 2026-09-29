@@ -62,7 +62,7 @@ describe('1888PressRelease', () => {
     expect(r.body.length).toBeGreaterThanOrEqual(750);
     expect(r.body).toContain(SOL);
     expect(r.body).not.toMatch(/[<>]/);
-    expect(r.summary).toBe(liveCopy.short_post);
+    expect(r.summary).toBe('The MFROG squad is cooking. Community kit is live.');
     expect(r.keywords).toContain('Moon Frog');
     expect(c.target.listing.contract_address).toBe(SOL);
 

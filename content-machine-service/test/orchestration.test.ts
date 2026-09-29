@@ -209,5 +209,19 @@ describe('trending orchestration', () => {
     expect(again.status).toBe(200);
     expect(again.body.id).toBe(first.body.id);
   });
+
+  it('falls back to another Gemini model when the default one is overloaded', async () => {
+    const t = makeApp(SOCIAL);
+    contentFakes(t);
+    // Registered last, so it wins for the default text model only.
+    t.http.on('generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:', () => json({ error: { code: 503 } }, 503));
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'fallback' })).body;
+    await drain(t);
+    const now = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+    expect(jobOf(now, 'copy').status).toBe('delivered');
+    expect(t.http.count('generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:')).toBe(1);
+    expect(t.http.count('generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:')).toBe(1);
+  });
 });
 
