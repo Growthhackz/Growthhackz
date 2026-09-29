@@ -50,12 +50,29 @@ export function planField(f, listing) {
   return null;
 }
 
+/**
+ * The coin submission form: the one asking for token details (contract, symbol, chain…), never a footer newsletter
+ * or search form. Runs in the page.
+ */
+const PICK_LISTING_FORM = `window.pickListingForm = () => {
+  const token = /contract|address|symbol|ticker|chain|network|blockchain|launch|coin ?name|token ?name|project ?name|logo/;
+  const score = f => [...f.querySelectorAll('input,textarea,select')].filter(el => token.test([el.name, el.id, el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.closest('label')?.textContent, el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]')?.textContent].filter(Boolean).join(' ').toLowerCase())).length;
+  return [...document.forms].map(f => [f, score(f)]).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+};`;
+
+async function hasListingForm(page) {
+  await page.evaluate(PICK_LISTING_FORM);
+  return page.evaluate(() => !!window.pickListingForm());
+}
+
 /** Tags every control in the submit form with data-cm-idx and returns what it knows about each. */
 async function describeForm(page) {
+  await page.evaluate(PICK_LISTING_FORM);
   return page.evaluate(() => {
-    const forms = [...document.forms].filter(f => f.querySelector('input,textarea,select'));
-    const form = forms.sort((a, b) => b.querySelectorAll('input,textarea,select').length - a.querySelectorAll('input,textarea,select').length)[0];
+    const form = pickListingForm();
     if (!form) return [];
+    document.querySelectorAll('[data-cm-form]').forEach(f => f.removeAttribute('data-cm-form'));
+    form.setAttribute('data-cm-form', '1');
     return [...form.querySelectorAll('input,textarea,select')].map((el, i) => {
       el.setAttribute('data-cm-idx', String(i));
       const label = (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent) || el.closest('label')?.textContent || el.getAttribute('aria-label') || el.parentElement?.querySelector('label,span,p')?.textContent || '';
@@ -94,7 +111,8 @@ async function openSubmitForm(browser, cfg) {
   const context = await browser.newContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {});
   const page = await context.newPage();
   const submitUrl = cfg.origin + cfg.submit;
-  const onForm = async () => !page.url().includes(cfg.login) && !(await page.locator('input[type="password"]').count()) && (await page.locator('form textarea, form input[type="text"], form select').count()) > 0;
+  // Only the real coin form counts: a footer newsletter form on a login or error page must not look like success.
+  const onForm = async () => !page.url().includes(cfg.login) && !(await page.locator('input[type="password"]').count()) && (await hasListingForm(page));
   await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
   if (!(await onForm())) {
     await page.goto(cfg.origin + cfg.login, {waitUntil: 'domcontentloaded'});
@@ -135,8 +153,10 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
     }
     if (missing.length) { await debugSnapshot(page, cfg, 'unfilled'); throw new NotPostedError(`${site}: could not fill required fields: ${missing.join(', ')}`); }
     const before = page.url();
-    const button = page.locator('form [type="submit"], form button:not([type="button"])').last();
-    // From the click on, the listing may have been sent.
+    const button = page.locator('form[data-cm-form] [type="submit"], form[data-cm-form] button:not([type="button"])').last();
+    if (!(await button.count())) { await debugSnapshot(page, cfg, 'nosubmit'); throw new NotPostedError(`${site}: the listing form has no submit button; nothing was sent.`); }
+    // A click that never happens (timeout) sent nothing; from a completed click on, the listing may have been sent.
+    await button.click({trial: true, timeout: 15000}).catch(async e => { await debugSnapshot(page, cfg, 'unclickable'); throw new NotPostedError(`${site}: submit button not clickable (${String(e.message).split('\n')[0].slice(0, 120)}); nothing was sent.`); });
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), button.click()]);
     await page.waitForTimeout(2500);
     const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();

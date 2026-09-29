@@ -7,8 +7,9 @@ import {join} from 'node:path';
 import {submitListing,checkListing,inspect,directoryCycle,siteConfig} from './directories.mjs';
 import {NotPostedError} from './reddit.mjs';
 
-let extraRequired=false;const coins=[];
-const page=b=>`<!doctype html><html><body>${b}</body></html>`;
+let extraRequired=false,formGone=false,subscribes=0;const coins=[];
+// Every page has a footer newsletter form (like Coinvote's), which must never be filled or submitted.
+const page=b=>`<!doctype html><html><body>${b}<footer><form method="post" action="/subscribe"><input type="email" name="email" placeholder="Email address" required><button type="submit" name="submit">Subscribe</button></form></footer></body></html>`;
 const form=()=>`<form method="post" enctype="multipart/form-data" action="/submit">
 <label for="n">Coin Name</label><input id="n" name="coin_name" required>
 <label for="s">Symbol</label><input id="s" name="symbol" required>
@@ -28,7 +29,8 @@ const server=createServer(async(req,res)=>{const url=new URL(req.url,'http://x')
  const send=(html,code=200,h={})=>{res.writeHead(code,{'content-type':'text/html',...h});res.end(page(html));};
  if(url.pathname==='/login'&&req.method==='GET')return send('<form method="post"><input type="email" name="email"><input type="password" name="password"><button type="submit">Login</button></form>');
  if(url.pathname==='/login'){const f=new URLSearchParams(raw);return f.get('password')==='pw'?send('',302,{location:'/','set-cookie':'sid=1; Path=/'}):send('bad login');}
- if(url.pathname==='/submit'&&req.method==='GET')return authed?send(form()):send('',302,{location:'/login'});
+ if(url.pathname==='/subscribe'){subscribes++;return send('subscribed');}
+ if(url.pathname==='/submit'&&req.method==='GET')return authed?send(formGone?'<p>Maintenance</p>':form()):send('',302,{location:'/login'});
  if(url.pathname==='/submit'){const get=n=>(raw.match(new RegExp(`name="${n}"\\r\\n\\r\\n([^\\r]*)`))||[])[1];const hasLogo=/name="logo"; filename="logo.png"/.test(raw);
    if(coins.some(c=>c.contract===get('contract')))return send('<div class="alert-danger">This coin is already listed</div>'+form());
    coins.push({id:coins.length+101,name:get('coin_name'),symbol:get('symbol'),chain:get('chain'),contract:get('contract'),date:get('launch_date'),desc:get('description'),tg:get('telegram'),discord:get('discord'),hasLogo,live:false});
@@ -51,6 +53,9 @@ try{
  assert.equal((await submitListing('coinsniper',listing,logo,cfg)).submitted,true);assert.equal(coins.length,1);
  // A required field we can't map: nothing is sent.
  extraRequired=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'1'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/Total Supply/.test(e.message));assert.equal(coins.length,1);extraRequired=false;
+ // The coin form is missing (only the footer newsletter is on the page): nothing is sent anywhere.
+ formGone=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'2'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/not reachable/.test(e.message));formGone=false;
+ assert.equal(subscribes,0);
  // Wrong password: nothing sent.
  await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,password:'nope',statePath:join(dir,'x.json')}),NotPostedError);
  // Review: not live yet, then live after approval, found via the new-coins page.
