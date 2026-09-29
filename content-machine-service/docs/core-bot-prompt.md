@@ -2,8 +2,8 @@
 
 You are working on the **core bot**, the Telegram trending/buy bot. Add a two-way integration with the
 **Content Machine** API. Once a user pays for trending, the Content Machine writes and publishes the
-campaign: articles, the call-channel post, listings, press, the X raid and a sticker pack. It reports
-each live link back as soon as it exists. Your job:
+campaign: articles, the call-channel post, listings, press, the X raid and a Telegram sticker pack. It
+reports each live link back as soon as it exists. Your job:
 
 1. **Outbound:** right after a trending payment is confirmed, send us the coin's structured data.
 2. **Inbound:** run a small, locked-down webhook receiver. It accepts signed events from the Content
@@ -54,9 +54,9 @@ Content-Type: application/json
 | `x_url` | no | The project's X profile, `https://x.com/<handle>`. |
 | `x_post_url` | no | The X post to raid, `https://x.com/<user>/status/<id>`. Without it the X raid is skipped. |
 | `website_url` | no | HTTPS only. |
-| `logo_url` | no | HTTPS image URL. Strongly recommended: the sticker pack is drawn from it. |
+| `logo_url` | no | HTTPS image URL (PNG/JPG) of the coin's logo. **Send it whenever the coin has one.** The sticker pack and campaign art are drawn from it; with no logo there is no sticker pack. |
 | `description` | no | Up to 2500 characters, the project's own description. |
-| `telegram_owner_id` | no | Numeric Telegram user ID of the buyer, for our records. Sticker packs are always owned by our team account; the buyer just gets the add link. |
+| `telegram_owner_id` | no | Numeric Telegram user ID of the buyer, for our records only. It doesn't change what we publish (see §3 on sticker packs). |
 | `launch_date` | no | `YYYY-MM-DD`. |
 
 \* Send the name and symbol whenever you have them. If you don't, we look them up from the DEX.
@@ -89,7 +89,7 @@ Example:
 
 | Status | Meaning | What to do |
 |---|---|---|
-| `201` | Order created. | Store the mapping (see §3). |
+| `201` | Order created. | Store the mapping (see §3). Only `id` and `order_id` in the response body matter; ignore the rest. |
 | `200` | This `purchase_id` already has an order; it returns the existing one. | Treat as success. |
 | `400` | Validation error; `error.message` says which field. | Don't retry unchanged. Fix the data or alert an admin. |
 | `401` / `403` | Bad key, or a route the key isn't allowed to use. | Alert an admin; don't retry in a loop. |
@@ -104,6 +104,21 @@ Example:
   `purchase_id` is always safe, because it never creates a second order.
 - Use a 15-second request timeout.
 - Never put the key in a URL or a log line. Redact the `Authorization` header in any request logging.
+
+### What happens after you send it
+
+Links arrive as each destination goes live, not all at once. Typical timing:
+
+| When | What |
+|---|---|
+| Seconds | `order.accepted` |
+| Minutes to ~1 hour | Telegraph article, call-channel post, X raid, project page |
+| A few hours | Binance Square, CoinMarketCap community post, Bitcointalk thread, sticker pack |
+| Up to ~8 days | CoinSniper and Coinvote listings, 1888PressRelease (each is reviewed by the site before it goes live) |
+
+Each destination has its own deadline. If one can't be published, it's reported as failed without
+holding up the others. `order.completed` arrives only once every item has finished or failed, so it
+can come days after the first links.
 
 ### Reading status (optional; the webhook is the main channel)
 
@@ -159,6 +174,8 @@ Body envelope:
 }
 ```
 
+`created` is when the event happened, in milliseconds since the epoch.
+
 ### Event types (these four only; ignore anything else with `204`)
 
 - **`order.accepted`**: `data: {}`. We have the order. Optionally DM "Your campaign is being built…".
@@ -167,10 +184,25 @@ Body envelope:
   { "source": "telegraph", "label": "Telegraph article", "url": "https://telegra.ph/...",
     "project": { "name": "Moon Frog", "symbol": "MFROG" } }
   ```
-  `source` is one of `telegraph`, `binance`, `call_channel`, `coinsniper`, `coinvote`,
-  `cmc_community`, `press_1888`, `bitcointalk`, `social_boost`, `reddit_moonshots`,
-  `reddit_solanamemecoins` or `hub`.
-- **`sticker_pack.ready`**: `{ "url": "https://t.me/addstickers/...", "name": "...", "project": {...} }`.
+  `source` is one of:
+  - `telegraph`
+  - `binance`
+  - `call_channel`
+  - `coinsniper`
+  - `coinvote`
+  - `cmc_community`
+  - `press_1888`
+  - `bitcointalk`
+  - `social_boost` (the X raid; its URL is the raid's wurk.fun job page)
+  - `reddit_moonshots`
+  - `reddit_solanamemecoins`
+  - `hub` (the project page on our API domain)
+- **`sticker_pack.ready`**: the pack is published.
+  ```json
+  { "url": "https://t.me/addstickers/p1a2b3c..._by_Fullsendtrenchesbot", "name": "p1a2b3c..._by_Fullsendtrenchesbot",
+    "project": { "name": "Moon Frog", "symbol": "MFROG" } }
+  ```
+  This is the only event for the sticker pack; it never appears in `link.published`.
 - **`order.completed`**: every item has reached a final state.
   ```json
   { "complete": true, "project": {...},
@@ -178,6 +210,17 @@ Body envelope:
     "failures":  [{ "source": "...", "label": "...", "status": "failed|unconfirmed" }],
     "pending":   [] }
   ```
+  In `successes`, `source` can also be `sticker_publish` (label "Telegram sticker pack"), and `url`
+  can be `null`. Show a success without a URL as a plain ✅ line.
+
+### Delivery behaviour
+
+- Reply with any `2xx` to acknowledge; `204` counts. Anything else, or no reply within **8 seconds**,
+  is retried with backoff: 30s, 1m, 2m, 4m… capped at 1 hour, up to 8 attempts (about 2 hours in all).
+- **We don't follow redirects.** The registered URL must answer directly. No http→https hop, no
+  trailing-slash redirect, and no auth or login redirect in front of it.
+- Events for one order usually arrive in order, but retries can reorder them. For example, a
+  `link.published` can land after `order.completed`. Don't assume an order; dedupe handles it.
 
 ### Verification: run these steps in order and reject on the first failure
 
@@ -201,7 +244,7 @@ Body envelope:
    similar. Drop unknown keys. Limits:
    - `label` and `name`: plain strings of 100 characters or fewer.
    - `symbol`: 20 characters or fewer.
-   - `source`: must be from the list above.
+   - `source`: must be from the lists above.
    - `purchase_id`: `^[A-Za-z0-9_-]{1,100}$` and must match a purchase **you** created.
 
    An unknown purchase gets `200` and is ignored; don't reveal which purchases exist.
@@ -245,7 +288,14 @@ Additional hardening:
 - On `link.published`, DM one message per link:
   `🔗 {label} is live for ${symbol}:` followed by the URL on its own line. Add an inline button
   "Share" that opens `https://t.me/share/url?url=<url-encoded link>`.
-- On `sticker_pack.ready`, DM "🎨 Your sticker pack is ready" with the `t.me/addstickers` URL.
+- On `sticker_pack.ready`, DM: "🎨 Your ${symbol} sticker pack is ready. Tap to add it:" followed by
+  the `t.me/addstickers` URL on its own line, plus the same "Share" button.
+  - The pack is created and held by our sticker bot and team account. That's why the name ends in
+    `_by_Fullsendtrenchesbot`.
+  - Anyone can add or share it from the link. The buyer doesn't need to start, message or own
+    anything else.
+  - Don't mention who owns or created the pack. It's simply "your sticker pack".
+  - If the coin had no logo, no pack is made and this event never comes.
 - On `order.completed`, send one summary:
   - A ✅ line per success with its URL.
   - "⚠️ {label}: didn't go through" for each failure. **Don't include error text.**
@@ -255,7 +305,9 @@ Additional hardening:
 - Send all messages **without `parse_mode`**, as plain text. URLs come from us, but plain text
   guarantees no Markdown/HTML injection. If you need formatting, build it with Telegram `entities`
   rather than by concatenating HTML.
-- Dedupe per `(purchase_id, url)` so a user never gets the same link twice.
+- Dedupe per `(purchase_id, url)` so a user never gets the same link twice as its own DM. The
+  `order.completed` summary is the exception: it is one message that lists every link, including ones
+  already sent.
 - If a DM fails with 403 (the user blocked the bot or never started it), mark the link as
   undelivered. Show it the next time they open the bot. Don't retry in a tight loop, and respect
   Telegram's 429 `retry_after`.
@@ -273,6 +325,8 @@ Test the receiver with these cases:
 - An oversized body returns 413. A wrong content type returns 415. A `GET` returns 404.
 - An unknown event type returns 204 with no side effects. An unknown `purchase_id` returns 200 with no
   DM.
+- The registered URL answers `POST` directly, with no redirect.
+- A `link.published` arriving after `order.completed` is still handled once.
 - These URLs are all dropped:
   - `http://…`
   - `javascript:…`
