@@ -1,3 +1,4 @@
+import { pause, pauseStatus, resume } from '../services/pauseService.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError, NotFoundError, ValidationError } from '../lib/errors.js';
@@ -125,6 +126,10 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   });
 
   // ---- admin ----
+  /** Global pause: orders are still accepted, but nothing is generated, published or sent until resumed. */
+  app.get('/v1/pause', admin, async () => pauseStatus(ctx));
+  app.post('/v1/pause', admin, async () => pause(ctx));
+  app.post('/v1/resume', admin, async () => resume(ctx));
   app.get('/v1/settings', admin, async () => settingsSummary(ctx));
   app.put('/v1/settings', admin, async (req) => {
     const b = parse(z.object({ key: z.string(), value: z.string() }), req.body);
