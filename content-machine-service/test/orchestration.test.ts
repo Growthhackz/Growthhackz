@@ -117,10 +117,10 @@ describe('trending orchestration', () => {
     expect((await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'bad', x_post_url: 'https://x.com/moonfrog' })).status).toBe(400);
   });
 
-  it('raids the pinned post, else the top recent post, found from the X profile', async () => {
+  it('raids the pinned post, else the most recent post, found from the X profile', async () => {
     for (const [pinned, expected, source] of [
       [['1900000000000000001'], 'https://x.com/MoonFrog/status/1900000000000000001', 'pinned'],
-      [[], 'https://x.com/MoonFrog/status/1900000000000000003', 'top_recent'],
+      [[], 'https://x.com/MoonFrog/status/1900000000000000003', 'latest'],
     ] as const) {
       const t = makeApp(SOCIAL);
       contentFakes(t);
@@ -147,8 +147,8 @@ describe('trending orchestration', () => {
                         {
                           type: 'TimelineAddEntries',
                           entries: [
-                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000002', 5) } } } },
-                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000003', 50) } } } },
+                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000002', 5000) } } } },
+                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000003', 1) } } } },
                             { content: { itemContent: { tweet_results: { result: tweet('1900000000000000004', 900, { in_reply_to_status_id_str: '1' }) } } } },
                             { content: { itemContent: { tweet_results: { result: { ...tweet('1900000000000000005', 999), legacy: { ...tweet('1', 999).legacy, user_id_str: '88' } } } } } },
                           ],

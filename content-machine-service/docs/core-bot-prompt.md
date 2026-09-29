@@ -52,7 +52,7 @@ Content-Type: application/json
 | `symbol` | no* | Ticker without `$`, up to 20 characters. |
 | `telegram_url` | no | The project's `https://t.me/...` link. |
 | `x_url` | no | The project's X profile, `https://x.com/<handle>`. |
-| `x_post_url` | no | The X post to raid, `https://x.com/<user>/status/<id>`. Send it only if the buyer gives you a specific post. Otherwise leave it out: we take the pinned post from `x_url`, or the account's top post. With neither `x_url` nor `x_post_url`, the X raid is skipped. |
+| `x_post_url` | no | The X post to raid, `https://x.com/<user>/status/<id>`. Send it only if the buyer gives you a specific post. Otherwise leave it out: we take the pinned post from `x_url`, or its most recent post if nothing is pinned. With neither `x_url` nor `x_post_url`, the X raid is skipped. |
 | `website_url` | no | HTTPS only. |
 | `logo_url` | no | HTTPS image URL (PNG/JPG) of the coin's logo. **Send it whenever the coin has one.** The sticker pack and campaign art are drawn from it; with no logo there is no sticker pack. |
 | `description` | no | Up to 2500 characters, the project's own description. |
