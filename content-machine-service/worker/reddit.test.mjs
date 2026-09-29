@@ -53,6 +53,6 @@ try{
  process.env.REDDIT_USERNAME='u';const calls=[];const client={request:async(path,data)=>{calls.push([path,data]);return path==='publish/claim'?{job:{id:'j',lease:'L'},target}:{};}};
  await publishReddit(client,async()=>({url:'https://www.reddit.com/r/moonshots/comments/x1/s/',verified:true}));assert.deepEqual(calls.at(-1),['publish/j/complete',{lease:'L',url:'https://www.reddit.com/r/moonshots/comments/x1/s/',verified:true}]);
  await publishReddit(client,async()=>{throw new NotPostedError('Login failed')});assert.deepEqual(calls.at(-1),['publish/j/fail',{lease:'L',error:'Login failed'}]);
- await publishReddit(client,async()=>{throw new Error('browser crashed')});assert.deepEqual(calls.at(-1),['publish/j/complete',{lease:'L',url:null}]);
+ await publishReddit(client,async()=>{throw new Error('browser crashed')});assert.deepEqual(calls.at(-1),['publish/j/complete',{lease:'L',url:null,note:'browser crashed'}]);
  console.log('PASS: Reddit login, cookie-export session (no password), expired session reported, session reuse, two subreddit posts with logged-out check, bad login and rate limit not posted, outcome reporting.');
 }finally{server.close();await rm(dir,{recursive:true,force:true});}

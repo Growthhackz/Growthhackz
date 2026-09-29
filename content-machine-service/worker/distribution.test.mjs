@@ -57,7 +57,7 @@ cmc.createReturnsId = false;
 r = await postToCmc({text: 'Second post about Moon Frog'}, null, cmcCfg({password: 'wrong'}));
 assert.equal(r.url, `${cmcOrigin}/community/post/9002/`);
 await assert.rejects(postToCmc(target, null, cmcCfg({statePath: join(dir, 'none.json'), password: 'wrong'})), NotPostedError);
-await assert.rejects(postToCmc(target, null, {...cmcCfg(), email: undefined}), NotPostedError);
+await assert.rejects(postToCmc(target, null, {...cmcCfg(), email: undefined, statePath: join(dir, 'none3.json')}), NotPostedError);
 assert.equal(findPostId({data: {tweetDTOList: [{gravityId: '1', textContent: 'other'}, {gravityId: '2', textContent: 'Second post about'}]}}, 'Second post about Moon'), '2');
 
 // publishCmc reporting
@@ -72,7 +72,7 @@ assert.deepEqual(calls.at(-1), ['publish/j1/complete', {lease: 'L', url: 'https:
 await publishCmc(client(claim), async () => { throw new NotPostedError('captcha'); }, {CMC_EMAIL: 'x', CMC_PASSWORD: 'y'});
 assert.deepEqual(calls.at(-1), ['publish/j1/fail', {lease: 'L', error: 'captcha'}]);
 await publishCmc(client(claim), async () => { throw new Error('crash after click'); }, {CMC_EMAIL: 'x', CMC_PASSWORD: 'y'});
-assert.deepEqual(calls.at(-1), ['publish/j1/complete', {lease: 'L', url: null}]);
+assert.deepEqual(calls.at(-1), ['publish/j1/complete', {lease: 'L', url: null, note: 'crash after click'}]);
 cmcServer.close();
 
 // ---------------------------------------------------------------- fake 1888

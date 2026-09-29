@@ -538,7 +538,8 @@ function directoryUrl(kind: string, url: unknown): string | null {
   }
 }
 
-export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown, submitted?: unknown) {
+/** `note` is the worker's reason when it can't tell whether the post went out; it's kept on the item and logged. */
+export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown, submitted?: unknown, note?: unknown) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
   if (DIRECTORY_HOSTS[j.kind] && submitted === true) {
     const result = { submitted_at: new Date(nowMs(ctx)).toISOString(), url: directoryUrl(j.kind, url) };
@@ -573,13 +574,14 @@ export async function publishComplete(ctx: ServiceContext, jobId: string, lease:
       // Fall through: the post may exist but isn't verified.
     }
   }
+  const reason = typeof note === 'string' && note.trim() ? ` Worker: ${note.trim().replace(/\s+/g, ' ').slice(0, 300)}` : '';
+  const error = `Publication may exist; reconcile the post URL before any retry.${reason}`;
   run(
     ctx.db,
-    `UPDATE jobs SET status = 'uncertain', lease = NULL, lease_until = NULL,
-       error = 'Publication may exist; reconcile the post URL before any retry.', updated_at = :t WHERE id = :id`,
-    { t: nowMs(ctx), id: j.id },
+    `UPDATE jobs SET status = 'uncertain', lease = NULL, lease_until = NULL, error = :error, updated_at = :t WHERE id = :id`,
+    { t: nowMs(ctx), id: j.id, error },
   );
-  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'uncertain' });
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'uncertain', error });
   return { status: 'uncertain' };
 }
 

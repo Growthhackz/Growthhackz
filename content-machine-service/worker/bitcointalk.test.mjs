@@ -56,6 +56,6 @@ try {
   await publishBitcointalk(client, async () => { throw new NotPostedError('wait 360s'); }, env);
   assert.deepEqual(calls.at(-1), ['publish/b1/fail', {lease: 'L', error: 'wait 360s'}]);
   await publishBitcointalk(client, async () => { throw new Error('crash'); }, env);
-  assert.deepEqual(calls.at(-1), ['publish/b1/complete', {lease: 'L', url: null}]);
+  assert.deepEqual(calls.at(-1), ['publish/b1/complete', {lease: 'L', url: null, note: 'crash'}]);
   console.log('PASS: Bitcointalk thread from a saved session with logged-out check, time limit and expired session not posted, cookie export, cycle reporting.');
 } finally { server.close(); await rm(dir, {recursive: true, force: true}); }

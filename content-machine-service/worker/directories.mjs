@@ -26,11 +26,13 @@ const CHAINS = {
 /** Maps one form control (described by its label/name/id/placeholder) to a listing value. Order matters. */
 export function planField(f, listing) {
   const d = f.desc;
-  if (['hidden', 'submit', 'button', 'password', 'email', 'search', 'reset', 'image'].includes(f.type)) return null;
+  if (['hidden', 'submit', 'button', 'password', 'search', 'reset', 'image'].includes(f.type)) return null;
+  // Contact email: the account's own login email (never a made-up address).
+  if (f.type === 'email' || /\be-?mail\b/.test(d)) return listing.contact_email ? {action: 'fill', value: listing.contact_email} : null;
   if (f.type === 'file') return {action: 'file'};
   if (f.type === 'checkbox') return /agree|terms|confirm|accept|rules/.test(d) ? {action: 'check'} : null;
   const rules = [
-    [/discord|reddit|medium|github|youtube|instagram|tiktok|facebook|linkedin|coingecko|coinmarketcap|audit|kyc|whitepaper|email|e-mail/, null],
+    [/discord|reddit|medium|github|youtube|instagram|tiktok|facebook|linkedin|coingecko|coinmarketcap|audit|kyc|whitepaper/, null],
     [/telegram|\btg\b/, listing.telegram_url],
     [/twitter|\bx\b|x\.com|x link|x url/, listing.x_url],
     [/contract|address|\bca\b|token id|mint/, listing.contract_address],
@@ -127,7 +129,7 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
     const fields = await describeForm(page);
     const missing = [];
     for (const f of fields.filter(f => f.visible)) {
-      const plan = planField(f, listing);
+      const plan = planField(f, {...listing, contact_email: cfg.username});
       const ok = plan ? await applyField(page, f, plan, logoPath) : false;
       if (!ok && f.required) missing.push(f.label || f.name || `#${f.idx}`);
     }
@@ -200,8 +202,11 @@ export async function directoryCycle(client, {submit = submitListing, check = ch
       const r = await submit(c.job.kind, c.target.listing, logo.path);
       await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null});
     } catch (e) {
-      if (e instanceof NotPostedError) await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message});
-      else await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null});
+      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
+      else {
+        console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`);
+        await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)});
+      }
     } finally { await rm(logo.dir, {recursive: true, force: true}); }
   }
   const due = await client.request('listings/check-claim', {kinds: sites});
