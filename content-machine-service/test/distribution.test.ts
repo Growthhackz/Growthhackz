@@ -125,6 +125,13 @@ describe('retrying blocked worker items', () => {
     const r = await t.api('POST', `/v1/jobs/${c.job.id}/retry`, { reset_attempts: true });
     expect(r.status).toBe(200);
     expect(r.body.jobs.find((j: any) => j.kind === 'cmc_community')).toMatchObject({ status: 'queued', attempts: 0 });
-    expect((await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.job.id).toBe(c.job.id);
+    const again = (await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body;
+    expect(again.job.id).toBe(c.job.id);
+    // An unconfirmed outcome can only be retried once an admin confirms nothing went out.
+    await t.api('POST', `/v1/publish/${again.job.id}/complete`, { lease: again.job.lease, url: null, note: 'click timed out' });
+    expect((await t.api('POST', `/v1/jobs/${c.job.id}/retry`, {})).status).toBe(409);
+    expect((await t.call(svc, 'POST', `/v1/jobs/${c.job.id}/retry`, { confirm_not_posted: true })).status).toBe(403);
+    const r2 = await t.api('POST', `/v1/jobs/${c.job.id}/retry`, { confirm_not_posted: true });
+    expect(r2.body.jobs.find((j: any) => j.kind === 'cmc_community')).toMatchObject({ status: 'queued', attempts: 0 });
   });
 });
