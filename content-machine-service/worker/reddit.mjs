@@ -21,6 +21,13 @@ export async function gotoSettled(page, url) {
 
 const captcha = page => page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, .h-captcha').count();
 
+/** REDDIT_PROXY (http://user:pass@host:port): Reddit blocks datacenter networks, so only Reddit traffic goes through it. */
+export function redditProxy(raw = process.env.REDDIT_PROXY) {
+  if (!raw) return undefined;
+  const u = new URL(raw);
+  return {server: `${u.protocol}//${u.host}`, ...(u.username ? {username: decodeURIComponent(u.username), password: decodeURIComponent(u.password)} : {})};
+}
+
 const SAME_SITE = {no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict'};
 
 /**
@@ -63,7 +70,7 @@ export function installCookieSession(statePath, raw = process.env.REDDIT_COOKIES
 export async function redditWhoAmI({statePath = process.env.REDDIT_STATE_PATH || './reddit-session.json', base = process.env.REDDIT_BASE_URL || 'https://old.reddit.com', executablePath = process.env.CHROMIUM_PATH || undefined} = {}) {
   installCookieSession(statePath);
   if (!existsSync(statePath)) return null;
-  const browser = await chromium.launch({headless: true, executablePath});
+  const browser = await chromium.launch({headless: true, executablePath, proxy: redditProxy()});
   try {
     const context = await browser.newContext({storageState: statePath});
     const page = await context.newPage();
@@ -103,7 +110,7 @@ export async function postToReddit(target, {
 } = {}) {
   try { installCookieSession(statePath); } catch (e) { throw new NotPostedError(`REDDIT_COOKIES: ${e.message}`); }
   if ((!username || !password) && !existsSync(statePath)) throw new NotPostedError('Set REDDIT_COOKIES (a cookie export from a logged-in browser) on the worker.');
-  const browser = await chromium.launch({headless: true, executablePath});
+  const browser = await chromium.launch({headless: true, executablePath, proxy: redditProxy()});
   try {
     const context = await browser.newContext(existsSync(statePath) ? {storageState: statePath} : {});
     const page = await context.newPage();
