@@ -123,7 +123,9 @@ export async function submitRelease(release, cfg = pressConfig()) {
     const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
     if (/thank you|successfully|has been (submitted|received)|pending (review|approval)|under review|will be reviewed/.test(text)) return {submitted: true};
     await snapshot(page, cfg, 'unconfirmed');
-    return {submitted: false};
+    // Where it ended up and what the page offers next, so the next step can be handled.
+    const next = await page.locator('a[onclick], input[type="submit"], input[type="image"], button').evaluateAll(els => els.map(e => `${e.getAttribute('onclick') || ''} ${e.value || ''} ${e.alt || ''} ${e.getAttribute('src') || ''} ${e.textContent || ''}`.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8)).catch(() => []);
+    return {submitted: false, note: `ended on ${page.url().slice(0, 100)}: ${text.replace(/\s+/g, ' ').slice(0, 200)} | next: ${next.join(' ; ').slice(0, 300)}`};
   } finally {
     await browser.close();
   }
@@ -152,7 +154,8 @@ export async function pressCycle(client, {submit = submitRelease, check = checkR
   if (c) {
     try {
       const r = await submit(c.target.release);
-      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: null});
+      if (r.note) console.error(`press_1888 (${c.job.order_id}): ${r.note}`);
+      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: null, ...(r.note ? {note: r.note} : {})});
     } catch (e) {
       if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
       else {
