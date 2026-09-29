@@ -117,10 +117,26 @@ export async function submitRelease(release, cfg = pressConfig()) {
       .then(() => true, () => false);
     if (!panelReady) { await snapshot(page, cfg, 'plan'); throw new NotPostedError('1888 free plan panel did not load (or showed a paid plan); nothing was sent.'); }
     const finalLink = page.locator('#plan_preview a[onclick*="confirm_pr"]').first();
-    // From the final click on, the release may have been sent.
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), finalLink.click()]);
     await page.waitForTimeout(3000);
+    // Next comes plan.php, a second plan chooser (radio buttons) posting to step4.php: pick the free plan again,
+    // confirm it's the one selected, then continue. Nothing is published before that continue click.
+    if (await page.locator('input[name="planradio"]').count()) {
+      const freeRadio = page.locator('input[name="planradio"][value="0"]');
+      if (!(await freeRadio.count())) { await snapshot(page, cfg, 'plan'); throw new NotPostedError('1888 plan page has no free plan; nothing was sent.'); }
+      await freeRadio.check();
+      const chosen = await page.locator('input[name="planradio"]:checked').getAttribute('value').catch(() => null);
+      if (chosen !== '0') { await snapshot(page, cfg, 'plan'); throw new NotPostedError(`1888 plan page kept plan ${chosen} selected; nothing was sent.`); }
+      const cont = page.locator('a.cont-btn, a[onclick*="validate_form"]').first();
+      if (!(await cont.count())) { await snapshot(page, cfg, 'plan'); throw new NotPostedError('1888 plan page has no continue button; nothing was sent.'); }
+      // From this click on, the release may have been sent.
+      await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), cont.click()]);
+      await page.waitForTimeout(3000);
+    }
     const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
+    // A payment page means the free path wasn't taken: stop there (nothing is paid or entered).
+    if (/card number|credit card|cvv|paypal checkout|billing address/.test(text) && !/thank you/.test(text))
+      return {submitted: false, note: `stopped at a payment page (${page.url().slice(0, 100)}); nothing was paid`};
     if (/thank you|successfully|has been (submitted|received)|pending (review|approval)|under review|will be reviewed/.test(text)) return {submitted: true};
     await snapshot(page, cfg, 'unconfirmed');
     // Where it ended up and what the page offers next, so the next step can be handled.

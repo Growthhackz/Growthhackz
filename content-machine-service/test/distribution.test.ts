@@ -135,3 +135,25 @@ describe('retrying blocked worker items', () => {
     expect(r2.body.jobs.find((j: any) => j.kind === 'cmc_community')).toMatchObject({ status: 'queued', attempts: 0 });
   });
 });
+
+describe('Binance Square URLs', () => {
+  it('turns share links into the post URL and accepts an admin-confirmed post', async () => {
+    const { binancePostUrl } = await import('../src/services/engine.js');
+    expect(binancePostUrl('https://app.binance.com/uni-qr/cart/372000959647275?r=X&l=en')).toBe('https://www.binance.com/en/square/post/372000959647275');
+    expect(binancePostUrl('https://www.binance.com/en/square/post/372000959647275')).toBe('https://www.binance.com/en/square/post/372000959647275');
+    expect(binancePostUrl('https://evil.com/uni-qr/cart/372000959647275')).toBeNull();
+    expect(binancePostUrl('https://www.binance.com/en/square/profile/x')).toBeNull();
+
+    const { t } = await setup();
+    t.http.on('www.binance.com/en/square/post/', () => new Response('challenge', { status: 403 }));
+    const b = (await t.api('POST', '/v1/orders', { ...input, order_id: 'dist-bin', channels: ['binance'] })).body;
+    for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body;
+    expect(c.target.text).toContain('Find Moon Frog on Telegram: @moonfrog');
+    expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url: null, note: 'no URL in output' })).body.status).toBe('uncertain');
+    const rec = await t.api('POST', `/v1/jobs/${c.job.id}/reconcile`, { url: 'https://app.binance.com/uni-qr/cart/372000959647275?r=WWP7BX5G&l=en' });
+    expect(rec.status).toBe(200);
+    expect(rec.body.jobs.find((j: any) => j.kind === 'binance')).toMatchObject({ status: 'delivered', result: { url: 'https://www.binance.com/en/square/post/372000959647275', verified_by: 'admin' } });
+    void b;
+  });
+});
