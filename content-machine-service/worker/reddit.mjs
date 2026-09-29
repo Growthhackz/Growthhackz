@@ -68,9 +68,13 @@ export async function redditWhoAmI({statePath = process.env.REDDIT_STATE_PATH ||
     const context = await browser.newContext({storageState: statePath});
     const page = await context.newPage();
     await gotoSettled(page, `${base}/api/me.json`);
+    const text = await page.locator('body').innerText().catch(() => '');
     let body = null;
-    try { body = JSON.parse(await page.locator('body').innerText()); } catch {}
-    return body?.data?.name ?? null;
+    try { body = JSON.parse(text); } catch {}
+    const name = body?.data?.name ?? null;
+    // Diagnostics without secrets: where Reddit sent us and what it said.
+    if (!name) console.log('Reddit session check:', page.url().split('?')[0], '|', text.replace(/\s+/g, ' ').slice(0, 200));
+    return name;
   } finally { await browser.close(); }
 }
 
