@@ -184,6 +184,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   app.get<{ Params: AssetParams }>('/projects/:id/assets/:assetId', async (req, reply) => {
     const { asset, bytes } = await readAsset(ctx, req.params.assetId);
     if (asset.order_id !== req.params.id) throw new NotFoundError('Asset');
+    // With the hub off, this legacy address serves images only (for articles that already embed it).
+    if (!ctx.config.PUBLIC_HUB_ENABLED && !['image/png', 'image/jpeg', 'image/webp'].includes(asset.mime)) throw new NotFoundError('Asset');
     return sendAsset(reply, req, asset, bytes, 'public, max-age=3600');
   });
 }

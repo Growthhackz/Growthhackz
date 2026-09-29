@@ -62,6 +62,8 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
     if (path === '/health') return;
     // Public images for Telegraph and meme pages. Asset ids derive from the order's random id, so they can't be guessed.
     if (/^\/media\/[0-9a-f]{40}$/.test(path) && req.method === 'GET') return;
+    // Articles published before /media embed their image at the old hub asset address; keep images there working.
+    if (/^\/projects\/[0-9a-f-]{36}\/assets\/[0-9a-f]{40}$/.test(path) && req.method === 'GET') return;
     if (path.startsWith('/projects/')) {
       if (config.PUBLIC_HUB_ENABLED) return;
       return reply.code(404).send({ error: { code: 'not_found', message: 'Public hubs are disabled' } });
