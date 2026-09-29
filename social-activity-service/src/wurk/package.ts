@@ -52,7 +52,7 @@ export interface WurkTargets {
 
 export class TargetError extends Error {}
 
-/** Accepts a profile URL or @handle, one post URL and a public t.me group/channel link or @handle. */
+/** Accepts a profile URL or @handle (optional: defaults to the post's author), one post URL and an optional public t.me link or @handle. */
 export function normalizeTargets(input: { xProfile?: string; xPost: string; telegram?: string }, preset: Preset = 'full'): WurkTargets {
   if (preset === 'small_raid') {
     try {
@@ -63,15 +63,18 @@ export function normalizeTargets(input: { xProfile?: string; xPost: string; tele
       throw err;
     }
   }
-  if (!input.xProfile || !input.telegram) throw new TargetError('The full package needs xProfile, xPost and telegram');
   try {
-    const raw = input.xProfile.trim();
+    const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
+    // No profile given: the followers go to the account that wrote the post.
+    const raw = (input.xProfile ?? new URL(xPostUrl).pathname.split('/')[1] ?? '').trim();
     const xHandle = /^@?[A-Za-z0-9_]{1,15}$/.test(raw)
       ? normalizeTwitterHandle(raw)
       : normalizeLink('twitter_profile', raw).link.split('/').pop()!;
-    const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
-    const tgRaw = input.telegram.trim();
-    const tgUrl = normalizeLink('telegram_channel', /^@[A-Za-z][A-Za-z0-9_]{3,31}$/.test(tgRaw) ? `https://t.me/${tgRaw.slice(1)}` : tgRaw).link;
+    // No Telegram: the package skips the Telegram members and keeps the X parts.
+    const tgRaw = input.telegram?.trim();
+    const tgUrl = tgRaw
+      ? normalizeLink('telegram_channel', /^@[A-Za-z][A-Za-z0-9_]{3,31}$/.test(tgRaw) ? `https://t.me/${tgRaw.slice(1)}` : tgRaw).link
+      : '';
     return { xHandle, xProfileUrl: `https://x.com/${xHandle}`, xPostUrl, tgUrl };
   } catch (err) {
     if (err instanceof LinkError) throw new TargetError(err.message);
@@ -118,8 +121,12 @@ export function componentPlans(config: Config, t: WurkTargets, preset: Preset = 
       quantities: { likes: WURK_PACKAGE.likes, reposts: WURK_PACKAGE.reposts, comments: WURK_PACKAGE.comments },
       ceilingMicros: toMicros(config.WURK_MAX_POST_MIX_USDC),
     },
-    { kind: 'tg_batch_1', url: tg, quantities: { members: WURK_PACKAGE.tgBatch }, ceilingMicros: toMicros(config.WURK_MAX_TG_BATCH_USDC) },
-    { kind: 'tg_batch_2', url: tg, quantities: { members: WURK_PACKAGE.tgBatch }, ceilingMicros: toMicros(config.WURK_MAX_TG_BATCH_USDC) },
+    ...(t.tgUrl
+      ? [
+          { kind: 'tg_batch_1' as const, url: tg, quantities: { members: WURK_PACKAGE.tgBatch }, ceilingMicros: toMicros(config.WURK_MAX_TG_BATCH_USDC) },
+          { kind: 'tg_batch_2' as const, url: tg, quantities: { members: WURK_PACKAGE.tgBatch }, ceilingMicros: toMicros(config.WURK_MAX_TG_BATCH_USDC) },
+        ]
+      : []),
   ];
 }
 
