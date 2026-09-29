@@ -105,16 +105,71 @@ describe('trending orchestration', () => {
     expect((await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.job.kind).toBe('cmc_community');
   });
 
-  it('skips the raid when the order has no X post', async () => {
+  it('skips the raid when the order has no X profile or post', async () => {
     const t = makeApp(SOCIAL);
     contentFakes(t);
     socialFake(t, { status: 'queued' });
-    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'no-post', x_post_url: undefined })).body;
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'no-post', x_post_url: undefined, x_url: undefined })).body;
     await t.api('POST', '/v1/tick');
     const job = jobOf((await t.api('GET', `/v1/orders/${o.id}`)).body, 'social_boost');
     expect(job.status).toBe('skipped');
-    expect(job.result.reason).toContain('no X post');
+    expect(job.result.reason).toContain('no X profile or post');
     expect((await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'bad', x_post_url: 'https://x.com/moonfrog' })).status).toBe(400);
+  });
+
+  it('raids the pinned post, else the top recent post, found from the X profile', async () => {
+    for (const [pinned, expected, source] of [
+      [['1900000000000000001'], 'https://x.com/MoonFrog/status/1900000000000000001', 'pinned'],
+      [[], 'https://x.com/MoonFrog/status/1900000000000000003', 'top_recent'],
+    ] as const) {
+      const t = makeApp(SOCIAL);
+      contentFakes(t);
+      const seen = socialFake(t, { status: 'queued' });
+      const tweet = (id: string, likes: number, extra: object = {}) => ({
+        __typename: 'Tweet',
+        rest_id: id,
+        legacy: { user_id_str: '77', created_at: 'Wed Dec 31 12:00:00 +0000 2025', favorite_count: likes, retweet_count: 0, ...extra },
+      });
+      t.http
+        .on('api.x.com/1.1/guest/activate.json', () => json({ guest_token: '123' }))
+        .on('api.x.com/graphql/xmU6X_CKVnQ5lSrCbAmJsg/UserByScreenName', (u) => {
+          expect(JSON.parse(u.searchParams.get('variables')!).screen_name).toBe('moonfrog');
+          return json({ data: { user: { result: { __typename: 'User', rest_id: '77', legacy: { screen_name: 'MoonFrog', pinned_tweet_ids_str: pinned } } } } });
+        })
+        .on('api.x.com/graphql/E3opETHurmVJflFsUBVuUQ/UserTweets', () =>
+          json({
+            data: {
+              user: {
+                result: {
+                  timeline: {
+                    timeline: {
+                      instructions: [
+                        {
+                          type: 'TimelineAddEntries',
+                          entries: [
+                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000002', 5) } } } },
+                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000003', 50) } } } },
+                            { content: { itemContent: { tweet_results: { result: tweet('1900000000000000004', 900, { in_reply_to_status_id_str: '1' }) } } } },
+                            { content: { itemContent: { tweet_results: { result: { ...tweet('1900000000000000005', 999), legacy: { ...tweet('1', 999).legacy, user_id_str: '88' } } } } } },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: `find-${source}`, x_post_url: undefined })).body;
+      await t.api('POST', '/v1/tick');
+      const order = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+      expect(jobOf(order, 'social_boost').status).toBe('submitted');
+      expect(order.project.x_post_url).toBe(expected);
+      expect(order.project.x_post_source).toBe(source);
+      expect(seen.find((s) => s.url.endsWith('/v1/wurk/packages'))!.body.xPost).toBe(expected);
+      expect(t.http.count('api.x.com/graphql/E3opETHurmVJflFsUBVuUQ')).toBe(source === 'pinned' ? 0 : 1);
+    }
   });
 
   it('times items out, fails dependents at once, and reports everything when the order is final', async () => {

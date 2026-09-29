@@ -20,6 +20,7 @@ import { safeRemote } from '../lib/http.js';
 import { uid } from '../lib/ids.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
+import { findRaidPost } from '../providers/xProfile.js';
 import { isPaused } from './pauseService.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { socialActivity } from '../providers/socialActivity.js';
@@ -748,8 +749,14 @@ export function listEvents(ctx: ServiceContext, orderId: string) {
 /** Creates the bundled WURK package for this order (idempotent per order) and hands it off for polling. */
 async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
   if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
-  const p = o.project;
-  if (!p.x_post_url) return finish(ctx, j, { reason: 'The order has no X post URL to raid.' }, 'skipped');
+  let p = o.project;
+  if (!p.x_post_url) {
+    // No post supplied: take the pinned (or top recent) post from the project's X profile and store it on the order.
+    const found = await findRaidPost(ctx, p.x_url);
+    if (!found) return finish(ctx, j, { reason: p.x_url ? 'No public post found on the X profile to raid.' : 'The order has no X profile or post to raid.' }, 'skipped');
+    p = { ...loadOrder(ctx, o.id).project, x_post_url: found.url, x_post_source: found.source };
+    run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p, id: o.id });
+  }
   const preset = ctx.config.SOCIAL_BOOST_PRESET;
   const pkg = await socialActivity<{ id: string }>(
     ctx,
