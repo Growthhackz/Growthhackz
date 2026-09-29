@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {submitListing,checkListing,inspect,directoryCycle,siteConfig} from './directories.mjs';
 import {NotPostedError} from './reddit.mjs';
 
-let extraRequired=false,formGone=false,subscribes=0;const coins=[];
+let extraRequired=false,formGone=false,subscribes=0,loginDisabled=false;const coins=[];
 // Every page has a footer newsletter form (like Coinvote's), which must never be filled or submitted.
 const page=b=>`<!doctype html><html><body>${b}<footer><form method="post" action="/subscribe"><input type="email" name="email" placeholder="Email address" required><button type="submit" name="submit">Subscribe</button></form></footer></body></html>`;
 const form=()=>`<form method="post" enctype="multipart/form-data" action="/submit">
@@ -27,7 +27,7 @@ ${extraRequired?'<label for="ts">Total Supply</label><input id="ts" name="total_
 <button type="submit">Submit Coin</button></form>`;
 const server=createServer(async(req,res)=>{const url=new URL(req.url,'http://x');const authed=/sid=1/.test(req.headers.cookie||'');const chunks=[];for await(const c of req)chunks.push(c);const raw=Buffer.concat(chunks).toString('latin1');
  const send=(html,code=200,h={})=>{res.writeHead(code,{'content-type':'text/html',...h});res.end(page(html));};
- if(url.pathname==='/login'&&req.method==='GET')return send('<form method="post"><input type="email" name="email"><input type="password" name="password"><button type="submit">Login</button></form>');
+ if(url.pathname==='/login'&&req.method==='GET')return send(`<form method="post"><input type="email" name="email"><input type="password" name="password"><button type="submit"${loginDisabled?' disabled':''}>Login</button></form>`);
  if(url.pathname==='/login'){const f=new URLSearchParams(raw);return f.get('password')==='pw'?send('',302,{location:'/','set-cookie':'sid=1; Path=/'}):send('bad login');}
  if(url.pathname==='/subscribe'){subscribes++;return send('subscribed');}
  if(url.pathname==='/submit'&&req.method==='GET')return authed?send(formGone?'<p>Maintenance</p>':form()):send('',302,{location:'/login'});
@@ -56,6 +56,11 @@ try{
  // The coin form is missing (only the footer newsletter is on the page): nothing is sent anywhere.
  formGone=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'2'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/not reachable/.test(e.message));formGone=false;
  assert.equal(subscribes,0);
+ // A login button that stays disabled (captcha) is reported as needing cookies; nothing is sent.
+ loginDisabled=true;await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,statePath:join(dir,'y.json')}),e=>e instanceof NotPostedError&&/human check/.test(e.message));loginDisabled=false;
+ // A cookie export logs in without the password form.
+ const cookieCfg={...siteConfig('coinsniper',{...env,COINSNIPER_COOKIES:JSON.stringify([{name:'sid',value:'1',domain:'127.0.0.1',path:'/'}]),COINSNIPER_EMAIL:'',COINSNIPER_PASSWORD:''}),login:'/login',submit:'/submit',browse:['/new'],statePath:join(dir,'cookie.json')};
+ assert.ok(await inspect('coinsniper',cookieCfg));
  // Wrong password: nothing sent.
  await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,password:'nope',statePath:join(dir,'x.json')}),NotPostedError);
  // Review: not live yet, then live after approval, found via the new-coins page.
