@@ -6,13 +6,13 @@ import { safeEqual, Vault } from './lib/crypto.js';
 import { AppError } from './lib/errors.js';
 import type { HttpFetch } from './lib/http.js';
 import { registerRoutes } from './routes/index.js';
-import { authenticateKey } from './services/apiKeyService.js';
+import { authenticateKey, type KeyScope } from './services/apiKeyService.js';
 import { FsAssetStore, type AssetStore } from './services/assetStore.js';
 import type { ServiceContext } from './services/context.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    principal: 'admin' | 'service' | null;
+    principal: 'admin' | KeyScope | null;
   }
 }
 
@@ -27,6 +27,13 @@ export interface BuildAppOptions {
 export interface BuiltApp {
   app: FastifyInstance;
   ctx: ServiceContext;
+}
+
+/** Intake keys (the core bot): create a trending order, read a trending order and its report. Nothing else. */
+export function intakeAllowed(method: string, path: string): boolean {
+  if (method === 'POST') return path === '/v1/trending';
+  if (method === 'GET') return /^\/v1\/orders\/by-external-id\/trending(:|%3A)[^/]{1,100}(\/report)?$/i.test(path);
+  return false;
 }
 
 export function buildApp(opts: BuildAppOptions): BuiltApp {
@@ -58,9 +65,12 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
       return reply.code(404).send({ error: { code: 'not_found', message: 'Public hubs are disabled' } });
     }
     const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
+    const scope = token && !safeEqual(token, config.ADMIN_API_TOKEN) ? authenticateKey(ctx, token) : null;
     if (token && safeEqual(token, config.ADMIN_API_TOKEN)) req.principal = 'admin';
-    else if (token && authenticateKey(ctx, token)) req.principal = 'service';
+    else if (scope) req.principal = scope;
     else return reply.code(401).send({ error: { code: 'unauthorized', message: 'Missing or invalid bearer token' } });
+    if (req.principal === 'intake' && !intakeAllowed(req.method, path))
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'This key can only create trending orders and read their status' } });
   });
 
   app.addHook('onSend', async (_req, reply) => {

@@ -91,4 +91,11 @@ export const MIGRATIONS: Migration[] = [
       UPDATE orders SET completed_at = updated_at;
     `,
   },
+  {
+    version: 3,
+    sql: `
+      -- 'service': full order API. 'intake': trending intake and its own status/report only (the core bot).
+      ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'service';
+    `,
+  },
 ];

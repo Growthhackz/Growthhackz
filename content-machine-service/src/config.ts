@@ -30,6 +30,8 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   CALLBACK_URL: z.string().optional(),
   CALLBACK_SECRET: z.string().optional(),
+  /** Event types sent to CALLBACK_URL; the rest stay in the order's event log only. */
+  CALLBACK_EVENT_TYPES: z.string().default('order.accepted,link.published,sticker_pack.ready,order.completed'),
   /** Our own call channel (separate bot from TELEGRAM_BOT_TOKEN). */
   CALL_CHANNEL_BOT_TOKEN: z.string().optional(),
   CALL_CHANNEL_ID: z.string().optional(),
