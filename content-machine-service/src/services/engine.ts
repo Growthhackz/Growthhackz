@@ -450,7 +450,9 @@ function pressRelease(o: Order) {
   while (parts.join('\n\n').length < 750 && extra.length) parts.splice(parts.length - 1, 0, extra.shift()!);
   const body = parts.join('\n\n').replace(/[<>]/g, '');
   const keywords = [p.name, p.symbol, p.chain, 'crypto', 'memecoin', 'token launch'].filter(Boolean).join(', ');
-  return { headline, summary: copy.short_post, body, keywords, website_url: p.website_url ?? p.telegram_url };
+  // Press sites reject emojis, hashtags and cashtags in the summary.
+  const summary = copy.short_post.replace(/[#$](\w+)/g, '$1').replace(/\p{Extended_Pictographic}|\uFE0F/gu, '').replace(/\s+/g, ' ').trim();
+  return { headline, summary, body, keywords, website_url: p.website_url ?? p.telegram_url };
 }
 
 /** Leases the next Binance or Reddit post. `kinds` lets a worker take only what it is configured for. */
