@@ -54,6 +54,23 @@ export function finish(ctx: ServiceContext, job: Leased, result: unknown, status
   if (r.changes) recordEvent(ctx, job.order_id, 'delivery.updated', { job_id: job.id, kind: job.kind, status, result });
 }
 
+const STICKER_KINDS = ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'sticker_art_3', 'sticker_art_4', 'stickers', 'sticker_publish'];
+
+/** No logo (supplied or from the DEX): the whole sticker pack is skipped rather than blocking the order. */
+function skipStickerPack(ctx: ServiceContext, j: Leased, o: Order) {
+  const result = { reason: 'The project has no logo, so no sticker pack was made.' };
+  finish(ctx, j, result, 'skipped');
+  for (const other of o.jobs)
+    if (STICKER_KINDS.includes(other.kind) && other.id !== j.id && ['queued', 'blocked'].includes(other.status)) {
+      const r = run(ctx.db, "UPDATE jobs SET status = 'skipped', result = :r, error = NULL, updated_at = :t WHERE id = :id AND status IN ('queued', 'blocked')", {
+        r: result,
+        t: nowMs(ctx),
+        id: other.id,
+      });
+      if (r.changes) recordEvent(ctx, o.id, 'delivery.updated', { job_id: other.id, kind: other.kind, status: 'skipped', result });
+    }
+}
+
 function fail(ctx: ServiceContext, job: Leased, err: unknown) {
   const blocked = isBlocking(err);
   const uncertain = IRREVERSIBLE.includes(job.kind) && !blocked;
@@ -176,6 +193,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   }
   if (j.kind === 'campaign_image' || j.kind.startsWith('sticker_art_')) {
     if (o.demo) return finish(ctx, j, { demo: true, note: 'Demo uses supplied artwork; no generation charged.' }, 'skipped');
+    if (j.kind.startsWith('sticker_art_') && !p.logo_url) return skipStickerPack(ctx, j, o);
     const m = await generateImage(ctx, o, j.kind);
     const ext = m.mime === 'image/jpeg' ? 'jpg' : m.mime.split('/')[1];
     return finish(ctx, j, await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, m.mime, m.bytes));

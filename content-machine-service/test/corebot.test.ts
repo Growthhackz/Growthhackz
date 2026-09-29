@@ -132,3 +132,31 @@ describe('global pause', () => {
     expect(Date.parse(meta.deadline_at) - t.clock.now().getTime()).toBeGreaterThan(0);
   });
 });
+
+describe('live-test readiness', () => {
+  it('skips the whole sticker pack when there is no logo, and lists problems at /v1/errors', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph' }); // hub off: Telegraph is blocked, which /v1/errors must show
+    t.http
+      .on('api.dexscreener.com/', () => json([{ chainId: 'solana', baseToken: { address: SOL, name: 'Moon Frog', symbol: 'MFROG' }, liquidity: { usd: 1 } }]))
+      .on('generativelanguage.googleapis.com/', (_u, init) =>
+        JSON.parse(String(init.body)).generationConfig?.responseModalities
+          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
+          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+      );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/trending', purchase)).body;
+    for (let i = 0; i < 30; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const jobs = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs;
+    const sticker = jobs.filter((j: any) => j.kind.startsWith('sticker') || j.kind === 'stickers');
+    expect(sticker.length).toBe(7);
+    expect(sticker.every((j: any) => j.status === 'skipped')).toBe(true);
+    expect(sticker[0].result.reason).toContain('no logo');
+
+    const errors = (await t.api('GET', '/v1/errors')).body.errors;
+    expect(errors.find((e: any) => e.source === 'telegraph')).toMatchObject({ order: 'trending:cb-1', status: 'blocked' });
+    expect(errors.find((e: any) => e.source?.startsWith('sticker'))).toBeUndefined();
+    expect((await t.api('GET', '/v1/errors?since=2099-01-01T00:00:00Z')).body.errors).toEqual([]);
+    const key = await intakeKey(t);
+    expect((await t.call(key, 'GET', '/v1/errors')).status).toBe(403);
+  });
+});

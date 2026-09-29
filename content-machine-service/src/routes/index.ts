@@ -21,7 +21,7 @@ import {
   orderReport,
 } from '../services/engine.js';
 import { publicHub, renderHub } from '../services/hubService.js';
-import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, loadOrder, presentOrder, readAsset, retryJob } from '../services/orderService.js';
+import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, loadOrder, presentOrder, readAsset, recentProblems, retryJob } from '../services/orderService.js';
 import { saveSetting, settingsSummary } from '../services/settingsService.js';
 
 type Params = { id: string };
@@ -127,6 +127,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
 
   // ---- admin ----
   /** Global pause: orders are still accepted, but nothing is generated, published or sent until resumed. */
+  /** Failures, blocks and unconfirmed publications across all orders (admin). `since` is an ISO time. */
+  app.get('/v1/errors', admin, async (req) => {
+    const q = parse(z.object({ since: z.string().datetime().optional(), limit: z.coerce.number().int().min(1).max(500).optional() }), req.query);
+    return { errors: recentProblems(ctx, q.since ? Date.parse(q.since) : 0, q.limit ?? 100) };
+  });
   app.get('/v1/pause', admin, async () => pauseStatus(ctx));
   app.post('/v1/pause', admin, async () => pause(ctx));
   app.post('/v1/resume', admin, async () => resume(ctx));
