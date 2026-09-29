@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { get } from '../src/db/database.js';
 import { cancelPosition, sellNow, sweep, tick, type PositionRow, type TriggerRow } from '../src/services/engine.js';
 import { updateSettings } from '../src/services/settings.js';
-import { createWallet } from '../src/services/wallets.js';
+import { createWallet, updateWallet } from '../src/services/wallets.js';
 import { SOL_MINT } from '../src/solana/keys.js';
 import { transferFee } from '../src/solana/tx.js';
 import { MINT, newKey, OTHER, setup, TRIGGER_TOKEN } from './helpers.js';
@@ -22,11 +22,14 @@ async function fixture() {
   s.chain.balances.set(funding.address, 10n * SOL);
   s.chain.balances.set(w1.address, 2n * SOL);
   s.chain.balances.set(w2.address, 1n * SOL);
-  updateSettings(s.ctx, { initialReceiver: OTHER, initialAmountSol: 0.5, buyDelayMinutes: 10 });
+  updateSettings(s.ctx, { initialReceiver: OTHER, initialAmountSol: 0.5 });
   const fire = (body: object = { contractAddress: MINT }) =>
     s.app.inject({ method: 'POST', url: '/v1/trigger', headers: { authorization: `Bearer ${TRIGGER_TOKEN}` }, payload: body });
   const positions = () => s.db.prepare('SELECT * FROM positions ORDER BY rowid').all() as unknown as PositionRow[];
-  return { ...s, funding, w1, w2, t1: t1.wallet, t2: t2.wallet, fire, positions };
+  const setDelay = (minutes: number) => {
+    for (const w of [t1.wallet, t2.wallet]) updateWallet(s.ctx, w.id, { buyDelayMinutes: minutes });
+  };
+  return { ...s, funding, w1, w2, t1: t1.wallet, t2: t2.wallet, fire, positions, setDelay };
 }
 
 describe('trigger endpoint', () => {
@@ -132,18 +135,38 @@ describe('full flow', () => {
     expect(s.positions()[0]).toMatchObject({ status: 'closed', sells: 2, sell_override_pct: null });
   });
 
-  it('applies a changed delay to triggers still waiting', async () => {
+  it('uses each wallet\'s own delay and swap settings, and applies a changed delay to buys still waiting', async () => {
     const s = await fixture();
+    updateWallet(s.ctx, s.t2.id, { buyDelayMinutes: 30, slippageBps: 300 });
     await s.fire();
-    s.advance(3 * MIN);
-    updateSettings(s.ctx, { buyDelayMinutes: 2 });
+    s.advance(10 * MIN);
     await tick(s.ctx);
-    expect(s.txs().filter((t) => t.kind === 'buy')).toHaveLength(2);
+    let buys = s.txs().filter((t) => t.kind === 'buy');
+    expect(buys.map((t) => t.wallet_id)).toEqual([s.t1.id]);
+    expect(s.swapper.quotes[0]!.slippageBps).toBe(1000);
+
+    updateWallet(s.ctx, s.t2.id, { buyDelayMinutes: 12 });
+    s.advance(2 * MIN);
+    await tick(s.ctx);
+    buys = s.txs().filter((t) => t.kind === 'buy');
+    expect(buys.map((t) => t.wallet_id)).toEqual([s.t1.id, s.t2.id]);
+    expect(s.swapper.quotes[1]!.slippageBps).toBe(300);
+  });
+
+  it('keeps back each wallet\'s own reserve', async () => {
+    const s = await fixture();
+    s.setDelay(0);
+    updateWallet(s.ctx, s.t2.id, { feeReserveSol: 0.2 });
+    updateSettings(s.ctx, { initialReceiver: '' });
+    await s.fire();
+    await tick(s.ctx);
+    expect(s.txs().find((t) => t.wallet_id === s.t2.id)!.amount_in).toBe(String(SOL - SOL / 5n));
   });
 
   it('retries a buy whose blockhash expired, and fails after repeated quote errors', async () => {
     const s = await fixture();
-    updateSettings(s.ctx, { buyDelayMinutes: 0, initialReceiver: '' });
+    s.setDelay(0);
+    updateSettings(s.ctx, { initialReceiver: '' });
     await s.fire();
     await tick(s.ctx);
     expect(s.txs().filter((t) => t.kind === 'buy')).toHaveLength(2);
@@ -165,7 +188,8 @@ describe('full flow', () => {
 
   it('marks a preflight rejection failed without leaving it pending', async () => {
     const s = await fixture();
-    updateSettings(s.ctx, { buyDelayMinutes: 0, initialReceiver: '' });
+    s.setDelay(0);
+    updateSettings(s.ctx, { initialReceiver: '' });
     await s.fire();
     s.chain.rejectNext = 'slippage exceeded';
     await tick(s.ctx);
@@ -186,7 +210,7 @@ describe('full flow', () => {
 
   it('stops a position on cancel', async () => {
     const s = await fixture();
-    updateSettings(s.ctx, { buyDelayMinutes: 0 });
+    s.setDelay(0);
     await s.fire();
     cancelPosition(s.ctx, s.positions()[0]!.id);
     await tick(s.ctx);

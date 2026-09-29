@@ -49,6 +49,10 @@ function presentWallet(w: WalletRow, balance: bigint | null) {
     buyPct: w.buy_pct,
     sellPct: w.sell_pct,
     sellIntervalHours: w.sell_interval_hours,
+    buyDelayMinutes: w.buy_delay_minutes,
+    slippageBps: w.slippage_bps,
+    feeReserveSol: w.fee_reserve_sol,
+    swapMaxPriorityFeeLamports: w.swap_max_priority_fee_lamports,
     enabled: Boolean(w.enabled),
     balanceSol: balance === null ? null : lamportsToSol(balance),
     createdAt: w.created_at,
@@ -99,9 +103,16 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: ServiceContex
       all<{ id: string; label: string }>(ctx.db, 'SELECT id, label FROM wallets').map((w) => [w.id, w.label]),
     );
     const triggers = all<TriggerRow>(ctx.db, 'SELECT * FROM triggers ORDER BY received_at DESC LIMIT 50');
-    const positions = all<PositionRow>(
+    const positions = all<PositionRow & { buy_at: number }>(
       ctx.db,
-      `SELECT * FROM positions ORDER BY status IN ('closed', 'failed', 'cancelled'), created_at DESC LIMIT 100`,
+      `SELECT p.*, t.received_at + CAST(round(w.buy_delay_minutes * 60000) AS INTEGER) AS buy_at
+       FROM positions p JOIN triggers t ON t.id = p.trigger_id JOIN wallets w ON w.id = p.wallet_id
+       ORDER BY p.status IN ('closed', 'failed', 'cancelled'), p.created_at DESC LIMIT 100`,
+    );
+    const buyCounts = new Map(
+      all<{ trigger_id: string; n: number }>(ctx.db, 'SELECT trigger_id, COUNT(*) AS n FROM positions GROUP BY trigger_id').map(
+        (r) => [r.trigger_id, r.n],
+      ),
     );
     const txs = all<TxRow>(ctx.db, 'SELECT * FROM txs ORDER BY created_at DESC LIMIT 100');
     const settings = getSettings(ctx);
@@ -120,7 +131,7 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: ServiceContex
         fundingTo: t.funding_to,
         fundingSol: t.funding_lamports ? lamportsToSol(BigInt(t.funding_lamports)) : null,
         receivedAt: t.received_at,
-        buysAt: t.received_at + Math.round(settings.buyDelayMinutes * 60_000),
+        buys: buyCounts.get(t.id) ?? 0,
       })),
       positions: positions.map((p) => ({
         id: p.id,
@@ -134,7 +145,7 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: ServiceContex
         tokensSold: p.tokens_sold,
         solReceived: lamportsToSol(BigInt(p.sol_received)),
         sells: p.sells,
-        nextActionAt: p.next_action_at,
+        nextActionAt: p.status === 'waiting' ? Math.max(p.buy_at, p.next_action_at ?? 0) : p.next_action_at,
         lastError: p.last_error,
       })),
       activity: txs.map((t) => ({

@@ -48,7 +48,7 @@ export class FakeChain implements Chain {
 
 /** Returns a real signable transaction so the signing path is exercised; the rate is 1 SOL lamport = 1000 token units. */
 export class FakeSwapper implements Swapper {
-  quotes: Array<{ inputMint: string; outputMint: string; amount: bigint }> = [];
+  quotes: Array<{ inputMint: string; outputMint: string; amount: bigint; slippageBps: number }> = [];
   failQuote: string | null = null;
   private n = 0n;
   constructor(private readonly chain: FakeChain) {}

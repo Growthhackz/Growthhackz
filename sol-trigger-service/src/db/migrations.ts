@@ -89,4 +89,19 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_txs_created ON txs(created_at);
     `,
   },
+  {
+    // Buy delay and swap settings move from global settings onto each trading wallet.
+    version: 2,
+    sql: `
+      ALTER TABLE wallets ADD COLUMN buy_delay_minutes REAL NOT NULL DEFAULT 10;
+      ALTER TABLE wallets ADD COLUMN slippage_bps INTEGER NOT NULL DEFAULT 1000;
+      ALTER TABLE wallets ADD COLUMN fee_reserve_sol REAL NOT NULL DEFAULT 0.01;
+      ALTER TABLE wallets ADD COLUMN swap_max_priority_fee_lamports INTEGER NOT NULL DEFAULT 2000000;
+      UPDATE wallets SET
+        buy_delay_minutes = coalesce((SELECT json_extract(data, '$.buyDelayMinutes') FROM settings WHERE id = 1), buy_delay_minutes),
+        slippage_bps = coalesce((SELECT json_extract(data, '$.slippageBps') FROM settings WHERE id = 1), slippage_bps),
+        fee_reserve_sol = coalesce((SELECT json_extract(data, '$.feeReserveSol') FROM settings WHERE id = 1), fee_reserve_sol),
+        swap_max_priority_fee_lamports = coalesce((SELECT json_extract(data, '$.swapMaxPriorityFeeLamports') FROM settings WHERE id = 1), swap_max_priority_fee_lamports);
+    `,
+  },
 ];

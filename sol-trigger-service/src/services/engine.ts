@@ -416,14 +416,15 @@ function getPosition(ctx: ServiceContext, id: string): PositionRow {
 }
 
 async function processBuys(ctx: ServiceContext): Promise<number> {
-  const s = getSettings(ctx);
   const t = now(ctx);
-  const due = all<PositionRow & { received_at: number }>(
+  // Each wallet's own delay, read live, so editing it also moves buys that are still waiting.
+  const due = all<PositionRow>(
     ctx.db,
-    `SELECT p.*, t.received_at FROM positions p JOIN triggers t ON t.id = p.trigger_id
-     WHERE p.status = 'waiting' AND t.received_at + :delay <= :t AND coalesce(p.next_action_at, 0) <= :t
+    `SELECT p.* FROM positions p JOIN triggers t ON t.id = p.trigger_id JOIN wallets w ON w.id = p.wallet_id
+     WHERE p.status = 'waiting' AND t.received_at + CAST(round(w.buy_delay_minutes * 60000) AS INTEGER) <= :t
+       AND coalesce(p.next_action_at, 0) <= :t
      ORDER BY p.created_at, p.rowid LIMIT 20`,
-    { delay: Math.round(s.buyDelayMinutes * 60_000), t },
+    { t },
   );
   let sent = 0;
   for (const p of due) {
@@ -442,12 +443,12 @@ async function processBuys(ctx: ServiceContext): Promise<number> {
     });
     try {
       const balance = await ctx.chain.getBalance(w.address);
-      const reserve = solToLamports(s.feeReserveSol);
+      const reserve = solToLamports(w.fee_reserve_sol);
       let spend = percentOf(balance, w.buy_pct);
       if (spend > balance - reserve) spend = balance - reserve;
       if (spend < 100_000n) throw new ValidationError(`Not enough SOL to buy (balance ${balance} lamports, reserve ${reserve})`);
-      const quote = await ctx.swapper.quote({ inputMint: SOL_MINT, outputMint: p.mint, amount: spend, slippageBps: s.slippageBps });
-      const swap = await ctx.swapper.buildSwap({ quote, userPublicKey: w.address, maxPriorityFeeLamports: s.swapMaxPriorityFeeLamports });
+      const quote = await ctx.swapper.quote({ inputMint: SOL_MINT, outputMint: p.mint, amount: spend, slippageBps: w.slippage_bps });
+      const swap = await ctx.swapper.buildSwap({ quote, userPublicKey: w.address, maxPriorityFeeLamports: w.swap_max_priority_fee_lamports });
       const signed = await signSerialized(await signerFor(ctx, w), swap.base64);
       await submit(ctx, {
         kind: 'buy',
@@ -473,7 +474,6 @@ async function processBuys(ctx: ServiceContext): Promise<number> {
 }
 
 async function processSells(ctx: ServiceContext): Promise<number> {
-  const s = getSettings(ctx);
   const t = now(ctx);
   const due = all<PositionRow>(
     ctx.db,
@@ -501,8 +501,8 @@ async function processSells(ctx: ServiceContext): Promise<number> {
       let amount = percentOf(holding, pct);
       if (amount === 0n || pct >= 100) amount = holding;
       run(ctx.db, "UPDATE positions SET status = 'selling', updated_at = :t WHERE id = :id", { id: p.id, t });
-      const quote = await ctx.swapper.quote({ inputMint: p.mint, outputMint: SOL_MINT, amount, slippageBps: s.slippageBps });
-      const swap = await ctx.swapper.buildSwap({ quote, userPublicKey: w.address, maxPriorityFeeLamports: s.swapMaxPriorityFeeLamports });
+      const quote = await ctx.swapper.quote({ inputMint: p.mint, outputMint: SOL_MINT, amount, slippageBps: w.slippage_bps });
+      const swap = await ctx.swapper.buildSwap({ quote, userPublicKey: w.address, maxPriorityFeeLamports: w.swap_max_priority_fee_lamports });
       const signed = await signSerialized(await signerFor(ctx, w), swap.base64);
       await submit(ctx, {
         kind: 'sell',

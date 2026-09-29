@@ -34,11 +34,11 @@ describe('dashboard auth', () => {
     const { app } = setup();
     const cookie = await login(app);
     const plain = await app.inject({
-      method: 'PUT', url: '/api/settings', headers: { cookie, 'content-type': 'text/plain' }, payload: '{"buyDelayMinutes":1}',
+      method: 'PUT', url: '/api/settings', headers: { cookie, 'content-type': 'text/plain' }, payload: '{"initialAmountSol":1}',
     });
     expect(plain.statusCode).toBe(415);
     const foreign = await app.inject({
-      method: 'PUT', url: '/api/settings', headers: { cookie, origin: 'https://evil.example' }, payload: { buyDelayMinutes: 1 },
+      method: 'PUT', url: '/api/settings', headers: { cookie, origin: 'https://evil.example' }, payload: { initialAmountSol: 1 },
     });
     expect(foreign.statusCode).toBe(403);
   });
@@ -52,14 +52,18 @@ describe('dashboard actions', () => {
       s.app.inject({ method, url, headers: { cookie }, payload });
 
     expect((await call('PUT', '/api/settings', { initialReceiver: 'bad' })).statusCode).toBe(400);
-    const saved = await call('PUT', '/api/settings', { initialReceiver: OTHER, initialAmountSol: 0.25, buyDelayMinutes: 15 });
-    expect(saved.json().settings).toMatchObject({ initialReceiver: OTHER, initialAmountSol: 0.25, buyDelayMinutes: 15, slippageBps: 1000 });
+    const saved = await call('PUT', '/api/settings', { initialReceiver: OTHER, initialAmountSol: 0.25 });
+    expect(saved.json().settings).toEqual({
+      triggersEnabled: true, initialReceiver: OTHER, initialAmountSol: 0.25, finalReceiver: null, transferPriorityMicroLamports: 200_000,
+    });
     expect((await call('PUT', '/api/settings', { initialReceiver: '' })).json().settings.initialReceiver).toBeNull();
 
     const key = await newKey();
     const imported = await call('POST', '/api/wallets', { role: 'trading', label: 'W1', secretKey: key.secret, buyPct: 40, sellPct: 10, sellIntervalHours: 6 });
     expect(imported.statusCode).toBe(201);
-    expect(imported.json().wallet.address).toBe(key.address);
+    expect(imported.json().wallet).toMatchObject({
+      address: key.address, buyDelayMinutes: 10, slippageBps: 1000, feeReserveSol: 0.01, swapMaxPriorityFeeLamports: 2_000_000,
+    });
     expect(imported.json().generatedSecret).toBeUndefined();
     expect((await call('POST', '/api/wallets', { role: 'trading', label: 'dup', secretKey: key.secret, buyPct: 1, sellPct: 1, sellIntervalHours: 1 })).statusCode).toBe(409);
     expect((await call('POST', '/api/wallets', { role: 'trading', label: 'x', secretKey: 'abc', buyPct: 1, sellPct: 1, sellIntervalHours: 1 })).statusCode).toBe(400);
@@ -69,8 +73,9 @@ describe('dashboard actions', () => {
     expect((await normaliseSecret(g.generatedSecret)).address).toBe(g.wallet.address);
 
     const id = imported.json().wallet.id;
-    const edited = await call('PATCH', `/api/wallets/${id}`, { sellPct: 33, enabled: false });
-    expect(edited.json().wallet).toMatchObject({ buyPct: 40, sellPct: 33, enabled: false });
+    const edited = await call('PATCH', `/api/wallets/${id}`, { sellPct: 33, enabled: false, buyDelayMinutes: 5, slippageBps: 250 });
+    expect(edited.json().wallet).toMatchObject({ buyPct: 40, sellPct: 33, enabled: false, buyDelayMinutes: 5, slippageBps: 250 });
+    expect((await call('PATCH', `/api/wallets/${id}`, { slippageBps: 9_000 })).statusCode).toBe(400);
 
     s.chain.balances.set(key.address, 1_500_000_000n);
     const state = await call('GET', '/api/state');

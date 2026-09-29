@@ -65,6 +65,9 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   .tabs { display: flex; gap: 6px; margin: 8px 0; }
   .tabs button.active { border-color: var(--accent); color: var(--accent2); }
   .hidden { display: none !important; }
+  details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  summary:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -90,7 +93,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   <main>
     <div class="grid">
       <section class="card">
-        <h2>1 · Initial receiver</h2>
+        <h2>Initial receiver</h2>
         <label for="s-initial">Wallet that gets SOL on each trigger</label>
         <input id="s-initial" class="mono" placeholder="Solana address (empty = skip this step)">
         <label for="s-amount">Amount (SOL)</label>
@@ -101,20 +104,26 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
         </div>
       </section>
       <section class="card">
-        <h2>2 · Buy delay</h2>
-        <label for="s-delay">Minutes after the trigger before trading wallets buy</label>
-        <input id="s-delay" type="number" min="0" step="0.5">
-        <div class="hint">Changing it also moves triggers that are still waiting.</div>
-        <div class="actions"><button class="primary" data-save="delay">Save</button></div>
-      </section>
-      <section class="card">
-        <h2>3 · Final receiver (sweep)</h2>
+        <h2>Final receiver (sweep)</h2>
         <label for="s-final">Wallet that receives swept SOL</label>
         <input id="s-final" class="mono" placeholder="Solana address">
+        <details>
+          <summary>Advanced</summary>
+          <label for="s-xferfee">Transfer priority fee (µlamports per compute unit)</label>
+          <input id="s-xferfee" type="number" min="0" step="1000">
+          <div class="hint">Used for the initial receiver transfer and sweeps. Higher lands faster when the network is busy.</div>
+        </details>
         <div class="actions">
           <button class="primary" data-save="final">Save</button>
           <button class="danger" data-clear="final">Delete receiver</button>
         </div>
+      </section>
+      <section class="card">
+        <h2>Manual trigger</h2>
+        <label for="m-ca">Contract address</label>
+        <input id="m-ca" class="mono" placeholder="Token mint address">
+        <div class="hint">Runs the full flow for real: funding transfer, then each wallet buys after its own delay.</div>
+        <div class="actions"><button class="primary" id="m-fire">Fire trigger</button></div>
       </section>
     </div>
 
@@ -132,7 +141,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
         <table>
           <thead><tr>
             <th><input type="checkbox" id="select-all" title="Select all for sweep"></th>
-            <th>Name</th><th>Address</th><th>SOL</th><th>Buy % of SOL</th><th>Sell % of tokens</th><th>Every</th><th>Status</th><th></th>
+            <th>Name</th><th>Address</th><th>SOL</th><th>Buy after</th><th>Buy % of SOL</th><th>Sell % of tokens</th><th>Every</th><th>Slippage</th><th>Status</th><th></th>
           </tr></thead>
           <tbody id="wallets"></tbody>
         </table>
@@ -153,34 +162,11 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
       </div>
     </section>
 
-    <div class="grid">
-      <section class="card">
-        <h2>Manual trigger</h2>
-        <label for="m-ca">Contract address</label>
-        <input id="m-ca" class="mono" placeholder="Token mint address">
-        <div class="hint">Runs the full flow for real: funding transfer, then buys after the delay.</div>
-        <div class="actions"><button class="primary" id="m-fire">Fire trigger</button></div>
-      </section>
-      <section class="card">
-        <h2>Advanced</h2>
-        <div class="row">
-          <div><label for="s-slip">Slippage %</label><input id="s-slip" type="number" min="0.1" max="50" step="0.1"></div>
-          <div><label for="s-reserve">Keep back (SOL)</label><input id="s-reserve" type="number" min="0.003" step="0.001"></div>
-        </div>
-        <div class="row">
-          <div><label for="s-swapfee">Max swap priority fee (SOL)</label><input id="s-swapfee" type="number" min="0" step="0.0001"></div>
-          <div><label for="s-xferfee">Transfer priority (µlamports/CU)</label><input id="s-xferfee" type="number" min="0" step="1000"></div>
-        </div>
-        <div class="hint">"Keep back" stays in each trading wallet on a buy, for fees and the token account.</div>
-        <div class="actions"><button class="primary" data-save="advanced">Save</button></div>
-      </section>
-    </div>
-
     <section class="card">
       <h2>Triggers</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Received</th><th>Contract</th><th>Source</th><th>Funding</th><th>Buys at</th><th>Note</th></tr></thead>
+          <thead><tr><th>Received</th><th>Contract</th><th>Source</th><th>Funding</th><th>Buys</th><th>Note</th></tr></thead>
           <tbody id="triggers"></tbody>
         </table>
       </div>
@@ -217,13 +203,24 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
     <input id="wd-label" maxlength="60" required>
     <div id="wd-trading">
       <div class="row">
+        <div><label for="wd-delay">Buy after (minutes)</label><input id="wd-delay" type="number" min="0" step="0.5" required></div>
         <div><label for="wd-buy">Buy: % of SOL balance</label><input id="wd-buy" type="number" min="0.01" max="100" step="0.01" required></div>
       </div>
       <div class="row">
         <div><label for="wd-sell">Sell: % of token holding</label><input id="wd-sell" type="number" min="0" max="100" step="0.01" required></div>
         <div><label for="wd-interval">Every (hours)</label><input id="wd-interval" type="number" min="0.01" step="0.01" required></div>
       </div>
-      <div class="hint">Sell 0% = hold. Each interval sells that % of whatever the wallet still holds.</div>
+      <div class="hint">"Buy after" counts from the trigger; changing it also moves this wallet's buys still waiting. Sell 0% = hold. Each interval sells that % of whatever the wallet still holds.</div>
+      <details>
+        <summary>Advanced</summary>
+        <div class="row">
+          <div><label for="wd-slip">Slippage %</label><input id="wd-slip" type="number" min="0.1" max="50" step="0.1" required></div>
+          <div><label for="wd-reserve">Keep back (SOL)</label><input id="wd-reserve" type="number" min="0.003" step="0.001" required></div>
+        </div>
+        <label for="wd-swapfee">Max priority fee per swap (SOL)</label>
+        <input id="wd-swapfee" type="number" min="0" step="0.0001" required>
+        <div class="hint">"Keep back" stays in the wallet on every buy, for network fees and the token account.</div>
+      </details>
       <label class="toggle" style="margin-top:10px"><input type="checkbox" id="wd-enabled" checked> Enabled (buys on new triggers, sells on schedule)</label>
     </div>
     <div class="actions" style="justify-content:flex-end">
@@ -302,11 +299,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   function fillSettings(s) {
     $('#s-initial').value = s.initialReceiver || '';
     $('#s-amount').value = s.initialAmountSol;
-    $('#s-delay').value = s.buyDelayMinutes;
     $('#s-final').value = s.finalReceiver || '';
-    $('#s-slip').value = s.slippageBps / 100;
-    $('#s-reserve').value = s.feeReserveSol;
-    $('#s-swapfee').value = s.swapMaxPriorityFeeLamports / 1e9;
     $('#s-xferfee').value = s.transferPriorityMicroLamports;
   }
 
@@ -328,10 +321,12 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
       '<tr><td><input type="checkbox" data-select="' + esc(w.id) + '"' + (selected.has(w.id) ? ' checked' : '') + '></td>' +
       '<td>' + esc(w.label) + '</td><td>' + addr(w.address) + '</td>' +
       '<td>' + esc(w.balanceSol ?? '?') + '</td>' +
-      '<td>' + esc(w.buyPct) + '%</td><td>' + esc(w.sellPct) + '%</td><td>' + esc(w.sellIntervalHours) + 'h</td>' +
+      '<td>' + esc(w.buyDelayMinutes) + 'm</td>' +
+      '<td>' + esc(w.buyPct) + '%</td><td>' + (w.sellPct ? esc(w.sellPct) + '%' : '<span class="muted">hold</span>') + '</td><td>' + esc(w.sellIntervalHours) + 'h</td>' +
+      '<td>' + esc(w.slippageBps / 100) + '%</td>' +
       '<td>' + (w.enabled ? pill('active') : '<span class="pill">disabled</span>') + '</td>' +
       '<td><button class="small" data-edit="' + esc(w.id) + '">Edit</button> <button class="small danger" data-remove="' + esc(w.id) + '">Remove</button></td></tr>'
-    ).join('') : '<tr><td colspan="9" class="muted">No trading wallets yet. Add one to start buying on triggers.</td></tr>';
+    ).join('') : '<tr><td colspan="11" class="muted">No trading wallets yet. Add one to start buying on triggers.</td></tr>';
 
     for (const id of [...selected]) if (!s.wallets.some((w) => w.id === id)) selected.delete(id);
     const all = s.wallets.length > 0 && s.wallets.every((w) => selected.has(w.id));
@@ -341,7 +336,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
     $('#positions').innerHTML = s.positions.length ? s.positions.map((p) =>
       '<tr><td>' + esc(p.wallet) + '</td><td>' + token(p.contractAddress) + '</td><td>' + pill(p.status) + '</td>' +
       '<td>' + esc(p.solSpent) + '</td><td>' + esc(p.sells) + '</td><td>' + esc(p.solReceived) + '</td>' +
-      '<td>' + (['waiting', 'holding'].includes(p.status) ? until(p.nextActionAt || (p.status === 'waiting' ? (s.triggers.find((t) => t.id === p.triggerId) || {}).buysAt : null), s.now) : '—') + '</td>' +
+      '<td>' + (['waiting', 'holding'].includes(p.status) ? until(p.nextActionAt, s.now) : '—') + '</td>' +
       '<td class="wrap muted">' + esc(p.lastError || '') + '</td>' +
       '<td>' + (p.status === 'holding' ? '<button class="small" data-sellnow="' + esc(p.id) + '">Sell all now</button> ' : '') +
       (['waiting', 'holding'].includes(p.status) ? '<button class="small danger" data-cancel="' + esc(p.id) + '">Stop</button>' : '') + '</td></tr>'
@@ -350,7 +345,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
     $('#triggers').innerHTML = s.triggers.length ? s.triggers.map((t) =>
       '<tr><td>' + time(t.receivedAt) + '</td><td>' + token(t.contractAddress) + '</td><td>' + esc(t.source) + '</td>' +
       '<td>' + pill(t.funding) + (t.fundingSol ? ' <span class="muted">' + esc(t.fundingSol) + ' SOL</span>' : '') + '</td>' +
-      '<td>' + (t.status === 'ignored' ? pill('ignored') : time(t.buysAt)) + '</td><td class="wrap muted">' + esc(t.note || '') + '</td></tr>'
+      '<td>' + (t.status === 'ignored' ? pill('ignored') : esc(t.buys)) + '</td><td class="wrap muted">' + esc(t.note || '') + '</td></tr>'
     ).join('') : '<tr><td colspan="6" class="muted">No triggers yet.</td></tr>';
 
     $('#activity').innerHTML = s.activity.length ? s.activity.map((a) => {
@@ -414,14 +409,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   document.querySelectorAll('[data-save]').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.save;
     if (k === 'initial') saveSettings({ initialReceiver: $('#s-initial').value, initialAmountSol: num('#s-amount') });
-    if (k === 'delay') saveSettings({ buyDelayMinutes: num('#s-delay') });
-    if (k === 'final') saveSettings({ finalReceiver: $('#s-final').value });
-    if (k === 'advanced') saveSettings({
-      slippageBps: Math.round(num('#s-slip') * 100),
-      feeReserveSol: num('#s-reserve'),
-      swapMaxPriorityFeeLamports: Math.round(num('#s-swapfee') * 1e9),
-      transferPriorityMicroLamports: Math.round(num('#s-xferfee')),
-    });
+    if (k === 'final') saveSettings({ finalReceiver: $('#s-final').value, transferPriorityMicroLamports: Math.round(num('#s-xferfee')) });
   }));
   document.querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', () => {
     if (!confirm('Delete this receiver?')) return;
@@ -451,15 +439,23 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
     $('#wd-buy').value = src ? src.buyPct : 50;
     $('#wd-sell').value = src ? src.sellPct : 25;
     $('#wd-interval').value = src ? src.sellIntervalHours : 1;
+    $('#wd-delay').value = src ? src.buyDelayMinutes : 10;
+    $('#wd-slip').value = src ? src.slippageBps / 100 : 10;
+    $('#wd-reserve').value = src ? src.feeReserveSol : 0.01;
+    $('#wd-swapfee').value = src ? src.swapMaxPriorityFeeLamports / 1e9 : 0.002;
     $('#wd-enabled').checked = w ? w.enabled : true;
-    ['#wd-buy', '#wd-sell', '#wd-interval'].forEach((s) => ($(s).required = kind !== 'funding'));
+    ['#wd-buy', '#wd-sell', '#wd-interval', '#wd-delay', '#wd-slip', '#wd-reserve', '#wd-swapfee'].forEach((s) => ($(s).required = kind !== 'funding'));
     dlg.showModal();
   }
   $('#add-wallet').addEventListener('click', () => openDialog('add-trading'));
   $('#wd-cancel').addEventListener('click', () => dlg.close());
   $('#wallet-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const trading = { label: $('#wd-label').value, buyPct: num('#wd-buy'), sellPct: num('#wd-sell'), sellIntervalHours: num('#wd-interval'), enabled: $('#wd-enabled').checked };
+    const trading = {
+      label: $('#wd-label').value, buyPct: num('#wd-buy'), sellPct: num('#wd-sell'), sellIntervalHours: num('#wd-interval'),
+      buyDelayMinutes: num('#wd-delay'), slippageBps: Math.round(num('#wd-slip') * 100), feeReserveSol: num('#wd-reserve'),
+      swapMaxPriorityFeeLamports: Math.round(num('#wd-swapfee') * 1e9), enabled: $('#wd-enabled').checked,
+    };
     const key = dlgMode.keyMode === 'import' ? { secretKey: $('#wd-key').value.trim() } : { generate: true };
     if (dlgMode.kind !== 'edit' && dlgMode.keyMode === 'import' && !key.secretKey) return toast('Paste the private key', true);
     try {
