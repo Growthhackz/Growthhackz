@@ -86,7 +86,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return { processed, order: getOrder(ctx, req.params.id) };
   });
 
-  app.post<{ Params: Params }>('/v1/jobs/:id/retry', async (req) => retryJob(ctx, req.params.id));
+  app.post<{ Params: Params }>('/v1/jobs/:id/retry', async (req) => {
+    const reset = (req.body as { reset_attempts?: unknown } | null)?.reset_attempts === true;
+    if (reset) await requireAdmin(req);
+    return retryJob(ctx, req.params.id, reset);
+  });
   app.post<{ Params: Params }>('/v1/jobs/:id/reconcile', admin, async (req) => {
     const b = parse(z.object({ url: z.string() }), req.body);
     return reconcile(ctx, req.params.id, b.url);

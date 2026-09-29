@@ -107,3 +107,24 @@ describe('Bitcointalk thread', () => {
   });
 });
 
+
+describe('retrying blocked worker items', () => {
+  it('lets an admin reset attempts on blocked work only', async () => {
+    const { t } = await setup();
+    let c: any;
+    for (let i = 0; i < 3; i++) {
+      t.clock.advance(6 * 60_000);
+      c = (await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body;
+      await t.api('POST', `/v1/publish/${c.job.id}/fail`, { lease: c.job.lease, error: 'CMC showed a human check' });
+    }
+    t.clock.advance(6 * 60_000);
+    expect((await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body).toBeNull();
+    expect((await t.api('POST', `/v1/jobs/${c.job.id}/retry`, {})).status).toBe(409);
+    const svc = (await t.api('POST', '/v1/keys', { name: 'svc' })).body.key;
+    expect((await t.call(svc, 'POST', `/v1/jobs/${c.job.id}/retry`, { reset_attempts: true })).status).toBe(403);
+    const r = await t.api('POST', `/v1/jobs/${c.job.id}/retry`, { reset_attempts: true });
+    expect(r.status).toBe(200);
+    expect(r.body.jobs.find((j: any) => j.kind === 'cmc_community')).toMatchObject({ status: 'queued', attempts: 0 });
+    expect((await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.job.id).toBe(c.job.id);
+  });
+});
