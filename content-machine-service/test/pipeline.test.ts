@@ -61,6 +61,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('TELEGRAPH_TOKEN', 'TP');
     await t.setSetting('TELEGRAM_BOT_TOKEN', 'TG');
+    await t.setSetting('STICKER_OWNER_ID', '42');
     await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'TG');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
     await t.setSetting('CALLBACK_URL', 'https://buybot.example.com/hooks/content');

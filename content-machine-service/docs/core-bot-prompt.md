@@ -54,9 +54,9 @@ Content-Type: application/json
 | `x_url` | no | The project's X profile, `https://x.com/<handle>`. |
 | `x_post_url` | no | The X post to raid, `https://x.com/<user>/status/<id>`. Without it the X raid is skipped. |
 | `website_url` | no | HTTPS only. |
-| `logo_url` | no | HTTPS image URL. Strongly recommended: the sticker pack needs it. |
+| `logo_url` | no | HTTPS image URL. Strongly recommended: the sticker pack is drawn from it. |
 | `description` | no | Up to 2500 characters, the project's own description. |
-| `telegram_owner_id` | no | Numeric Telegram user ID of the buyer. It owns the sticker pack. |
+| `telegram_owner_id` | no | Numeric Telegram user ID of the buyer, for our records. Sticker packs are always owned by our team account; the buyer just gets the add link. |
 | `launch_date` | no | `YYYY-MM-DD`. |
 
 \* Send the name and symbol whenever you have them. If you don't, we look them up from the DEX.
