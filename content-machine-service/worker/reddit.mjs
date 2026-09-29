@@ -1,4 +1,6 @@
-import {existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {dirname} from 'node:path';
 import {chromium} from 'playwright';
 
 /** Nothing was submitted (login failed, CAPTCHA, rate limit, form missing): the job can safely be retried later. */
@@ -6,7 +8,61 @@ export class NotPostedError extends Error {}
 
 const captcha = page => page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, .h-captcha').count();
 
+const SAME_SITE = {no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict'};
+
+/**
+ * Turns a browser cookie export (Cookie-Editor / EditThisCookie JSON, or Playwright's own storage state) into a
+ * Playwright storage state. Only reddit.com cookies are kept.
+ */
+export function cookiesToState(raw) {
+  const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  const list = Array.isArray(parsed) ? parsed : parsed?.cookies;
+  if (!Array.isArray(list)) throw new Error('REDDIT_COOKIES must be a JSON cookie export');
+  const cookies = list
+    .filter(c => c?.name && typeof c.value === 'string' && /(^|\.)reddit\.com$/.test(String(c.domain || '').replace(/^\./, '')))
+    .map(c => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain.startsWith('.') || c.hostOnly === false ? (c.domain.startsWith('.') ? c.domain : `.${c.domain}`) : c.domain,
+      path: c.path || '/',
+      expires: typeof c.expires === 'number' ? c.expires : typeof c.expirationDate === 'number' ? Math.floor(c.expirationDate) : -1,
+      httpOnly: !!c.httpOnly,
+      secure: c.secure !== false,
+      sameSite: SAME_SITE[String(c.sameSite || '').toLowerCase()] ?? (['Lax', 'Strict', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax'),
+    }));
+  if (!cookies.some(c => c.name === 'reddit_session' || c.name === 'token_v2')) throw new Error('The cookie export has no Reddit login cookie (reddit_session / token_v2); export it while logged in.');
+  return {cookies, origins: []};
+}
+
+/** Installs REDDIT_COOKIES as the saved session, once per distinct export (later refreshes by the worker are kept). */
+export function installCookieSession(statePath, raw = process.env.REDDIT_COOKIES) {
+  if (!raw) return false;
+  const digest = createHash('sha256').update(raw).digest('hex');
+  const marker = `${statePath}.source`;
+  if (existsSync(statePath) && existsSync(marker) && readFileSync(marker, 'utf8') === digest) return false;
+  mkdirSync(dirname(statePath), {recursive: true});
+  writeFileSync(statePath, JSON.stringify(cookiesToState(raw)));
+  writeFileSync(marker, digest);
+  return true;
+}
+
+/** The logged-in username for the saved session, or null. Read-only. */
+export async function redditWhoAmI({statePath = process.env.REDDIT_STATE_PATH || './reddit-session.json', base = process.env.REDDIT_BASE_URL || 'https://old.reddit.com', executablePath = process.env.CHROMIUM_PATH || undefined} = {}) {
+  installCookieSession(statePath);
+  if (!existsSync(statePath)) return null;
+  const browser = await chromium.launch({headless: true, executablePath});
+  try {
+    const context = await browser.newContext({storageState: statePath});
+    const page = await context.newPage();
+    const r = await page.goto(`${base}/api/me.json`, {waitUntil: 'domcontentloaded'});
+    const body = await r?.json().catch(() => null);
+    await context.storageState({path: statePath});
+    return body?.data?.name ?? null;
+  } finally { await browser.close(); }
+}
+
 async function login(page, {username, password, loginUrl}) {
+  if (!username || !password) throw new NotPostedError('The Reddit session has expired: export fresh cookies into REDDIT_COOKIES on the worker.');
   await page.goto(loginUrl, {waitUntil: 'domcontentloaded'});
   if (await captcha(page)) throw new NotPostedError('Reddit showed a CAPTCHA at login; log in once by hand to refresh the session.');
   await page.locator('input[name="username"]').fill(username);
@@ -28,7 +84,8 @@ export async function postToReddit(target, {
   loginUrl = process.env.REDDIT_LOGIN_URL || 'https://www.reddit.com/login/',
   executablePath = process.env.CHROMIUM_PATH || undefined,
 } = {}) {
-  if (!username || !password) throw new NotPostedError('Set REDDIT_USERNAME and REDDIT_PASSWORD on the worker.');
+  try { installCookieSession(statePath); } catch (e) { throw new NotPostedError(`REDDIT_COOKIES: ${e.message}`); }
+  if ((!username || !password) && !existsSync(statePath)) throw new NotPostedError('Set REDDIT_COOKIES (a cookie export from a logged-in browser) on the worker.');
   const browser = await chromium.launch({headless: true, executablePath});
   try {
     const context = await browser.newContext(existsSync(statePath) ? {storageState: statePath} : {});
@@ -76,7 +133,7 @@ async function visibleLoggedOut(browser, url, title) {
 
 /** One cycle: claim a Reddit post from the service, publish it, report the outcome. */
 export async function publishReddit(client, post = postToReddit) {
-  if (!process.env.REDDIT_USERNAME) return;
+  if (!process.env.REDDIT_USERNAME && !process.env.REDDIT_COOKIES) return;
   const c = await client.request('publish/claim', {kinds: ['reddit_moonshots', 'reddit_solanamemecoins']});
   if (!c) return;
   try {
