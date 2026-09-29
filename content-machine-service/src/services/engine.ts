@@ -389,6 +389,39 @@ export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', .
  * Every post carries the project's Telegram link; longer posts (articles) also carry X and the website. The copy
  * itself is written without links so these are always exact.
  */
+/** `https://t.me/name` or `https://x.com/name` → `@name`; invite links and anything else → null. */
+export function handleOf(url: string | undefined, hosts: RegExp): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const [first, second] = u.pathname.split('/').filter(Boolean);
+    return hosts.test(u.hostname) && first && !second && /^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(first) && !/^(joinchat|share|i|home)$/i.test(first) ? `@${first}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Binance Square strips hyperlinks, so the post names the project's handles instead. */
+export function binanceHandles(p: Order['project']): string {
+  const name = p.name ?? 'the project';
+  const tg = handleOf(p.telegram_url, /^(www\.)?(t\.me|telegram\.me)$/);
+  const x = handleOf(p.x_url, /^(www\.|mobile\.)?(x|twitter)\.com$/);
+  return [tg && `Find ${name} on Telegram: ${tg}`, x && `Follow ${name} on X: ${x}`].filter(Boolean).join('\n');
+}
+
+/** Binance share links (app.binance.com/uni-qr/cart/<id>, …/square/post/<id>) → the canonical post URL. */
+export function binancePostUrl(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || !/(^|\.)binance\.com$/.test(u.hostname)) return null;
+    const id = u.pathname.match(/\/(?:square\/post|uni-qr\/cart)\/([0-9]{6,25})\/?$/)?.[1];
+    return id ? `https://www.binance.com/en/square/post/${id}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function links(p: Order['project'], long: boolean): string {
   const lines = p.telegram_url ? [`Telegram: ${p.telegram_url}`] : [];
   if (long && p.x_url) lines.push(`X: ${p.x_url}`);
@@ -404,7 +437,7 @@ function extraLinks(p: Order['project']): string[] {
 /** What the worker should post; built here so the worker stays a thin publisher. */
 function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
-  if (kind === 'binance') return { title: copy.headline, text: [copy.article, links(o.project, true)].filter(Boolean).join('\n\n') };
+  if (kind === 'binance') return { title: copy.headline, text: [copy.article, binanceHandles(o.project)].filter(Boolean).join('\n\n') };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
   if (kind === 'bitcointalk') {
     const subject = (copy.forum_title ?? copy.headline).slice(0, 80);
@@ -556,13 +589,14 @@ export async function publishComplete(ctx: ServiceContext, jobId: string, lease:
     run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id', { r: { url }, id: j.id });
     try {
       if (j.kind === 'binance') {
+        const post = binancePostUrl(url) ?? url;
         try {
-          finish(ctx, j, await verifyPublication(ctx, url, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
+          finish(ctx, j, await verifyPublication(ctx, post, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
         } catch (err) {
           // Binance's public pages challenge server-side fetches; the OpenAPI's own success (with a post URL) stands in.
-          const u = safeRemote(url, ['www.binance.com', 'binance.com']);
+          const u = safeRemote(post, ['www.binance.com', 'binance.com']);
           if (verified !== true || !/\/square\/post\/[0-9]+\/?$/.test(u.pathname)) throw err;
-          finish(ctx, j, { url, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'binance_openapi' });
+          finish(ctx, j, { url: post, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'binance_openapi' });
         }
       }
       else if (j.kind === 'cmc_community') finish(ctx, j, await verifyPublication(ctx, url, 'cmc_community', cmcSnippet(loadOrder(ctx, j.order_id))));
@@ -651,7 +685,16 @@ export async function reconcile(ctx: ServiceContext, jobId: string, url: unknown
   } else if (REDDIT_SUBREDDITS[j.kind]) result = redditResult(ctx, j.kind, url);
   else if (j.kind === 'bitcointalk') result = bitcointalkResult(ctx, url);
   else if (j.kind === 'cmc_community') result = await verifyPublication(ctx, url, j.kind, cmcSnippet(loadOrder(ctx, j.order_id)));
-  else result = await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
+  else if (j.kind === 'binance') {
+    const post = binancePostUrl(url);
+    if (!post) throw new ValidationError('Use the Binance Square post or share link (…/square/post/<id> or app.binance.com/uni-qr/cart/<id>)');
+    // Binance challenges server-side fetches; an admin who checked the post is the confirmation.
+    result = await verifyPublication(ctx, post, 'binance', loadOrder(ctx, j.order_id).copy?.headline).catch(() => ({
+      url: post,
+      verified_at: new Date(nowMs(ctx)).toISOString(),
+      verified_by: 'admin',
+    }));
+  } else result = await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
   const full = { ...result, manual_reconciliation: true };
   run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", {
     r: full,
