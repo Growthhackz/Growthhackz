@@ -63,9 +63,7 @@ describe('trending purchase → call channel', () => {
     const call = t.http.calls.find((c) => c.url.endsWith('/botCALL/sendPhoto'))!;
     const form = call.init.body as FormData;
     expect(form.get('chat_id')).toBe('@fullsendtrenches');
-    expect(form.get('caption')).toBe(
-      `🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.social_post}\n\n💬 Telegram: https://t.me/moonfrog`,
-    );
+    expect(form.get('caption')).toBe(`${liveCopy.social_post}\n\n💬 https://t.me/moonfrog`);
     expect((form.get('photo') as Blob).type).toBe('image/png');
     // Posted only once, and only after the campaign image existed.
     expect(t.http.calls.filter((c) => c.url.endsWith('/sendPhoto'))).toHaveLength(1);
@@ -74,9 +72,8 @@ describe('trending purchase → call channel', () => {
     expect(imageCall).toBeLessThan(t.http.calls.indexOf(call));
   });
 
-  it('adds extra channels, uses a custom label, and rejects bad input', async () => {
+  it('adds extra channels and rejects bad input', async () => {
     const t = makeApp({ TRENDING_CHANNELS: '' });
-    await t.setSetting('CALL_CHANNEL_LABEL', '📣 Sponsored trending');
     const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
     expect(r.body.project.channels).toEqual(['call_channel', 'telegraph']);
     const withOwner = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x3', telegram_owner_id: 42 });

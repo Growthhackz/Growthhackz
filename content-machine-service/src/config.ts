@@ -33,7 +33,6 @@ const EnvSchema = z.object({
   /** Our own call channel (separate bot from TELEGRAM_BOT_TOKEN). */
   CALL_CHANNEL_BOT_TOKEN: z.string().optional(),
   CALL_CHANNEL_ID: z.string().optional(),
-  CALL_CHANNEL_LABEL: z.string().optional(),
   /** Team member's numeric Telegram ID that owns every sticker pack (must have started the bot). */
   STICKER_OWNER_ID: z.string().optional(),
 

@@ -11,13 +11,13 @@ export function telegraphToken(ctx: ServiceContext): string {
 
 export async function createPage(
   ctx: ServiceContext,
-  page: { title: string; author: string; paragraphs: string[]; telegramUrl: string; imageUrl: string },
+  page: { title: string; author: string; paragraphs: string[]; telegramUrl?: string; imageUrl: string },
 ) {
   const content = [
     { tag: 'figure', children: [{ tag: 'img', attrs: { src: page.imageUrl } }] },
     { tag: 'p', children: ['Project announcement supplied by the project.'] },
     ...page.paragraphs.map((s) => ({ tag: 'p', children: [s] })),
-    { tag: 'p', children: [{ tag: 'a', attrs: { href: page.telegramUrl }, children: ['Official Telegram'] }] },
+    ...(page.telegramUrl ? [{ tag: 'p', children: [{ tag: 'a', attrs: { href: page.telegramUrl }, children: ['Official Telegram'] }] }] : []),
   ];
   const r = await jsonFetch(ctx.http, 'https://api.telegra.ph/createPage', {
     method: 'POST',

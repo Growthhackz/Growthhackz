@@ -227,14 +227,10 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   throw new ValidationError(`Unknown job type ${j.kind}`);
 }
 
-export const DEFAULT_CALL_CHANNEL_LABEL = '🔥 TRENDING';
-
-/** Label, the social post, then the project's Telegram link from the trending purchase. */
-export function callChannelCaption(ctx: ServiceContext, o: Order): string {
-  const label = setting(ctx, 'CALL_CHANNEL_LABEL') || DEFAULT_CALL_CHANNEL_LABEL;
+/** The degen write-up, then the project's Telegram link when it has one. Sent as the campaign image's caption. */
+export function callChannelCaption(_ctx: ServiceContext, o: Order): string {
   const p = o.project;
-  const title = `${label} | ${p.name} ($${p.symbol})`;
-  return [title, o.copy!.social_post, `💬 Telegram: ${p.telegram_url}`].join('\n\n');
+  return [o.copy!.social_post, p.telegram_url ? `💬 ${p.telegram_url}` : null].filter(Boolean).join('\n\n');
 }
 
 async function publishStickers(ctx: ServiceContext, o: Order) {
@@ -372,7 +368,7 @@ export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', .
  * itself is written without links so these are always exact.
  */
 export function links(p: Order['project'], long: boolean): string {
-  const lines = [`Telegram: ${p.telegram_url}`];
+  const lines = p.telegram_url ? [`Telegram: ${p.telegram_url}`] : [];
   if (long && p.x_url) lines.push(`X: ${p.x_url}`);
   if (long && p.website_url) lines.push(`Website: ${p.website_url}`);
   return lines.join('\n');
@@ -380,21 +376,21 @@ export function links(p: Order['project'], long: boolean): string {
 
 /** X and website lines for article pages that already link Telegram separately. */
 function extraLinks(p: Order['project']): string[] {
-  return links(p, true).split('\n').slice(1);
+  return [p.x_url ? `X: ${p.x_url}` : null, p.website_url ? `Website: ${p.website_url}` : null].filter((x): x is string => !!x);
 }
 
 /** What the worker should post; built here so the worker stays a thin publisher. */
 function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
-  if (kind === 'binance') return { title: copy.headline, text: `${copy.article}\n\n${links(o.project, true)}` };
+  if (kind === 'binance') return { title: copy.headline, text: [copy.article, links(o.project, true)].filter(Boolean).join('\n\n') };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
   if (kind === 'bitcointalk') {
     const subject = (copy.forum_title ?? copy.headline).slice(0, 80);
     const body = copy.forum_post ?? copy.article;
-    return { subject, message: `${body}\n\n${links(o.project, true)}` };
+    return { subject, message: [body, links(o.project, true)].filter(Boolean).join('\n\n') };
   }
   if (kind === 'cmc_community')
-    return { text: `${copy.social_post}\n\n${links(o.project, false)}`, image_asset_url: image ? `/v1/assets/${image.id}` : null };
+    return { text: [copy.social_post, links(o.project, false)].filter(Boolean).join('\n\n'), image_asset_url: image ? `/v1/assets/${image.id}` : null };
   if (DIRECTORY_HOSTS[kind]) {
     const p = o.project;
     const created = Number(p.market?.pair_created_at) || 0;
@@ -423,7 +419,8 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   }
   const parts = [copy.article];
   if (image && ctx.config.PUBLIC_HUB_ENABLED) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
-  parts.push(links(o.project, true));
+  const l = links(o.project, true);
+  if (l) parts.push(l);
   return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };
 }
 
@@ -437,22 +434,24 @@ function pressRelease(o: Order) {
   const headline = copy.headline.split(/\s+/).slice(0, 22).join(' ');
   const facts = [
     `${p.name}${p.symbol ? ` ($${p.symbol})` : ''} trades on ${p.chain[0]!.toUpperCase() + p.chain.slice(1)}. Contract address: ${p.contract_address}.`,
-    `Community: ${p.telegram_url}${p.x_url ? ` | X: ${p.x_url}` : ''}${p.website_url ? ` | Website: ${p.website_url}` : ''}`,
+    [p.telegram_url && `Telegram: ${p.telegram_url}`, p.x_url && `X: ${p.x_url}`, p.website_url && `Website: ${p.website_url}`].filter(Boolean).join(' | '),
     'This release is for information only and is not financial advice. Cryptocurrencies are volatile; do your own research.',
   ];
   const extra = [
     `About ${p.name}: ${p.description || copy.social_post}`,
-    `How to get involved: join the ${p.name} Telegram community at ${p.telegram_url} for launch updates, community events and announcements from the team${p.x_url ? `, and follow ${p.x_url} on X` : ''}.`,
+    p.telegram_url || p.x_url
+      ? `How to get involved: ${[p.telegram_url && `join the ${p.name} Telegram community at ${p.telegram_url}`, p.x_url && `follow ${p.x_url} on X`].filter(Boolean).join(' and ')} for launch updates, community events and announcements from the team.`
+      : `${p.name} is building its community on ${p.chain}.`,
     copy.short_post,
   ];
-  const parts = [copy.article, ...facts];
+  const parts = [copy.article, ...facts.filter(Boolean)];
   // 1888 rejects bodies under 750 characters.
   while (parts.join('\n\n').length < 750 && extra.length) parts.splice(parts.length - 1, 0, extra.shift()!);
   const body = parts.join('\n\n').replace(/[<>]/g, '');
   const keywords = [p.name, p.symbol, p.chain, 'crypto', 'memecoin', 'token launch'].filter(Boolean).join(', ');
   // Press sites reject emojis, hashtags and cashtags in the summary.
-  const summary = copy.short_post.replace(/[#$](\w+)/g, '$1').replace(/\p{Extended_Pictographic}|\uFE0F/gu, '').replace(/\s+/g, ' ').trim();
-  return { headline, summary, body, keywords, website_url: p.website_url ?? p.telegram_url };
+  const summary = copy.short_post.replace(/(^|\s)#\w+/g, '').replace(/\$(\w+)/g, '$1').replace(/\p{Extended_Pictographic}|\uFE0F/gu, '').replace(/\s+/g, ' ').trim();
+  return { headline, summary, body, keywords, website_url: p.website_url ?? p.telegram_url ?? p.x_url ?? null };
 }
 
 /** Leases the next Binance or Reddit post. `kinds` lets a worker take only what it is configured for. */
