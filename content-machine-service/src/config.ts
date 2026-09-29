@@ -43,6 +43,12 @@ const EnvSchema = z.object({
   SOCIAL_ACTIVITY_TOKEN: z.string().optional(),
   /** WURK preset for trending orders: the $1 small raid now; `full` is the saved four-purchase package. */
   SOCIAL_BOOST_PRESET: z.enum(['small_raid', 'full']).default('small_raid'),
+  /** Logged-out x.com web client credentials, used to find the post to raid when the order has none. */
+  X_WEB_BEARER: z
+    .string()
+    .default('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'),
+  X_GQL_USER_BY_SCREEN_NAME: z.string().regex(/^[A-Za-z0-9_-]+$/).default('xmU6X_CKVnQ5lSrCbAmJsg'),
+  X_GQL_USER_TWEETS: z.string().regex(/^[A-Za-z0-9_-]+$/).default('E3opETHurmVJflFsUBVuUQ'),
   /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
   TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost,bitcointalk'),
 
