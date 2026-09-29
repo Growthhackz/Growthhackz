@@ -34,6 +34,7 @@ export const SOURCES: Source[] = [
   { id: 'coinsniper', name: 'CoinSniper listing', mode: 'submit + review (worker)', credential: null, detail: 'Submitted at coinsniper.net/submit by the worker (COINSNIPER_EMAIL / COINSNIPER_PASSWORD); delivered once the coin page is live.', url: 'https://coinsniper.net/submit' },
   { id: 'coinvote', name: 'Coinvote listing', mode: 'submit + review (worker)', credential: null, detail: 'Submitted at coinvote.cc/en/add-coin/released by the worker (COINVOTE_EMAIL / COINVOTE_PASSWORD); delivered once the coin page is live.', url: 'https://coinvote.cc/en/add-coin/released' },
   { id: 'cmc_community', name: 'CoinMarketCap community post', mode: 'publish + verify (worker)', credential: null, detail: 'Social post + campaign image on our CMC community profile, posted by the worker (CMC_EMAIL / CMC_PASSWORD, CMC_PROFILE_HANDLE); verified on its public post page.', url: 'https://coinmarketcap.com/community/' },
+  { id: 'bitcointalk', name: 'Bitcointalk thread', mode: 'publish (worker)', credential: null, detail: 'Forum thread in Altcoin Discussion from our account, posted by the worker from a saved session (BTCTALK_COOKIES); confirmed logged-out.' },
   { id: 'social_boost', name: 'X raid (WURK via social-activity)', mode: 'purchase (service)', credential: null, detail: 'Bundled WURK package on the order\'s X post, bought through social-activity-service (SOCIAL_ACTIVITY_URL / SOCIAL_ACTIVITY_TOKEN, preset SOCIAL_BOOST_PRESET).' },
   { id: 'press_1888', name: '1888PressRelease', mode: 'submit + review (worker)', credential: null, detail: 'Press release from the article, submitted by the worker (PRESS1888_USERNAME / PRESS1888_PASSWORD, company PRESS1888_COMPANY); delivered once the release page is live.', url: 'https://www.1888pressrelease.com/submit-free-press-release.html' },
 ];
@@ -46,7 +47,7 @@ export function connectorList(ctx: ServiceContext) {
     let status: string;
     if (s.id === 'dexscreener') status = 'ready';
     else if (s.credential) status = setting(ctx, s.credential) ? 'configured' : 'needs_key';
-    else if (['binance', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888'].includes(s.id)) status = workerOnline ? 'worker_online' : 'needs_worker';
+    else if (['binance', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'bitcointalk'].includes(s.id)) status = workerOnline ? 'worker_online' : 'needs_worker';
     else if (s.id === 'social_boost') status = ctx.config.SOCIAL_ACTIVITY_URL && ctx.config.SOCIAL_ACTIVITY_TOKEN ? 'configured' : 'needs_key';
     else if (s.id === 'intake') status = hasKey ? 'api_key_created' : 'needs_api_key';
     else if (s.mode.startsWith('planned')) status = 'planned';

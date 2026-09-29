@@ -34,12 +34,14 @@ const SAME_SITE = {no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'St
  * Turns a browser cookie export (Cookie-Editor / EditThisCookie JSON, or Playwright's own storage state) into a
  * Playwright storage state. Only reddit.com cookies are kept.
  */
-export function cookiesToState(raw) {
+const REDDIT_COOKIES = {domain: /(^|\.)reddit\.com$/, isLogin: n => n === 'reddit_session' || n === 'token_v2', label: 'Reddit login cookie (reddit_session / token_v2)'};
+
+export function cookiesToState(raw, site = REDDIT_COOKIES) {
   const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
   const list = Array.isArray(parsed) ? parsed : parsed?.cookies;
   if (!Array.isArray(list)) throw new Error('REDDIT_COOKIES must be a JSON cookie export');
   const cookies = list
-    .filter(c => c?.name && typeof c.value === 'string' && /(^|\.)reddit\.com$/.test(String(c.domain || '').replace(/^\./, '')))
+    .filter(c => c?.name && typeof c.value === 'string' && site.domain.test(String(c.domain || '').replace(/^\./, '')))
     .map(c => ({
       name: c.name,
       value: c.value,
@@ -50,18 +52,18 @@ export function cookiesToState(raw) {
       secure: c.secure !== false,
       sameSite: SAME_SITE[String(c.sameSite || '').toLowerCase()] ?? (['Lax', 'Strict', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax'),
     }));
-  if (!cookies.some(c => c.name === 'reddit_session' || c.name === 'token_v2')) throw new Error('The cookie export has no Reddit login cookie (reddit_session / token_v2); export it while logged in.');
+  if (!cookies.some(c => site.isLogin(c.name))) throw new Error(`The cookie export has no ${site.label}; export it while logged in.`);
   return {cookies, origins: []};
 }
 
 /** Installs REDDIT_COOKIES as the saved session, once per distinct export (later refreshes by the worker are kept). */
-export function installCookieSession(statePath, raw = process.env.REDDIT_COOKIES) {
+export function installCookieSession(statePath, raw = process.env.REDDIT_COOKIES, site = REDDIT_COOKIES) {
   if (!raw) return false;
   const digest = createHash('sha256').update(raw).digest('hex') + ':v2';
   const marker = `${statePath}.source`;
   if (existsSync(statePath) && existsSync(marker) && readFileSync(marker, 'utf8') === digest) return false;
   mkdirSync(dirname(statePath), {recursive: true});
-  writeFileSync(statePath, JSON.stringify(cookiesToState(raw)));
+  writeFileSync(statePath, JSON.stringify(cookiesToState(raw, site)));
   writeFileSync(marker, digest);
   return true;
 }

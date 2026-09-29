@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -133,6 +133,9 @@ export const copySchema = z.object({
   short_post: z.string().min(10).max(SHORT_POST_MAX),
   meme_captions: z.array(z.string().max(100)).length(8),
   trailer_lines: z.array(z.string().max(70)).min(3).max(5),
+  /** Bitcointalk thread (optional so older/demo copy still validates; falls back to headline/article). */
+  forum_title: z.string().min(5).max(80).optional(),
+  forum_post: z.string().min(100).max(3000).optional(),
 });
 
 export type Copy = z.infer<typeof copySchema>;
@@ -160,6 +163,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['reddit_solanamemecoins', 81],
   ['coinsniper', 85],
   ['coinvote', 86],
+  ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
   ['sticker_art_0', 100],
@@ -172,7 +176,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
@@ -201,6 +205,7 @@ export const DEADLINE_MS: Record<string, number> = {
   call_channel: 6 * HOUR,
   binance: 12 * HOUR,
   cmc_community: 12 * HOUR,
+  bitcointalk: 12 * HOUR,
   reddit_moonshots: 12 * HOUR,
   reddit_solanamemecoins: 12 * HOUR,
   coinsniper: 8 * 24 * HOUR,
@@ -239,6 +244,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   coinsniper: 'CoinSniper listing',
   coinvote: 'Coinvote listing',
   cmc_community: 'CoinMarketCap community post',
+  bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',
   sticker_publish: 'Telegram sticker pack',
 };

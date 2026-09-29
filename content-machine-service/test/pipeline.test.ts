@@ -297,7 +297,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect((await t.api('POST', '/v1/connectors/gemini/probe', {})).status).toBe(424);
     await t.setSetting('TELEGRAM_BOT_TOKEN', 'TG');
     expect((await t.api('POST', '/v1/connectors/sticker_pack/probe', {})).body.bot.username).toBe('sticker_bot');
-    expect(list.map((s: any) => s.id)).toEqual(['dexscreener', 'gemini', 'intake', 'binance', 'telegraph', 'call_channel', 'sticker_pack', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'social_boost', 'press_1888']);
+    expect(list.map((s: any) => s.id)).toEqual(['dexscreener', 'gemini', 'intake', 'binance', 'telegraph', 'call_channel', 'sticker_pack', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'bitcointalk', 'social_boost', 'press_1888']);
     expect(JSON.stringify(list).toLowerCase()).not.toContain('peak');
     expect((await t.api('POST', '/v1/connectors/x/probe', {})).status).toBe(400);
   });
