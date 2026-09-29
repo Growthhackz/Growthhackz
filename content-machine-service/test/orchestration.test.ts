@@ -120,7 +120,7 @@ describe('trending orchestration', () => {
   it('times items out, fails dependents at once, and reports everything when the order is final', async () => {
     const t = makeApp(SOCIAL);
     contentFakes(t);
-    const state = { status: 'needs_attention', lastError: 'Dry run: quoted 1 USDC; set WURK_SOLANA_PRIVATE_KEY to pay' };
+    const state = { status: 'needs_attention', lastError: 'Wallet holds 0.2 USDC; this purchase needs 1' };
     socialFake(t, state);
     const received: any[] = [];
     t.http.on('buybot.example.com/hooks', (_u, init) => {
@@ -140,7 +140,7 @@ describe('trending orchestration', () => {
     await t.api('POST', '/v1/tick');
     let report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.complete).toBe(false);
-    expect(report.pending.find((p: any) => p.source === 'social_boost').note).toContain('Dry run');
+    expect(report.pending.find((p: any) => p.source === 'social_boost').note).toContain('Wallet holds');
 
     // Copy's deadline (2h) passes: it fails, and everything built on it fails immediately.
     t.clock.advance(2 * 60 * 60_000);
@@ -158,7 +158,7 @@ describe('trending orchestration', () => {
     await t.api('POST', '/v1/tick');
     report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.complete).toBe(true);
-    expect(report.failures.find((f: any) => f.source === 'social_boost').error).toContain('Timed out after 24h (submitted: Dry run');
+    expect(report.failures.find((f: any) => f.source === 'social_boost').error).toContain('Timed out after 24h (submitted: Wallet holds');
     expect(report.failures.find((f: any) => f.source === 'copy').label).toBe('Content (article and posts)');
     expect(report.failures.find((f: any) => f.source === 'cmc_community').error).toBe('Not started: campaign_image failed');
     const done = received.find((e) => e.type === 'order.completed');
@@ -186,4 +186,28 @@ describe('trending orchestration', () => {
     expect(cmc.text.endsWith('Telegram: https://t.me/moonfrog')).toBe(true);
     expect(cmc.text).not.toContain('x.com');
   });
+
+  it('fails a dry-run raid at once instead of holding the order for 24h', async () => {
+    const t = makeApp(SOCIAL);
+    contentFakes(t);
+    socialFake(t, { status: 'needs_attention', lastError: 'Dry run: quoted 1 USDC; set WURK_SOLANA_PRIVATE_KEY and WURK_LIVE_PAYMENTS_ENABLED=true to pay' });
+    const o = (await t.api('POST', '/v1/trending', purchase)).body;
+    await t.api('POST', '/v1/tick');
+    t.clock.advance(61_000);
+    await t.api('POST', '/v1/tick');
+    const job = jobOf((await t.api('GET', `/v1/orders/${o.id}`)).body, 'social_boost');
+    expect(job.status).toBe('failed');
+    expect(job.error).toContain('WURK_SOLANA_PRIVATE_KEY');
+  });
+
+  it('returns the same order for a retried purchase even after the default channels change', async () => {
+    const t = makeApp({ ...SOCIAL, TRENDING_CHANNELS: 'call_channel' });
+    const first = await t.api('POST', '/v1/trending', purchase);
+    expect(first.status).toBe(201);
+    (t.ctx.config as any).TRENDING_CHANNELS = 'call_channel,telegraph';
+    const again = await t.api('POST', '/v1/trending', purchase);
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(first.body.id);
+  });
 });
+
