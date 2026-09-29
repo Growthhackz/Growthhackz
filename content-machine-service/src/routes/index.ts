@@ -133,7 +133,10 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   });
 
   app.get('/v1/keys', admin, async () => ({ keys: listKeys(ctx) }));
-  app.post('/v1/keys', admin, async (req, reply) => reply.code(201).send(issueKey(ctx, (req.body as { name?: unknown } | null)?.name)));
+  app.post('/v1/keys', admin, async (req, reply) => {
+    const body = (req.body ?? {}) as { name?: unknown; scope?: unknown };
+    return reply.code(201).send(issueKey(ctx, body.name, body.scope ?? 'service'));
+  });
   app.delete<{ Params: Params }>('/v1/keys/:id', admin, async (req) => revokeKey(ctx, req.params.id));
 
   app.get('/v1/connectors', admin, async () => ({ sources: connectorList(ctx) }));

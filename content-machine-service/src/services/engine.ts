@@ -648,6 +648,29 @@ interface EventRow {
 }
 
 /** At-least-once delivery with exponential backoff; gives up after 8 attempts. */
+/** Only the fields a receiver needs: names, labels and public URLs. Error text stays in the report API. */
+export function callbackData(type: string, d: any): unknown {
+  const project = d?.project ? { name: d.project.name ?? null, symbol: d.project.symbol ?? null } : undefined;
+  switch (type) {
+    case 'order.accepted':
+      return {};
+    case 'link.published':
+      return { source: d.source, label: d.label, url: d.url, project };
+    case 'sticker_pack.ready':
+      return { url: d.url, name: d.name, project };
+    case 'order.completed':
+      return {
+        complete: !!d.complete,
+        project,
+        successes: (d.successes ?? []).map((x: any) => ({ source: x.source, label: x.label, url: x.url ?? null })),
+        failures: (d.failures ?? []).map((x: any) => ({ source: x.source, label: x.label, status: x.status })),
+        pending: (d.pending ?? []).map((x: any) => ({ source: x.source, label: x.label, status: x.status })),
+      };
+    default:
+      return d;
+  }
+}
+
 export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise<{ sent: number; failed: number }> {
   const url = setting(ctx, 'CALLBACK_URL');
   const secret = setting(ctx, 'CALLBACK_SECRET');
@@ -658,17 +681,23 @@ export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise
     'SELECT * FROM events WHERE sent = 0 AND attempts < 8 AND available_at <= :t ORDER BY created_at LIMIT :batch',
     { t: nowMs(ctx), batch },
   );
+  const types = new Set(ctx.config.CALLBACK_EVENT_TYPES.split(',').map((t) => t.trim()).filter(Boolean));
   let sent = 0;
   let failed = 0;
   for (const e of rows) {
+    if (!types.has(e.type)) {
+      run(ctx.db, 'UPDATE events SET sent = 1 WHERE id = :id', { id: e.id });
+      continue;
+    }
     const external = get<{ order_id: string }>(ctx.db, 'SELECT order_id FROM orders WHERE id = :id', { id: e.order_id })?.order_id ?? null;
     const payload = JSON.stringify({
       id: e.id,
       type: e.type,
       order_id: e.order_id,
       external_order_id: external,
+      purchase_id: external?.startsWith('trending:') ? external.slice('trending:'.length) : null,
       created: e.created_at,
-      data: JSON.parse(e.data),
+      data: callbackData(e.type, JSON.parse(e.data)),
     });
     const ts = String(Math.floor(nowMs(ctx) / 1000));
     try {

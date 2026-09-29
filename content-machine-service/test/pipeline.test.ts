@@ -144,16 +144,23 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(o.reserved_cents).toBe(77);
     expect(t.http.count('api.telegram.org/botTG/uploadStickerFile')).toBe(5);
 
-    // Callbacks: signed, one per event, all delivered.
+    // Callbacks: signed, only the receiver-facing event types, all delivered.
     await t.api('POST', '/v1/tick');
     const events = (await t.api('GET', `/v1/orders/${order.id}/events`)).body.events;
     expect(events.every((e: any) => e.delivered)).toBe(true);
-    expect(received.length).toBe(events.length);
+    const sentTypes = ['order.accepted', 'link.published', 'sticker_pack.ready', 'order.completed'];
+    expect(received.length).toBe(events.filter((e: any) => sentTypes.includes(e.type)).length);
     for (const r of received) {
       const expected = createHmac('sha256', 'cb-secret').update(r.headers['X-Timestamp'] + '.' + r.body).digest('hex');
       expect(r.headers['X-Signature']).toBe(expected);
       expect(JSON.parse(r.body).order_id).toBe(order.id);
+      expect(sentTypes).toContain(JSON.parse(r.body).type);
     }
+    const links = received.map((r) => JSON.parse(r.body)).filter((b) => b.type === 'link.published');
+    expect(links.map((b) => b.data.source).sort()).toEqual(['binance', 'call_channel', 'hub', 'telegraph']);
+    for (const b of links) expect(Object.keys(b.data).sort()).toEqual(['label', 'project', 'source', 'url']);
+    const completed = received.map((r) => JSON.parse(r.body)).find((b) => b.type === 'order.completed');
+    expect(completed.data.successes.every((x: any) => Object.keys(x).sort().join() === 'label,source,url')).toBe(true);
 
     // Public hub lists the delivered assets and publications.
     const hub = await t.call(null, 'GET', `/projects/${order.id}`, undefined, { accept: 'application/json' });

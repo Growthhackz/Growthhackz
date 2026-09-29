@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -70,6 +70,30 @@ export function recordEvent(ctx: ServiceContext, orderId: string, type: string, 
     data: JSON.stringify(data),
     t: nowMs(ctx),
   });
+  const link = type === 'delivery.updated' ? publishedLink(ctx, data) : null;
+  if (link) {
+    const p = JSON.parse(get<{ project: string }>(ctx.db, 'SELECT project FROM orders WHERE id = :id', { id: orderId })?.project ?? '{}');
+    recordEvent(ctx, orderId, 'link.published', { ...link, project: { name: p.name ?? null, symbol: p.symbol ?? null } });
+  }
+}
+
+/**
+ * A live public URL for one destination, for the core bot to DM the buyer. The sticker pack has its own
+ * sticker_pack.ready event, so it isn't repeated here; the hub is only linked when it is public.
+ */
+function publishedLink(ctx: ServiceContext, data: unknown): { source: string; label: string; url: string } | null {
+  const d = data as { kind?: string; status?: string; result?: { url?: unknown } };
+  if (d?.status !== 'delivered' || !d.kind || d.kind === 'sticker_publish' || !SOURCE_LABELS[d.kind]) return null;
+  if (d.kind === 'hub' && !ctx.config.PUBLIC_HUB_ENABLED) return null;
+  const url = d.result?.url;
+  if (typeof url !== 'string' || url.length > 500) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || u.username || u.password) return null;
+    return { source: d.kind, label: SOURCE_LABELS[d.kind]!, url: u.href };
+  } catch {
+    return null;
+  }
 }
 
 /** Idempotent on `order_id`: the same payload returns the existing order, a different one is a 409. */
