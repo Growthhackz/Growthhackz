@@ -102,3 +102,33 @@ describe('core bot callbacks', () => {
       for (const f of b.data.failures) expect(Object.keys(f).sort()).toEqual(['label', 'source', 'status']);
   });
 });
+
+describe('global pause', () => {
+  it('accepts orders but runs, publishes and sends nothing until resumed, then shifts deadlines', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph' });
+    await t.setSetting('CALLBACK_URL', 'https://bot.example.com/hooks/content');
+    await t.setSetting('CALLBACK_SECRET', 'cb-secret');
+    expect((await t.api('POST', '/v1/pause')).body.paused).toBe(true);
+    const key = await intakeKey(t);
+    expect((await t.call(key, 'POST', '/v1/pause')).status).toBe(403);
+
+    const o = (await t.call(key, 'POST', '/v1/trending', purchase)).body;
+    expect(o.id).toBeTruthy();
+    t.clock.advance(48 * 3_600_000);
+    const r = await t.api('POST', '/v1/tick');
+    expect(r.body).toMatchObject({ paused: true, processed: 0 });
+    expect(t.http.calls).toEqual([]); // no Gemini, no DEX, no callbacks
+    for (const path of ['/v1/publish/claim', '/v1/render/claim', '/v1/listings/check-claim'])
+      expect((await t.api('POST', path, { kinds: ['telegraph', 'coinsniper'] })).body).toBeNull();
+    const held = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+    expect(held.jobs.every((j: any) => ['queued', 'skipped'].includes(j.status))).toBe(true);
+
+    // Survives a restart: the flag is in the database.
+    expect((await t.api('GET', '/v1/pause')).body.paused).toBe(true);
+
+    expect((await t.api('POST', '/v1/resume')).body.paused).toBe(false);
+    const report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
+    const meta = report.pending.find((p: any) => p.source === 'metadata' || p.label === 'Token metadata');
+    expect(Date.parse(meta.deadline_at) - t.clock.now().getTime()).toBeGreaterThan(0);
+  });
+});

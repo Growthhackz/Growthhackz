@@ -20,6 +20,7 @@ import { safeRemote } from '../lib/http.js';
 import { uid } from '../lib/ids.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
+import { isPaused } from './pauseService.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { socialActivity } from '../providers/socialActivity.js';
 import { createPage } from '../providers/telegraph.js';
@@ -264,6 +265,7 @@ async function publishStickers(ctx: ServiceContext, o: Order) {
 
 /** Advances queued in-process work across orders, up to JOBS_PER_TICK jobs. */
 export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK) {
+  if (isPaused(ctx)) return { paused: true, processed: 0, orders: [] as Array<{ id: string; status: string }>, callbacks: { sent: 0, failed: 0 } };
   expireLeases(ctx);
   const touched = new Set<string>();
   let processed = 0;
@@ -288,12 +290,13 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
   await pollSocialBoosts(ctx);
   settleOrders(ctx);
   const callbacks = await deliverCallbacks(ctx);
-  return { processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
+  return { paused: false, processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
 }
 
 // ---- companion renderer ----
 
 export function renderClaim(ctx: ServiceContext) {
+  if (isPaused(ctx)) return null;
   setRawSetting(ctx, 'renderer_last_seen', String(nowMs(ctx)));
   const rows = all<{ order_id: string }>(
     ctx.db,
@@ -456,6 +459,7 @@ function pressRelease(o: Order) {
 
 /** Leases the next Binance or Reddit post. `kinds` lets a worker take only what it is configured for. */
 export function publishClaim(ctx: ServiceContext, kinds: unknown = ['binance']) {
+  if (isPaused(ctx)) return null;
   expireLeases(ctx);
   const wanted = (Array.isArray(kinds) ? kinds : ['binance']).filter((k): k is string => WORKER_PUBLICATIONS.includes(k));
   if (!wanted.length) return null;
@@ -576,6 +580,7 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
 
 /** Hands the worker a submitted listing whose next check is due (the claim itself pushes the next check out an hour). */
 export function listingCheckClaim(ctx: ServiceContext, wanted?: unknown) {
+  if (isPaused(ctx)) return null;
   const allowed = Array.isArray(wanted) ? wanted.filter((k): k is string => typeof k === 'string' && !!DIRECTORY_HOSTS[k]) : Object.keys(DIRECTORY_HOSTS);
   if (!allowed.length) return null;
   const kinds = allowed.map((k) => `'${k}'`).join(', ');
