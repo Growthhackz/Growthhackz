@@ -243,6 +243,8 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect(pub.status).toBe(200);
     expect(pub.headers['content-type']).toBe('image/png');
     expect((await hubOff.call(null, 'GET', `/projects/${o2.id}`)).status).toBe(404);
+    // Already-published articles embed the old hub asset address: images keep working there, nothing else does.
+    expect((await hubOff.call(null, 'GET', `/projects/${o2.id}/assets/${img.id}`)).status).toBe(200);
     expect((await hubOff.call(null, 'GET', `/media/${'0'.repeat(40)}`)).status).toBe(404);
   });
 
