@@ -60,6 +60,8 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0]!;
     if (path === '/health') return;
+    // Public images for Telegraph and meme pages. Asset ids derive from the order's random id, so they can't be guessed.
+    if (/^\/media\/[0-9a-f]{40}$/.test(path) && req.method === 'GET') return;
     if (path.startsWith('/projects/')) {
       if (config.PUBLIC_HUB_ENABLED) return;
       return reply.code(404).send({ error: { code: 'not_found', message: 'Public hubs are disabled' } });

@@ -112,7 +112,7 @@ Links arrive as each destination goes live, not all at once. Typical timing:
 | When | What |
 |---|---|
 | Seconds | `order.accepted` |
-| Minutes to ~1 hour | Telegraph article, call-channel post, X raid, project page |
+| Minutes to ~1 hour | Telegraph article, call-channel post, X raid, meme pack |
 | A few hours | Binance Square, CoinMarketCap community post, Bitcointalk thread, sticker pack |
 | Up to ~8 days | CoinSniper and Coinvote listings, 1888PressRelease (each is reviewed by the site before it goes live) |
 
@@ -196,7 +196,8 @@ Body envelope:
   - `social_boost` (the X raid; its URL is the raid's wurk.fun job page)
   - `reddit_moonshots`
   - `reddit_solanamemecoins`
-  - `hub` (the project page on our API domain)
+  - `meme_pack` (label "Meme pack"): a telegra.ph gallery of five custom memes for the project. It opens inside
+    Telegram, so DM it like the other links: e.g. "😂 Your $MFROG meme pack is ready:" plus the link.
 - **`sticker_pack.ready`**: the pack is published.
   ```json
   { "url": "https://t.me/addstickers/p1a2b3c..._by_Fullsendtrenchesbot", "name": "p1a2b3c..._by_Fullsendtrenchesbot",

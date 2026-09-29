@@ -27,7 +27,7 @@ export const SOURCES: Source[] = [
   { id: 'gemini', name: 'Gemini', mode: 'input', credential: 'GEMINI_API_KEY', detail: 'The three posts and the campaign/sticker artwork.' },
   { id: 'intake', name: 'Order intake', mode: 'receive + push', credential: null, detail: 'Authenticated order and trending intake, polling and signed callbacks.' },
   { id: 'binance', name: 'Binance Square article', mode: 'publish + verify', credential: null, detail: 'Article with the campaign image as cover, via the official Square script on the companion worker.' },
-  { id: 'telegraph', name: 'Telegraph article', mode: 'publish + verify', credential: 'TELEGRAPH_TOKEN', detail: 'Article with the campaign image embedded (needs PUBLIC_HUB_ENABLED), then page verification.' },
+  { id: 'telegraph', name: 'Telegraph article', mode: 'publish + verify', credential: 'TELEGRAPH_TOKEN', detail: 'Article with the campaign image embedded (served at /media), then page verification.' },
   { id: 'call_channel', name: 'Full Send Trenches channel post', mode: 'publish', credential: 'CALL_CHANNEL_BOT_TOKEN', detail: 'X-sized post with the campaign image and the project Telegram link, posted by our bot to CALL_CHANNEL_ID.' },
   { id: 'sticker_pack', name: 'Telegram sticker pack', mode: 'publish + verify', credential: 'TELEGRAM_BOT_TOKEN', detail: 'Five stickers from the project mascot, published as a set owned by the team account (STICKER_OWNER_ID); buyers get the add link.' },
   { id: 'reddit', name: 'Reddit r/moonshots + r/solanamemecoins', mode: 'publish (worker)', credential: null, detail: 'Headline + article as a text post in each subreddit, via a scripted browser on the companion worker (REDDIT_USERNAME / REDDIT_PASSWORD there).' },

@@ -151,3 +151,37 @@ export async function findRaidPost(ctx: ServiceContext, profileUrl: string | und
   const latest = own.sort((a, b) => (BigInt(b.rest_id) > BigInt(a.rest_id) ? 1 : -1))[0];
   return { url: postUrl(screen, latest.rest_id), source: 'latest', tweet_id: latest.rest_id };
 }
+
+export interface XSnapshot {
+  handle: string;
+  name: string | null;
+  bio: string | null;
+  /** Pinned post first, then the newest original posts; text only, trimmed. */
+  posts: string[];
+}
+
+const clean = (s: unknown, max: number) =>
+  typeof s === 'string' ? s.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, max) || null : null;
+
+/** What the project says about itself on X, for writing specific copy. Null when the account can't be read. */
+export async function xSnapshot(ctx: ServiceContext, profileUrl: string | undefined): Promise<XSnapshot | null> {
+  const handle = handleFromProfileUrl(profileUrl);
+  if (!handle) return null;
+  const u = await gql(ctx, ctx.config.X_GQL_USER_BY_SCREEN_NAME, 'UserByScreenName', { screen_name: handle }, USER_FEATURES);
+  const user = u?.data?.user?.result;
+  if (!user || user.__typename !== 'User' || !user.rest_id || user.legacy?.protected) return null;
+  const t = await gql(
+    ctx,
+    ctx.config.X_GQL_USER_TWEETS,
+    'UserTweets',
+    { userId: user.rest_id, count: 20, includePromotedContent: false, withVoice: true },
+    TWEET_FEATURES,
+  ).catch(() => null);
+  const pinned = user.legacy?.pinned_tweet_ids_str?.[0];
+  const own = (t ? timelineTweets(t) : []).filter(
+    (x) => x.legacy.user_id_str === user.rest_id && !x.legacy.retweeted_status_result && !x.legacy.in_reply_to_status_id_str,
+  );
+  own.sort((a, b) => (a.rest_id === pinned ? -1 : b.rest_id === pinned ? 1 : BigInt(b.rest_id) > BigInt(a.rest_id) ? 1 : -1));
+  const posts = [...new Set(own.map((x) => clean(x.legacy.full_text, 280)).filter((x): x is string => !!x))].slice(0, 5);
+  return { handle: user.legacy?.screen_name ?? handle, name: clean(user.legacy?.name, 60), bio: clean(user.legacy?.description, 300), posts };
+}

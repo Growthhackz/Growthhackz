@@ -160,6 +160,13 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     probeConnector(ctx, req.params.id, (req.body ?? {}) as Record<string, unknown>),
   );
 
+  // ---- public images (embedded by Telegraph pages); images only, nothing else about the order ----
+  app.get<{ Params: { assetId: string } }>('/media/:assetId', async (req, reply) => {
+    const { asset, bytes } = await readAsset(ctx, req.params.assetId);
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(asset.mime)) throw new NotFoundError('Asset');
+    return sendAsset(reply, req, asset, bytes, 'public, max-age=86400');
+  });
+
   // ---- public project hub (only when PUBLIC_HUB_ENABLED) ----
   app.get<{ Params: Params }>('/projects/:id', async (req, reply) => {
     try {

@@ -44,7 +44,7 @@ describe('Reddit via the companion worker', () => {
       seen.push(c.target.subreddit);
       expect(c.target.title).toBe(liveCopy.headline);
       expect(c.target.text).toContain(liveCopy.article.trim().split('\n')[0]);
-      expect(c.target.text).toMatch(/^!\[Moon Frog\]\(https:\/\/content\.example\.test\/projects\/.+\/assets\/.+\)/);
+      expect(c.target.text).toMatch(/^!\[Moon Frog\]\(https:\/\/content\.example\.test\/media\/[0-9a-f]{40}\)/);
       expect(c.target.text).toContain('Telegram: https://t.me/moonfrog');
       // Wrong subreddit in the URL is not accepted as delivered.
       const url = `https://www.reddit.com/r/${c.target.subreddit}/comments/abc123/moon_frog/`;
@@ -61,7 +61,7 @@ describe('Reddit via the companion worker', () => {
     const kinds = { kinds: ['reddit_moonshots', 'reddit_solanamemecoins'] };
 
     const a = (await t.api('POST', '/v1/publish/claim', kinds)).body;
-    expect(a.target.text.startsWith('![')).toBe(false); // no public image URL without the hub
+    expect(a.target.text.startsWith('![')).toBe(true); // the image is public at /media even without the hub
     const wrongSub = `https://www.reddit.com/r/somewhereelse/comments/zz9/x/`;
     expect((await t.api('POST', `/v1/publish/${a.job.id}/complete`, { lease: a.job.lease, url: wrongSub, verified: true })).body.status).toBe('uncertain');
 

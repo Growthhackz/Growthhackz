@@ -157,3 +157,21 @@ describe('Binance Square URLs', () => {
     void b;
   });
 });
+
+describe('Telegraph article content', () => {
+  it('links Peak BuyBot to @peakbuybot and lists the project links by name', async () => {
+    const { paragraphNodes } = await import('../src/providers/telegraph.js');
+    const { projectLinks } = await import('../src/services/engine.js');
+    expect(paragraphNodes('The team chose Peak BuyBot as its community software.')).toEqual([
+      'The team chose ',
+      { tag: 'a', attrs: { href: 'https://t.me/peakbuybot' }, children: ['Peak BuyBot'] },
+      ' as its community software.',
+    ]);
+    expect(projectLinks({ telegram_url: 'https://t.me/moonfrog', x_url: 'https://x.com/moonfrog', website_url: 'https://www.moonfrog.xyz/home' } as any)).toEqual([
+      { label: 'Telegram (@moonfrog)', href: 'https://t.me/moonfrog' },
+      { label: 'X (@moonfrog)', href: 'https://x.com/moonfrog' },
+      { label: 'Website (moonfrog.xyz)', href: 'https://www.moonfrog.xyz/home' },
+    ]);
+    expect(projectLinks({ x_url: 'https://x.com/moonfrog' } as any)).toEqual([{ label: 'X (@moonfrog)', href: 'https://x.com/moonfrog' }]);
+  });
+});

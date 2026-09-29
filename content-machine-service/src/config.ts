@@ -50,7 +50,7 @@ const EnvSchema = z.object({
   X_GQL_USER_BY_SCREEN_NAME: z.string().regex(/^[A-Za-z0-9_-]+$/).default('xmU6X_CKVnQ5lSrCbAmJsg'),
   X_GQL_USER_TWEETS: z.string().regex(/^[A-Za-z0-9_-]+$/).default('E3opETHurmVJflFsUBVuUQ'),
   /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
-  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost,bitcointalk'),
+  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,social_boost,bitcointalk,meme_pack'),
 
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */

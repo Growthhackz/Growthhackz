@@ -1,0 +1,73 @@
+{
+  "pumptober_original_approved": [
+    {
+      "template_id": "smug_pepe",
+      "top": "THEY SEE A PUMPKIN",
+      "bottom": "I SEE A SEASONAL THESIS."
+    },
+    {
+      "template_id": "pink_wojak",
+      "top": "I SOLD BECAUSE IT WAS",
+      "bottom": "'JUST A PUMPKIN'"
+    },
+    {
+      "template_id": "gigachad",
+      "top": "MY TECHNICAL ANALYSIS?",
+      "bottom": "OCTOBER."
+    },
+    {
+      "template_id": "buff_doge_vs_cheems",
+      "left": "ME EXPLAINING THE THESIS",
+      "right": "THE ACTUAL THESIS",
+      "detail": "pumpkin + october"
+    },
+    {
+      "template_id": "stonks",
+      "top": "SEPTEMBER → OCTOBER",
+      "bottom": "FUNDAMENTAL ANALYSIS"
+    }
+  ],
+  "tobey_revised_approved": [
+    {
+      "template": "Smug Pepe",
+      "emotion": "unbothered confidence",
+      "hook": "luxury car persona",
+      "subject": "ignoring FUD",
+      "top": "CAN'T HEAR THE FUD",
+      "bottom": "WINDOWS ARE TINTED"
+    },
+    {
+      "template": "Two Buttons",
+      "emotion": "anxious compulsion",
+      "hook": "following TOBEY compulsively",
+      "subject": "leaving the screen",
+      "left": "LOG OFF",
+      "right": "CHECK $TOBEY ONE MORE TIME"
+    },
+    {
+      "template": "Buff Doge vs. Cheems",
+      "emotion": "embarrassment",
+      "hook": "showy project persona versus an ordinary small buyer",
+      "subject": "Telegram bravado versus actual commitment",
+      "left": "ME IN THE TG",
+      "right": "MY ACTUAL BUY"
+    },
+    {
+      "template": "This Is Fine",
+      "emotion": "wishful thinking",
+      "hook": "project lore treated as a solution to everyday obligations",
+      "subject": "denying real-life responsibilities",
+      "top": "RENT IS DUE",
+      "speech": "THE LORE WILL PROVIDE."
+    },
+    {
+      "template": "Stonks",
+      "emotion": "absurd intellectual certainty",
+      "hook": "the spider necklace in the official token artwork",
+      "subject": "a visual detail mistaken for due diligence",
+      "top": "MY ENTIRE THESIS",
+      "bottom": "THE SPIDER NECKLACE"
+    }
+  ],
+  "note": "The original Pumptober captions above are the accepted rendered examples. The lingo guide also contains later proposed alternate captions, clearly a different set."
+}

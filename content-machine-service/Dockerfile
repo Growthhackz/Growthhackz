@@ -16,5 +16,7 @@ ENV NODE_ENV=production \
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+# Peak Meme Creation Kit: template references, bank, lingo guide and prompts used by the meme pack.
+COPY memekit ./memekit
 EXPOSE 4020
 CMD ["node", "--disable-warning=ExperimentalWarning", "dist/server.js"]

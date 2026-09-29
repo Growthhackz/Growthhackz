@@ -191,7 +191,8 @@ export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   // A purchase is one order: a retried webhook gets the existing order even if TRENDING_CHANNELS changed since.
   const existing = get<{ id: string }>(ctx.db, 'SELECT id FROM orders WHERE order_id = :o', { o: `trending:${purchase_id}` });
   if (existing) return { order: loadOrder(ctx, existing.id), created: false };
-  return createOrder(ctx, { ...rest, order_id: `trending:${purchase_id}`, channels: trendingChannels(ctx, channels) });
+  // Trending orders include the campaign art, stickers and the five-meme pack: about $1.40 of generation at list rates.
+  return createOrder(ctx, { budget_cents: 250, ...rest, order_id: `trending:${purchase_id}`, channels: trendingChannels(ctx, channels) });
 }
 
 export function loadOrder(ctx: ServiceContext, id: string): Order {

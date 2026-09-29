@@ -1,0 +1,239 @@
+{
+  "name": "Peak Meme Lingo Guide",
+  "version": "2.0",
+  "updated": "2026-09-29",
+  "purpose": "Production caption and scene guide for 25 iconic reference templates; output five distinct project-specific memes per token. This is prompt guidance, not model training.",
+  "voice": {
+    "tone": "Dry, self-aware crypto trader. Confident about a ridiculous thesis. Sounds like a group-chat joke, never a brand pitch.",
+    "slang": "Use zero to two relevant slang expressions per meme. One is usually enough.",
+    "length": "Prefer 4–12 total caption words. Longer only when the setup genuinely needs it.",
+    "humor": "Target trader behaviour, overthinking, calendar logic, refreshing charts and absurd conviction. The narrative must supply the punchline."
+  },
+  "lexicon": [
+    {
+      "term": "trenches",
+      "meaning": "Chaotic early memecoin trading."
+    },
+    {
+      "term": "degen",
+      "meaning": "Self-described high-risk trader."
+    },
+    {
+      "term": "ape",
+      "meaning": "Buy impulsively with little research."
+    },
+    {
+      "term": "bag",
+      "meaning": "A token position."
+    },
+    {
+      "term": "paper hands",
+      "meaning": "Selling at the first scare."
+    },
+    {
+      "term": "diamond hands",
+      "meaning": "Holding through volatility."
+    },
+    {
+      "term": "cope",
+      "meaning": "Rationalizing an uncomfortable outcome."
+    },
+    {
+      "term": "hopium",
+      "meaning": "Optimism outrunning evidence."
+    },
+    {
+      "term": "rekt",
+      "meaning": "Taking a severe loss."
+    },
+    {
+      "term": "roundtrip",
+      "meaning": "An unrealized gain returning to its starting value."
+    },
+    {
+      "term": "midcurve",
+      "meaning": "Overthinking a simple idea."
+    },
+    {
+      "term": "exit liquidity",
+      "meaning": "Buyers enabling earlier holders to sell."
+    },
+    {
+      "term": "cooking",
+      "meaning": "Making promising progress."
+    },
+    {
+      "term": "few",
+      "meaning": "Ironic suggestion that only insiders understand."
+    },
+    {
+      "term": "probably nothing",
+      "meaning": "Sarcastically understating a perceived signal."
+    },
+    {
+      "term": "meta",
+      "meaning": "The prevailing narrative or trading theme."
+    },
+    {
+      "term": "fade",
+      "meaning": "Dismiss or decline a trade or narrative."
+    },
+    {
+      "term": "conviction",
+      "meaning": "Confidence in a thesis."
+    }
+  ],
+  "rules": [
+    "Understand the term before using it. A trader who sold and stayed out is not thereby exit liquidity.",
+    "Do not make every meme a buy call. Each should be funny as a standalone image.",
+    "Generate three caption candidates per template; select the clearest joke with the strongest narrative fit.",
+    "Give the five memes distinct joke angles, not five rewrites of the same punchline.",
+    "Do not explain the punchline in the image.",
+    "No generic moon/lambo/100x copy unless it is the actual joke.",
+    "No invented token achievements, holder counts, listings, chart moves or returns.",
+    "A fictional trader's reaction can be exaggerated; do not present fictional performance as token data.",
+    "Use community catchphrases only when supplied or verified for that exact token.",
+    "Prefer caption changes over visual redesign when improving an already approved pack."
+  ],
+  "template_angles": {
+    "drake_hotline_bling": "rejection → preference",
+    "two_buttons": "irresolvable dilemma",
+    "distracted_boyfriend": "attention betrayal",
+    "always_has_been": "late realization",
+    "disaster_girl": "mischievous satisfaction",
+    "change_my_mind": "provocative certainty",
+    "buff_doge_vs_cheems": "expectation versus embarrassing reality",
+    "this_is_fine": "denial in chaos",
+    "surprised_pikachu": "predictable consequences",
+    "leonardo_dicaprio_cheers": "knowing approval",
+    "trump_bill_signing": "mock official decree",
+    "smug_pepe": "unearned certainty",
+    "gigachad": "deadpan decisiveness",
+    "stonks": "absurd input treated as analysis",
+    "pink_wojak": "regret or second-guessing",
+    "bernie_once_again": "weary repeated request",
+    "anakin_padme": "optimistic assumption becomes awkward doubt",
+    "grus_plan": "plan backfires",
+    "waiting_skeleton": "waiting taken absurdly far",
+    "trade_offer": "comically unequal exchange",
+    "woman_yelling_at_cat": "emotional argument versus literal response",
+    "expanding_brain": "increasingly absurd reasoning",
+    "clown_applying_makeup": "escalating self-deception",
+    "roll_safe": "confident faulty logic",
+    "hide_the_pain_harold": "polite exterior versus inner discomfort"
+  },
+  "pumptober_examples": [
+    {
+      "template": "smug_pepe",
+      "top": "YOU SEE A PUMPKIN",
+      "bottom": "I SEE THE META"
+    },
+    {
+      "template": "crying_wojak",
+      "top": "FADED THE PUMPKIN",
+      "bottom": "STILL REFRESHING THE CHART"
+    },
+    {
+      "template": "gigachad",
+      "top": "SOURCE?",
+      "bottom": "THE CALENDAR."
+    },
+    {
+      "template": "swole_doge_vs_cheems",
+      "left": "MY 40-PAGE THESIS",
+      "right": "PUMPKIN + OCTOBER"
+    },
+    {
+      "template": "stonks",
+      "top": "DID ZERO TA",
+      "bottom": "CHECKED THE MONTH"
+    }
+  ],
+  "prompt_suffix": "Write like a dry, self-aware memecoin trader posting in a group chat. Use the token narrative as the joke, not decoration. Keep the approved visual style and iconic meme character recognizable. Prefer 4–12 caption words and no more than two slang terms. Generate three caption candidates, then choose the funniest clear option. Do not force jargon, explain the joke, use ad copy or invent token performance. Make all five joke angles distinct. Composite the exact supplied logo; never replace the iconic meme face with it. Before generating, design the full five-image storyboard. Each needs a different emotion, project hook, joke subject, setup and payoff. Reject semantic repetition even when captions use different words. Do not repeat the same slogan or theme across the five. Let each meme template dictate its own humour. On replacement, preserve the missing joke angle rather than duplicating another image.",
+  "sources": [
+    {
+      "url": "https://memecoin.wiki/wiki/memecoin_slang_dictionary",
+      "used_for": "Selected vocabulary meanings, paraphrased. Voice, rules and examples are original editorial recommendations."
+    },
+    {
+      "url": "https://bitcoinfoundation.org/news/opinion/what-is-crypto-slang-most-popular-crypto-terms-every-trader-should-know-in-2026/",
+      "used_for": "Cross-checking culture and terminology. Not a measured frequency ranking."
+    }
+  ],
+  "pack_design": {
+    "required_step": "Plan all five memes together before making any image. Assign a different emotion, subject and punchline mechanism to each.",
+    "fields_per_meme": [
+      "template",
+      "emotion",
+      "specific_project_hook",
+      "joke_subject",
+      "setup",
+      "punchline",
+      "scene",
+      "caption"
+    ],
+    "uniqueness_check": [
+      "Different wording alone does not make a different joke. Reject repeated premises, emotional beats, project hooks and conclusions.",
+      "If two captions can be swapped between their images without weakening either joke, rewrite them.",
+      "Use different parts of the project narrative across the pack, not the same keyword five times.",
+      "Use each main community catchphrase at most once in a pack. Logo and ticker repetition are allowed.",
+      "Do not put the same activity, prop or slogan at the center of all five scenes.",
+      "Respect the native joke of each template: reaction, contrast, contradiction, dilemma or confident absurdity.",
+      "Review the complete five-item storyboard, then generate. Replacements must fill the missing emotional angle."
+    ],
+    "visual_rule": "Retain the polish of the approved Pumptober pack. Let context affect each scene, action and expression. A badge or logo alone is not enough."
+  },
+  "tobey_v2_storyboard": [
+    {
+      "template": "Smug Pepe",
+      "emotion": "unbothered confidence",
+      "hook": "luxury car persona",
+      "subject": "ignoring FUD",
+      "top": "CAN'T HEAR THE FUD",
+      "bottom": "WINDOWS ARE TINTED"
+    },
+    {
+      "template": "Two Buttons",
+      "emotion": "anxious compulsion",
+      "hook": "following TOBEY compulsively",
+      "subject": "leaving the screen",
+      "left": "LOG OFF",
+      "right": "CHECK $TOBEY ONE MORE TIME"
+    },
+    {
+      "template": "Buff Doge vs. Cheems",
+      "emotion": "embarrassment",
+      "hook": "showy project persona versus an ordinary small buyer",
+      "subject": "Telegram bravado versus actual commitment",
+      "left": "ME IN THE TG",
+      "right": "MY ACTUAL BUY"
+    },
+    {
+      "template": "This Is Fine",
+      "emotion": "wishful thinking",
+      "hook": "project lore treated as a solution to everyday obligations",
+      "subject": "denying real-life responsibilities",
+      "top": "RENT IS DUE",
+      "speech": "THE LORE WILL PROVIDE."
+    },
+    {
+      "template": "Stonks",
+      "emotion": "absurd intellectual certainty",
+      "hook": "the spider necklace in the official token artwork",
+      "subject": "a visual detail mistaken for due diligence",
+      "top": "MY ENTIRE THESIS",
+      "bottom": "THE SPIDER NECKLACE"
+    }
+  ],
+  "efficiency_rules": [
+    "Fetch token facts once and store a compact sourced brief. Do not browse separately for each meme.",
+    "Use one strong planner request for all five, three concise caption candidates each and a joint semantic review before image spend.",
+    "Do not send the full conversation, all 25 pictures, or rejected image attempts to each image call. Send one selected reference, logo, optional necessary header and its concise approved scene.",
+    "Retain the approved visual quality preset. Medium image quality is an optional evaluated preset, not a guaranteed equivalent.",
+    "Keep successful images; correct deterministic text or logo overlays locally; rerender only when scene, expression or composition fails.",
+    "Use a bounded targeted rewrite for a weak joke, not a new five-image pack.",
+    "Measure actual usage and accepted-image cost; cap attempts and total spend.",
+    "Put stable guide instructions before changing token content for eligible prefix caching. Do not assume direct Images API cache discounts.",
+    "For nonurgent jobs, consider supported Batch endpoints; use separate text and image stages after planning succeeds."
+  ]
+}
