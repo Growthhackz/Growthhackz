@@ -87,9 +87,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   });
 
   app.post<{ Params: Params }>('/v1/jobs/:id/retry', async (req) => {
-    const reset = (req.body as { reset_attempts?: unknown } | null)?.reset_attempts === true;
-    if (reset) await requireAdmin(req);
-    return retryJob(ctx, req.params.id, reset);
+    const b = (req.body ?? {}) as { reset_attempts?: unknown; confirm_not_posted?: unknown };
+    const reset = b.reset_attempts === true;
+    const notPosted = b.confirm_not_posted === true;
+    if (reset || notPosted) await requireAdmin(req);
+    return retryJob(ctx, req.params.id, reset, notPosted);
   });
   app.post<{ Params: Params }>('/v1/jobs/:id/reconcile', admin, async (req) => {
     const b = parse(z.object({ url: z.string() }), req.body);

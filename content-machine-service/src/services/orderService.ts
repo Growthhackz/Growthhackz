@@ -277,20 +277,22 @@ export function getJob(ctx: ServiceContext, id: string): JobRow {
 /** Re-queues blocked/failed work. Uncertain publications must be reconciled instead. */
 /**
  * `resetAttempts` (admin, after fixing the cause) is only allowed for blocked work: blocked means nothing was sent,
- * so a fresh set of attempts can't double-post.
+ * so a fresh set of attempts can't double-post. `confirmNotPosted` (admin) retries an uncertain publication after
+ * someone has checked that it did not go out.
  */
-export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false) {
+export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false, confirmNotPosted = false) {
   const j = getJob(ctx, id);
-  if (!['blocked', 'failed'].includes(j.status))
+  if (j.status === 'uncertain' && confirmNotPosted) resetAttempts = true;
+  else if (!['blocked', 'failed'].includes(j.status))
     throw new ConflictError('Only blocked or failed work can be retried. Uncertain publications require reconciliation.');
-  if (resetAttempts && j.status !== 'blocked') throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
+  if (resetAttempts && !['blocked', 'uncertain'].includes(j.status)) throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
   if (j.attempts >= MAX_ATTEMPTS && !resetAttempts) throw new ConflictError('Three-attempt limit reached; inspect the provider before proceeding.');
   run(
     ctx.db,
     // A retry gets a fresh deadline, and the order reports again when everything is final.
     `UPDATE jobs SET status = 'queued', error = NULL, available_at = 0, deadline_at = :deadline, updated_at = :t,
        attempts = CASE WHEN :reset = 1 THEN 0 ELSE attempts END
-     WHERE id = :id AND status IN ('blocked', 'failed')`,
+     WHERE id = :id AND status IN ('blocked', 'failed', 'uncertain')`,
     { id, t: nowMs(ctx), deadline: nowMs(ctx) + deadlineMs(j.kind), reset: resetAttempts ? 1 : 0 },
   );
   run(ctx.db, 'UPDATE orders SET completed_at = NULL WHERE id = :id', { id: j.order_id });
