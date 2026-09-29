@@ -70,11 +70,43 @@ export function recordEvent(ctx: ServiceContext, orderId: string, type: string, 
     data: JSON.stringify(data),
     t: nowMs(ctx),
   });
+  logProblem(ctx, orderId, type, data);
   const link = type === 'delivery.updated' ? publishedLink(ctx, data) : null;
   if (link) {
     const p = JSON.parse(get<{ project: string }>(ctx.db, 'SELECT project FROM orders WHERE id = :id', { id: orderId })?.project ?? '{}');
     recordEvent(ctx, orderId, 'link.published', { ...link, project: { name: p.name ?? null, symbol: p.symbol ?? null } });
   }
+}
+
+const PROBLEM_STATUSES = ['failed', 'blocked', 'uncertain'];
+
+/** Every failure, block or unconfirmed publication goes to the service log with its order and destination. */
+function logProblem(ctx: ServiceContext, orderId: string, type: string, data: unknown) {
+  const d = data as { kind?: string; status?: string; error?: string };
+  if (type === 'delivery.updated' && d?.status && PROBLEM_STATUSES.includes(d.status)) {
+    const external = get<{ order_id: string }>(ctx.db, 'SELECT order_id FROM orders WHERE id = :id', { id: orderId })?.order_id;
+    const entry = { order: external, order_id: orderId, source: d.kind, status: d.status, reason: d.error ?? null };
+    if (d.status === 'blocked') ctx.log.warn(entry, 'delivery blocked');
+    else ctx.log.error(entry, `delivery ${d.status}`);
+  } else if (type === 'link.published') ctx.log.info({ order_id: orderId, ...(data as object) }, 'link published');
+  else if (type === 'order.completed') {
+    const r = data as { successes?: unknown[]; failures?: unknown[] };
+    ctx.log.info({ order_id: orderId, successes: r.successes?.length ?? 0, failures: r.failures?.length ?? 0 }, 'order completed');
+  }
+}
+
+/** Recent failures, blocks and unconfirmed publications across all orders, newest first. */
+export function recentProblems(ctx: ServiceContext, sinceMs = 0, limit = 100) {
+  return all<{ id: string; order_id: string; data: string; created_at: number; external: string }>(
+    ctx.db,
+    `SELECT e.id, e.order_id, e.data, e.created_at, o.order_id AS external FROM events e JOIN orders o ON o.id = e.order_id
+     WHERE e.type = 'delivery.updated' AND e.created_at >= :since ORDER BY e.created_at DESC LIMIT 500`,
+    { since: sinceMs },
+  )
+    .map((e) => ({ ...e, d: JSON.parse(e.data) }))
+    .filter((e) => PROBLEM_STATUSES.includes(e.d.status))
+    .slice(0, limit)
+    .map((e) => ({ at: new Date(e.created_at).toISOString(), order: e.external, order_id: e.order_id, source: e.d.kind, status: e.d.status, reason: e.d.error ?? null }));
 }
 
 /**
