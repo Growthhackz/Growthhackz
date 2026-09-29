@@ -43,7 +43,7 @@ const EnvSchema = z.object({
   /** WURK preset for trending orders: the $1 small raid now; `full` is the saved four-purchase package. */
   SOCIAL_BOOST_PRESET: z.enum(['small_raid', 'full']).default('small_raid'),
   /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
-  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost'),
+  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost,bitcointalk'),
 
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */

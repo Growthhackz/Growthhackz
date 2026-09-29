@@ -9,7 +9,7 @@ const input = {
   symbol: 'MFROG',
   telegram_url: 'https://t.me/moonfrog',
   x_url: 'https://x.com/moonfrog',
-  channels: ['cmc_community', 'press_1888'],
+  channels: ['cmc_community', 'press_1888', 'bitcointalk'],
 };
 
 async function setup() {
@@ -81,3 +81,29 @@ describe('1888PressRelease', () => {
     expect(job.status).toBe('delivered');
   });
 });
+
+describe('Bitcointalk thread', () => {
+  it('builds the thread with the project links, and accepts only a worker-confirmed thread URL', async () => {
+    const { t, o } = await setup();
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['bitcointalk'] })).body;
+    expect(c.target.subject).toBe(liveCopy.headline);
+    expect(c.target.message.startsWith(liveCopy.article)).toBe(true);
+    expect(c.target.message).toContain('Telegram: https://t.me/moonfrog\nX: https://x.com/moonfrog');
+    expect(c.target.message.endsWith('Telegram: https://t.me/moonfrog\nX: https://x.com/moonfrog')).toBe(true);
+    const bad = await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url: 'https://bitcointalk.org/index.php?topic=5500001.0' });
+    expect(bad.body.status).toBe('uncertain');
+    // Admin reconciliation after checking the thread by hand.
+    const rec = await t.api('POST', `/v1/jobs/${c.job.id}/reconcile`, { url: 'https://bitcointalk.org/index.php?topic=5500001.msg1#msg1' });
+    expect(rec.status).toBe(200);
+    expect(rec.body.jobs.find((j: any) => j.kind === 'bitcointalk').result.url).toBe('https://bitcointalk.org/index.php?topic=5500001.0');
+    void o;
+  });
+
+  it('delivers when the worker confirmed the thread', async () => {
+    const { t } = await setup();
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['bitcointalk'] })).body;
+    const r = await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url: 'https://bitcointalk.org/index.php?topic=5500002.0', verified: true });
+    expect(r.body.status).toBe('delivered');
+  });
+});
+

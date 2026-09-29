@@ -32,7 +32,7 @@ const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
-const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', 'cmc_community', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 
 type Leased = JobRow & { lease: string };
@@ -365,7 +365,7 @@ export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown,
 
 // ---- worker publications: Binance Square and Reddit ----
 
-export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 
 /**
  * Every post carries the project's Telegram link; longer posts (articles) also carry X and the website. The copy
@@ -388,6 +388,11 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
   if (kind === 'binance') return { title: copy.headline, text: `${copy.article}\n\n${links(o.project, true)}` };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
+  if (kind === 'bitcointalk') {
+    const subject = (copy.forum_title ?? copy.headline).slice(0, 80);
+    const body = copy.forum_post ?? copy.article;
+    return { subject, message: `${body}\n\n${links(o.project, true)}` };
+  }
   if (kind === 'cmc_community')
     return { text: `${copy.social_post}\n\n${links(o.project, false)}`, image_asset_url: image ? `/v1/assets/${image.id}` : null };
   if (DIRECTORY_HOSTS[kind]) {
@@ -490,6 +495,14 @@ function cmcSnippet(o: Order): string | undefined {
   return o.copy?.social_post.split(/\s+/).slice(0, 12).join(' ');
 }
 
+/** Bitcointalk: the worker confirms the thread logged-out; here we check the URL's shape. */
+function bitcointalkResult(ctx: ServiceContext, url: string) {
+  const u = safeRemote(url, ['bitcointalk.org']);
+  const m = /^(\d+)(\.(\d+|msg\d+|new))?$/.exec(u.searchParams.get('topic') ?? '');
+  if (u.pathname !== '/index.php' || !m) throw new ValidationError('Use the Bitcointalk thread URL (index.php?topic=<id>.0)');
+  return { url: `https://bitcointalk.org/index.php?topic=${m[1]}.0`, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
+}
+
 /** The site's own live-page URLs only (coin pages, press release pages). */
 function directoryUrl(kind: string, url: unknown): string | null {
   if (typeof url !== 'string' || !url) return null;
@@ -528,6 +541,7 @@ export async function publishComplete(ctx: ServiceContext, jobId: string, lease:
         }
       }
       else if (j.kind === 'cmc_community') finish(ctx, j, await verifyPublication(ctx, url, 'cmc_community', cmcSnippet(loadOrder(ctx, j.order_id))));
+      else if (j.kind === 'bitcointalk' && verified === true) finish(ctx, j, bitcointalkResult(ctx, url));
       else if (verified === true) finish(ctx, j, redditResult(ctx, j.kind, url));
       else throw new NotVerifiedError('Post not confirmed');
       return { status: 'delivered' };
@@ -608,6 +622,7 @@ export async function reconcile(ctx: ServiceContext, jobId: string, url: unknown
     if (!coinUrl) throw new ValidationError(`Use the coin page URL on ${DIRECTORY_HOSTS[j.kind]![0]}`);
     result = { url: coinUrl, verified_at: new Date(nowMs(ctx)).toISOString() };
   } else if (REDDIT_SUBREDDITS[j.kind]) result = redditResult(ctx, j.kind, url);
+  else if (j.kind === 'bitcointalk') result = bitcointalkResult(ctx, url);
   else if (j.kind === 'cmc_community') result = await verifyPublication(ctx, url, j.kind, cmcSnippet(loadOrder(ctx, j.order_id)));
   else result = await verifyPublication(ctx, url, j.kind, loadOrder(ctx, j.order_id).copy?.headline);
   const full = { ...result, manual_reconciliation: true };
