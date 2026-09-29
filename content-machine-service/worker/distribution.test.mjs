@@ -104,10 +104,12 @@ const prServer = createServer(async (req, res) => {
     const box = (id, plan, checked) => `<input type="checkbox" name="r1" id="${id}" onclick="show('${plan}')"${checked ? ' checked="checked"' : ''}/>`;
     return send(`<form name="frmpreview" method="post">${box('prvtpck01', '6')}${box('prvupck01', '5', true)}${pr.noFree ? '' : box('prvfpck01', '0')}</form><div id="plan_preview"></div>
 <script>var plan='5';function show(p){plan=p;fetch('/ajax_pr_preview.php',{method:'POST',body:'plan='+p}).then(r=>r.text()).then(h=>{document.getElementById('plan_preview').innerHTML=h})}
-function confirm_pr(){var f=document.createElement('form');f.method='post';f.action='/final.php?plan='+plan;document.body.appendChild(f);f.submit()}show('5');</script>`);
+function confirm_pr(){var f=document.createElement('form');f.method='post';f.action='/plan.php?plan='+plan;document.body.appendChild(f);f.submit()}show('5');</script>`);
   }
   if (url.pathname === '/ajax_pr_preview.php') { const plan = new URLSearchParams(await body(req)).get('plan'); return send(`${plan === '0' ? '' : '<b>Ultimate Plan - $150.00</b>'}<p>${pr.pending.get('txtheadline')}</p><a onclick="modify_pr()">Edit</a><a style="cursor:pointer" onClick="confirm_pr();"><img src="images/btn-continuenext.gif"></a>`); }
-  if (url.pathname === '/final.php') { pr.pending.set('plan', url.searchParams.get('plan')); pr.releases.push(pr.pending); return send('<p>Thank you! Your press release has been submitted and is pending review.</p>'); }
+  // plan.php: a second plan chooser (radios, paid first) whose continue link posts to step4.php.
+  if (url.pathname === '/plan.php') return send(`<form name="frmplan" action="/step4.php" method="post">${['6', '5', '0'].map(v => `<input type="radio" name="planradio" value="${v}"${v === '5' ? ' checked' : ''}>`).join('')}<a class="cont-btn" onclick="return validate_form();">Continue next step</a></form><script>function validate_form(){document.frmplan.submit();return false}</script>`);
+  if (url.pathname === '/step4.php') { pr.pending.set('plan', new URLSearchParams(await body(req)).get('planradio')); pr.releases.push(pr.pending); return send('<p>Thank you! Your press release has been submitted and is pending review.</p>'); }
   const m = url.pathname.match(/^\/(\d\d-\d\d-\d{4})\.html$/);
   if (m) return send(pr.published.filter(p => p.date === m[1]).map(p => `<a href="/${p.slug}-pr-7${p.n}.html">${p.h}</a>`).join(''));
   send('nf', 404);
