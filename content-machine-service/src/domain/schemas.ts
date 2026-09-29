@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -31,8 +31,10 @@ export const REDDIT_SUBREDDITS: Record<string, string> = {
 };
 
 /** The channel that switches a pipeline kind on (kinds not listed are always on). */
+/** The five-meme pack (plan, renders, gallery page) is one switchable channel, so it costs nothing when off. */
+export const MEME_KINDS = ['meme_plan', 'meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_pack'];
 export const channelOf = (kind: string): string | null =>
-  REDDIT_SUBREDDITS[kind] ? 'reddit' : (CHANNELS as readonly string[]).includes(kind) ? kind : null;
+  REDDIT_SUBREDDITS[kind] ? 'reddit' : MEME_KINDS.includes(kind) ? 'meme_pack' : (CHANNELS as readonly string[]).includes(kind) ? kind : null;
 
 /** One X post (the raid target for social_boost). */
 const xPostUrl = z
@@ -129,7 +131,16 @@ export const SOCIAL_POST_MAX = 800;
 export const copySchema = z.object({
   headline: z.string().min(5).max(150),
   article: z.string().min(100).max(6500),
-  social_post: z.string().min(40).max(SOCIAL_POST_MAX),
+  // Over-long channel posts are trimmed at a paragraph break rather than failing the whole draft.
+  social_post: z
+    .string()
+    .min(40)
+    .transform((v) => {
+      const t = v.trim();
+      if (t.length <= SOCIAL_POST_MAX) return t;
+      const cut = t.lastIndexOf('\n\n', SOCIAL_POST_MAX);
+      return (cut > 200 ? t.slice(0, cut) : t.slice(0, SOCIAL_POST_MAX)).trim();
+    }),
   short_post: z.string().min(10).max(SHORT_POST_MAX),
   meme_captions: z.array(z.string().max(100)).length(8),
   trailer_lines: z.array(z.string().max(70)).min(3).max(5),
@@ -145,6 +156,8 @@ export type Project = OrderInput & {
   enriched_at: number | null;
   source?: string;
   market?: Record<string, unknown>;
+  /** What the project's website, X and Telegram say about it (untrusted page text; see providers/research.ts). */
+  research?: import('../providers/research.js').Research;
   /** How x_post_url was chosen when the order didn't supply one. */
   x_post_source?: 'pinned' | 'latest';
 };
@@ -168,6 +181,14 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
+  // Peak Meme Creation Kit: plan all five jokes together, render each, then one gallery page.
+  ['meme_plan', 90],
+  ['meme_0', 91],
+  ['meme_1', 92],
+  ['meme_2', 93],
+  ['meme_3', 94],
+  ['meme_4', 95],
+  ['meme_pack', 96],
   ['sticker_art_0', 100],
   ['sticker_art_1', 101],
   ['sticker_art_2', 102],
@@ -220,6 +241,13 @@ export const DEADLINE_MS: Record<string, number> = {
   sticker_art_4: 6 * HOUR,
   stickers: 8 * HOUR,
   sticker_publish: 10 * HOUR,
+  meme_plan: 3 * HOUR,
+  meme_0: 6 * HOUR,
+  meme_1: 6 * HOUR,
+  meme_2: 6 * HOUR,
+  meme_3: 6 * HOUR,
+  meme_4: 6 * HOUR,
+  meme_pack: 8 * HOUR,
 };
 export const deadlineMs = (kind: string) => DEADLINE_MS[kind] ?? 24 * HOUR;
 
@@ -230,6 +258,9 @@ export function dependenciesOf(kind: string): string[] {
   if (kind === 'hub' || kind === 'campaign_image' || kind.startsWith('sticker_art_')) return ['copy'];
   if (kind === 'stickers') return ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'sticker_art_3', 'sticker_art_4'];
   if (kind === 'sticker_publish') return ['stickers'];
+  if (kind === 'meme_plan') return ['copy'];
+  // The gallery waits for the renders to finish (see ready()); it only needs the plan to exist.
+  if (kind.startsWith('meme_')) return ['meme_plan'];
   // media and every publication go out with the campaign image.
   return ['campaign_image'];
 }
@@ -249,6 +280,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',
   sticker_publish: 'Telegram sticker pack',
+  meme_pack: 'Meme pack',
 };
 
 /** Internal steps, named when they fail in the report. */
@@ -263,4 +295,10 @@ export const STEP_LABELS: Record<string, string> = {
   sticker_art_3: 'Sticker artwork',
   sticker_art_4: 'Sticker artwork',
   stickers: 'Sticker rendering',
+  meme_plan: 'Meme pack plan',
+  meme_0: 'Meme artwork',
+  meme_1: 'Meme artwork',
+  meme_2: 'Meme artwork',
+  meme_3: 'Meme artwork',
+  meme_4: 'Meme artwork',
 };

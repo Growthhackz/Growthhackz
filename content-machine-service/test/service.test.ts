@@ -68,8 +68,8 @@ describe('demo pipeline', () => {
     expect(done.status).toBe('delivered');
     expect(done.copy.article).toBeTruthy();
     expect(done.reserved_cents).toBe(0);
-    expect(done.jobs.filter((j: any) => j.status === 'delivered')).toHaveLength(3);
-    expect(done.jobs.find((j: any) => j.kind === 'hub').result.url).toBe(`https://content.example.test/projects/${order.id}`);
+    expect(done.jobs.filter((j: any) => j.status === 'delivered')).toHaveLength(2);
+    expect(done.jobs.find((j: any) => j.kind === 'hub').status).toBe('skipped'); // the hub page isn't published
     expect(t.http.calls).toHaveLength(0);
     expect((await t.api('POST', '/v1/render/claim')).body).toBeNull();
     expect((await t.api('POST', '/v1/publish/claim')).body).toBeNull();

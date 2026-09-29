@@ -1,0 +1,16 @@
+Generate one polished standalone memecoin meme image based on the attached TEMPLATE_REFERENCE, TOKEN_LOGO and optional essential TOKEN_HEADER.
+
+PROJECT: {token_name} (${ticker}). Verified context: {concise_narrative}.
+TEMPLATE: {template_name}. Native structure: {template_layout}.
+EMOTION: {emotion}.
+JOKE: {setup} → {punchline}.
+PROJECT-SPECIFIC HOOK: {project_hook}.
+SCENE: {scene}. Expression/action must communicate this particular joke.
+TOKEN ART PLACEMENT: {logo_placement}.
+EXACT CAPTION / PANEL TEXT: {selected_caption}.
+
+Preserve the iconic character, face/pose and instantly recognizable template structure. Do not replace its face with the token logo. Integrate the project's real artwork and distinctive visual details into relevant props or scenery. Preserve exact logo details; never improvise a new token mark. Keep the refined custom-scene finish of the approved Pumptober/TOBEY examples, not just a logo sticker on an unrelated stock scene.
+
+Use clean visual hierarchy, readable high-contrast text, appropriate native panel count, safe margins and uncluttered composition. No extra slogans, invented metrics or accidental gibberish. An illustrative market arrow is acceptable as comic set dressing; never turn it into a factual performance claim. One output image, no five-image collage.
+
+If final text/logo layers will be composited in code, instead render planned clean negative space at {text_regions}, omit caption lettering there and leave {logo_region} suitable for the exact original artwork. Do not generate unwanted placeholder text. The compositor must use the selected caption verbatim.

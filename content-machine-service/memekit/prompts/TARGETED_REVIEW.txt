@@ -1,0 +1,6 @@
+Review this five-item storyboard against the verified token brief and each selected template's native joke mechanism. Check subjects, emotions, project hooks and payoffs for semantic repetition, not merely duplicate words. Apply the caption-swap test. Check slang meaning and unsupported claims.
+
+If all five pass, return {"approved_for_render":true,"rewrite_indices":[],"reason":"brief"}.
+If one or more fail, name the exact indices and the distinct premise each needs. Rewrite only those items, with three short caption candidates each, while retaining the accepted four/remaining items. Return the complete corrected storyboard with exactly five unique template IDs. No images yet.
+
+Treat a template-specific intended repeated line within a four-panel format as structurally valid. Do not approve a generic statement simply because a different logo or face is present.

@@ -21,10 +21,12 @@ import { uid } from '../lib/ids.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
 import { findRaidPost } from '../providers/xProfile.js';
+import { researchProject } from '../providers/research.js';
 import { isPaused } from './pauseService.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { socialActivity } from '../providers/socialActivity.js';
-import { createPage } from '../providers/telegraph.js';
+import { createGalleryPage, createPage, type PageLink } from '../providers/telegraph.js';
+import { memeKit, planPack, renderMeme, selectTemplates, type Meme } from '../providers/memes.js';
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
 import { getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
@@ -121,6 +123,10 @@ function ready(j: JobRow, o: Order): boolean {
   if (j.kind === 'media') return done('campaign_image');
   if (j.kind === 'stickers') return [0, 1, 2, 3, 4].every((i) => done('sticker_art_' + i));
   if (j.kind === 'sticker_publish') return done('stickers');
+  if (j.kind === 'meme_plan') return true;
+  if (MEME_SLOTS.includes(j.kind)) return done('meme_plan');
+  // The gallery goes out once every render has finished one way or the other.
+  if (j.kind === 'meme_pack') return MEME_SLOTS.every((k) => o.jobs.some((x) => x.kind === k && ['delivered', 'failed', 'skipped'].includes(x.status)));
   // Every post goes out with the campaign image attached.
   if (PUBLICATIONS.includes(j.kind)) return done('campaign_image');
   return true;
@@ -171,6 +177,8 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   switch (j.kind) {
     case 'metadata': {
       const project = await enrich(ctx, p, o.demo);
+      // A quick look at the project's own website, X and Telegram so the copy and memes can be specific.
+      if (!o.demo) project.research = await researchProject(ctx, project);
       run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p: project, id: o.id });
       return finish(ctx, j, { source: project.source, fetched_at: new Date(nowMs(ctx)).toISOString() });
     }
@@ -185,6 +193,8 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     case 'social_boost':
       return startSocialBoost(ctx, j, o);
     case 'hub':
+      // The hub page isn't published or delivered unless PUBLIC_HUB_ENABLED; the content and assets still exist.
+      if (!ctx.config.PUBLIC_HUB_ENABLED) return finish(ctx, j, { reason: 'Project hub is not published.' }, 'skipped');
       return finish(ctx, j, {
         url: hubUrl(ctx, o.id),
         visibility: ctx.config.PUBLIC_HUB_ENABLED ? 'public' : 'private_until_hub_is_enabled',
@@ -198,6 +208,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     const ext = m.mime === 'image/jpeg' ? 'jpg' : m.mime.split('/')[1];
     return finish(ctx, j, await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, m.mime, m.bytes));
   }
+  if (j.kind === 'meme_plan' || j.kind === 'meme_pack' || MEME_SLOTS.includes(j.kind)) return runMemeJob(ctx, j, o);
   if (o.demo) return finish(ctx, j, { demo: true, note: 'External publication disabled for demo orders.' }, 'skipped');
   const copy = o.copy;
   if (!copy) throw new SetupRequiredError('Copy has not been generated yet.');
@@ -207,15 +218,13 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
 
   switch (j.kind) {
     case 'telegraph': {
-      // Telegraph embeds by URL, so the image must be publicly reachable.
-      if (!ctx.config.PUBLIC_HUB_ENABLED)
-        throw new SetupRequiredError('Enable PUBLIC_HUB_ENABLED so Telegraph can embed the campaign image.');
+      // Telegraph embeds by URL: the image is served at the public /media address.
       const page = await createPage(ctx, {
         imageUrl: publicAssetUrl(ctx, o.id, image!.id),
         title: copy.headline,
         author: p.name ?? '',
-        paragraphs: [...copy.article.split(/\n+/).filter(Boolean), ...extraLinks(p)],
-        telegramUrl: p.telegram_url,
+        paragraphs: copy.article.split(/\n+/).filter(Boolean),
+        links: projectLinks(p),
       });
       // Record the URL before verifying so an uncertain outcome can be reconciled without republishing.
       run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: page, id: j.id, lease: j.lease });
@@ -245,6 +254,45 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     }
   }
   throw new ValidationError(`Unknown job type ${j.kind}`);
+}
+
+const MEME_SLOTS = ['meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4'];
+/** A pack needs at least this many accepted memes; fewer is reported as a failure rather than a thin pack. */
+const MIN_MEMES = 3;
+
+/** Peak Meme Creation Kit: plan the five jokes together, render each one, then publish one gallery page. */
+async function runMemeJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
+  if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
+  if (j.kind === 'meme_plan') {
+    const templates = selectTemplates();
+    const memes = await planPack(ctx, o, templates);
+    return finish(ctx, j, { templates: templates.map((t) => t.id), memes });
+  }
+  const plan = o.jobs.find((x) => x.kind === 'meme_plan' && x.status === 'delivered');
+  const memes: Meme[] = plan?.result ? JSON.parse(plan.result).memes : [];
+  if (MEME_SLOTS.includes(j.kind)) {
+    const m = memes[MEME_SLOTS.indexOf(j.kind)];
+    const t = m && memeKit().templates.find((x) => x.id === m.template_id);
+    if (!m || !t) return finish(ctx, j, { reason: 'No planned meme for this slot.' }, 'skipped');
+    const img = await renderMeme(ctx, o, t, m);
+    const ext = img.mime === 'image/jpeg' ? 'jpg' : img.mime.split('/')[1];
+    const asset = await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, img.mime, img.bytes);
+    return finish(ctx, j, { ...asset, template_id: t.id, caption: m.selected_caption });
+  }
+  // meme_pack: one Telegraph gallery (opens inside Telegram) with every accepted meme.
+  const accepted = MEME_SLOTS.map((k) => o.assets.find((a) => a.kind === k)).filter((a): a is NonNullable<typeof a> => !!a);
+  if (accepted.length < MIN_MEMES) throw new UpstreamError(`Only ${accepted.length} of ${MEME_SLOTS.length} memes rendered; the pack needs at least ${MIN_MEMES}.`);
+  const p = o.project;
+  const title = `${p.name} ($${p.symbol}) Meme Pack`;
+  const page = await createGalleryPage(ctx, {
+    title,
+    author: p.name ?? '',
+    intro: `${accepted.length} custom $${p.symbol} memes. Long-press any image to save or share it.`,
+    images: accepted.map((a) => publicAssetUrl(ctx, o.id, a.id)),
+    links: projectLinks(p),
+  });
+  run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: page, id: j.id, lease: j.lease });
+  return finish(ctx, j, { ...(await verifyPublication(ctx, page.url, 'telegraph', title)), count: accepted.length });
 }
 
 /** The degen write-up, then the project's Telegram link when it has one. Sent as the campaign image's caption. */
@@ -430,8 +478,21 @@ export function links(p: Order['project'], long: boolean): string {
 }
 
 /** X and website lines for article pages that already link Telegram separately. */
-function extraLinks(p: Order['project']): string[] {
-  return [p.x_url ? `X: ${p.x_url}` : null, p.website_url ? `Website: ${p.website_url}` : null].filter((x): x is string => !!x);
+/** The project's own links as labelled anchors (only the ones it has): Telegram @handle, X @handle, website domain. */
+export function projectLinks(p: Order['project']): PageLink[] {
+  const tg = handleOf(p.telegram_url, /^(www\.)?(t\.me|telegram\.me)$/);
+  const x = handleOf(p.x_url, /^(www\.|mobile\.)?(x|twitter)\.com$/);
+  let site: string | null = null;
+  try {
+    site = p.website_url ? new URL(p.website_url).hostname.replace(/^www\./, '') : null;
+  } catch {
+    site = null;
+  }
+  return [
+    p.telegram_url ? { label: `Telegram${tg ? ` (${tg})` : ''}`, href: p.telegram_url } : null,
+    p.x_url ? { label: `X${x ? ` (${x})` : ''}`, href: p.x_url } : null,
+    p.website_url ? { label: `Website${site ? ` (${site})` : ''}`, href: p.website_url } : null,
+  ].filter((l): l is PageLink => !!l);
 }
 
 /** What the worker should post; built here so the worker stays a thin publisher. */
@@ -473,7 +534,7 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
     };
   }
   const parts = [copy.article];
-  if (image && ctx.config.PUBLIC_HUB_ENABLED) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
+  if (image) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
   const l = links(o.project, true);
   if (l) parts.push(l);
   return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };

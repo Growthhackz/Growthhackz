@@ -8,7 +8,7 @@ const liveInput = {
   contract_address: SOL,
   telegram_url: 'https://t.me/moonfrog',
   logo_url: 'https://cdn.example.com/logo.png',
-  channels: ['telegraph', 'call_channel', 'binance'],
+  channels: ['telegraph', 'call_channel', 'binance', 'media'],
   telegram_owner_id: 42,
   budget_cents: 100,
 };
@@ -95,8 +95,12 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     const page = JSON.parse(String(t.http.calls.find((c) => c.url.includes('api.telegra.ph/createPage'))!.init.body));
     expect(page.content[0]).toEqual({
       tag: 'figure',
-      children: [{ tag: 'img', attrs: { src: `https://content.example.test/projects/${order.id}/assets/${imageAsset.id}` } }],
+      children: [{ tag: 'img', attrs: { src: `https://content.example.test/media/${imageAsset.id}` } }],
     });
+    // No stray boilerplate line; the project's links close the article as named anchors.
+    expect(JSON.stringify(page.content)).not.toContain('supplied by the project');
+    expect(page.content.at(-2)).toEqual({ tag: 'h4', children: ['Links'] });
+    expect(page.content.at(-1).children[0]).toEqual({ tag: 'a', attrs: { href: 'https://t.me/moonfrog' }, children: ['Telegram (@moonfrog)'] });
     const photo = t.http.calls.find((c) => c.url.includes('/sendPhoto'))!.init.body as FormData;
     expect(photo.get('chat_id')).toBe('@fullsendtrenches');
     expect(photo.get('caption')).toBe(`${liveCopy.social_post}\n\n💬 https://t.me/moonfrog`);
@@ -224,6 +228,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     expect((await t.api('POST', '/v1/publish/claim')).body).toBeNull();
     expect(t.http.count('api.telegra.ph/')).toBe(0);
 
+    // With the hub off, Telegraph still publishes: its image is served at the public /media address, the hub page isn't.
     const hubOff = makeApp();
     wireProviders(hubOff);
     await hubOff.setSetting('GEMINI_API_KEY', 'G');
@@ -231,10 +236,14 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     const o2 = (await hubOff.api('POST', '/v1/orders', { ...liveInput, order_id: 'private', channels: ['telegraph'] })).body;
     await drain(hubOff);
     o = (await hubOff.api('GET', `/v1/orders/${o2.id}`)).body;
-    const tp = o.jobs.find((j: any) => j.kind === 'telegraph');
-    expect(tp.status).toBe('blocked');
-    expect(tp.error).toMatch(/PUBLIC_HUB_ENABLED/);
-    expect(hubOff.http.count('api.telegra.ph/')).toBe(0);
+    expect(o.jobs.find((j: any) => j.kind === 'telegraph').status).toBe('delivered');
+    expect(o.jobs.find((j: any) => j.kind === 'hub').status).toBe('skipped');
+    const img = o.assets.find((a: any) => a.kind === 'campaign_image');
+    const pub = await hubOff.call(null, 'GET', `/media/${img.id}`);
+    expect(pub.status).toBe(200);
+    expect(pub.headers['content-type']).toBe('image/png');
+    expect((await hubOff.call(null, 'GET', `/projects/${o2.id}`)).status).toBe(404);
+    expect((await hubOff.call(null, 'GET', `/media/${'0'.repeat(40)}`)).status).toBe(404);
   });
 
   it('marks a publication uncertain when verification fails and requires reconciliation', async () => {
