@@ -416,7 +416,7 @@ describe('WURK fulfillment', () => {
     expect(progress.items[0].item).toContain('25 likes');
   });
 
-  it('small_raid refuses a quote above $1 and the full preset still needs all three targets', async () => {
+  it('small_raid refuses a quote above $1; the full preset drops Telegram members when there is no Telegram', async () => {
     const { ctx, api, wurk, signed } = setup();
     wurk.state.price['/solana/xraid/small'] = '1500000';
     const p = (await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: 'https://x.com/a/status/1' })).body;
@@ -424,7 +424,14 @@ describe('WURK fulfillment', () => {
     await processWurk(ctx);
     expect((await api('GET', `/v1/wurk/packages/${p.id}`)).body.status).toBe('needs_attention');
     expect(signed).toHaveLength(0);
-    expect((await api('POST', '/v1/wurk/packages', { preset: 'full', bundled: true, xPost: 'https://x.com/a/status/1' })).status).toBe(400);
+    // No Telegram and no profile: verified followers go to the post's author, and there are no Telegram batches.
+    const full = await api('POST', '/v1/wurk/packages', { preset: 'full', bundled: true, xPost: 'https://x.com/moonfrog/status/1' });
+    expect(full.status).toBe(201);
+    expect(full.body.components.map((c: any) => c.kind).sort()).toEqual(['post_mix', 'verified_followers']);
+    expect(full.body.components.find((c: any) => c.kind === 'verified_followers').target).toContain('handle=moonfrog');
+    const withTg = await api('POST', '/v1/wurk/packages', { preset: 'full', bundled: true, xPost: 'https://x.com/moonfrog/status/2', xProfile: 'https://x.com/moonfrog', telegram: 'https://t.me/moonfrog' });
+    expect(withTg.body.components.map((c: any) => c.kind).sort()).toEqual(['post_mix', 'tg_batch_1', 'tg_batch_2', 'verified_followers']);
+    expect((await api('POST', '/v1/wurk/packages', { preset: 'full', bundled: true, xPost: 'https://x.com/moonfrog' })).status).toBe(400);
   });
 });
 
