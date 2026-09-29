@@ -84,7 +84,7 @@ export async function submitRelease(release, cfg = pressConfig()) {
     await selectBy(page, 'cmbcategory', [/financ/i, /business/i, /internet|technology/i]);
     await selectBy(page, 'cmbcountry', new RegExp(`^${cfg.country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), false);
     await selectBy(page, 'cmbmsa', [/none|not applicable/i, /other/i, /.+/], false);
-    await page.locator('input[name="txturl"]').fill(release.website_url);
+    if (release.website_url) await page.locator('input[name="txturl"]').fill(release.website_url);
     await page.locator('input[name="txtemail"]').fill(cfg.email);
     await page.locator('input[name="txtcontactname"]').fill(cfg.contact);
     if (cfg.phone) await page.locator('input[name="txtphone"]').fill(cfg.phone);

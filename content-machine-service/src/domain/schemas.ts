@@ -65,7 +65,7 @@ export const orderInputSchema = z
     name: z.string().min(1).max(80).optional(),
     symbol: z.string().min(1).max(20).optional(),
     description: z.string().max(2500).default(''),
-    telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link'),
+    telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link').optional(),
     website_url: httpsUrl.optional(),
     x_url: httpsUrl.optional(),
     /** The X post the social boost raids. */
@@ -97,7 +97,7 @@ export const trendingPurchaseSchema = z.object({
   purchase_id: z.string().min(1).max(100),
   chain: z.enum(CHAINS),
   contract_address: z.string().min(20).max(64),
-  telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link'),
+  telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link').optional(),
   name: z.string().min(1).max(80).optional(),
   symbol: z.string().min(1).max(20).optional(),
   description: z.string().max(2500).optional(),

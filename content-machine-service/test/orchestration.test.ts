@@ -223,5 +223,23 @@ describe('trending orchestration', () => {
     expect(t.http.count('generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:')).toBe(1);
     expect(t.http.count('generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:')).toBe(1);
   });
+
+  it('leaves out links the coin does not have', async () => {
+    const t = makeApp(SOCIAL);
+    contentFakes(t);
+    socialFake(t, { status: 'queued' });
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'no-tg', telegram_url: undefined, website_url: undefined })).body;
+    expect(o.status).not.toBe(400);
+    await drain(t);
+    const binance = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body.target;
+    expect(binance.text.endsWith('X: https://x.com/moonfrog')).toBe(true);
+    expect(binance.text).not.toMatch(/Telegram|Website|undefined/);
+    const cmc = (await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.target;
+    expect(cmc.text).toBe(liveCopy.social_post);
+    const press = (await t.api('POST', '/v1/publish/claim', { kinds: ['press_1888'] })).body.target.release;
+    expect(press.body).not.toMatch(/Telegram|undefined|null/);
+    expect(press.website_url).toBe('https://x.com/moonfrog');
+  });
 });
 

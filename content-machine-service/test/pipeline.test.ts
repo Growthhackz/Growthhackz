@@ -98,7 +98,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     });
     const photo = t.http.calls.find((c) => c.url.includes('/sendPhoto'))!.init.body as FormData;
     expect(photo.get('chat_id')).toBe('@fullsendtrenches');
-    expect(photo.get('caption')).toBe(`🔥 TRENDING | Moon Frog ($MFROG)\n\n${liveCopy.social_post}\n\n💬 Telegram: https://t.me/moonfrog`);
+    expect(photo.get('caption')).toBe(`${liveCopy.social_post}\n\n💬 https://t.me/moonfrog`);
     expect((photo.get('photo') as Blob).type).toBe('image/png');
     expect(o.x_handoff).toBeUndefined();
 
