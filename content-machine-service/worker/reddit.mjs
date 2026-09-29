@@ -6,6 +6,19 @@ import {chromium} from 'playwright';
 /** Nothing was submitted (login failed, CAPTCHA, rate limit, form missing): the job can safely be retried later. */
 export class NotPostedError extends Error {}
 
+/** Opens a page and waits out Reddit's JavaScript challenge (served to browsers on new networks). */
+export async function gotoSettled(page, url) {
+  await page.goto(url, {waitUntil: 'domcontentloaded'});
+  // Done once the page has stopped navigating and no challenge script is left on it.
+  for (let i = 0; i < 10; i++) {
+    const before = page.url();
+    await page.waitForLoadState('networkidle', {timeout: 10000}).catch(() => {});
+    await page.waitForTimeout(1500);
+    const challenged = (await page.locator('script[src*="challenge"], #challenge-form').count().catch(() => 1)) > 0;
+    if (!challenged && page.url() === before) return;
+  }
+}
+
 const captcha = page => page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, .h-captcha').count();
 
 const SAME_SITE = {no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict'};
@@ -37,7 +50,7 @@ export function cookiesToState(raw) {
 /** Installs REDDIT_COOKIES as the saved session, once per distinct export (later refreshes by the worker are kept). */
 export function installCookieSession(statePath, raw = process.env.REDDIT_COOKIES) {
   if (!raw) return false;
-  const digest = createHash('sha256').update(raw).digest('hex');
+  const digest = createHash('sha256').update(raw).digest('hex') + ':v2';
   const marker = `${statePath}.source`;
   if (existsSync(statePath) && existsSync(marker) && readFileSync(marker, 'utf8') === digest) return false;
   mkdirSync(dirname(statePath), {recursive: true});
@@ -54,9 +67,9 @@ export async function redditWhoAmI({statePath = process.env.REDDIT_STATE_PATH ||
   try {
     const context = await browser.newContext({storageState: statePath});
     const page = await context.newPage();
-    const r = await page.goto(`${base}/api/me.json`, {waitUntil: 'domcontentloaded'});
-    const body = await r?.json().catch(() => null);
-    await context.storageState({path: statePath});
+    await gotoSettled(page, `${base}/api/me.json`);
+    let body = null;
+    try { body = JSON.parse(await page.locator('body').innerText()); } catch {}
     return body?.data?.name ?? null;
   } finally { await browser.close(); }
 }
@@ -92,11 +105,11 @@ export async function postToReddit(target, {
     const page = await context.newPage();
     const submitUrl = `${base}/r/${encodeURIComponent(target.subreddit)}/submit?selftext=true`;
     const title = page.locator('textarea[name="title"]');
-    await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
+    await gotoSettled(page, submitUrl);
     if (!(await title.count())) {
       await login(page, {username, password, loginUrl});
       await context.storageState({path: statePath});
-      await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
+      await gotoSettled(page, submitUrl);
       if (!(await title.count())) throw new NotPostedError(`Could not open the submit form for r/${target.subreddit}.`);
     }
     await title.fill(target.title);
