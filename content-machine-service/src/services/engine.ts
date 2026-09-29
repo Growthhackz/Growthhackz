@@ -235,8 +235,8 @@ export function callChannelCaption(_ctx: ServiceContext, o: Order): string {
 
 async function publishStickers(ctx: ServiceContext, o: Order) {
   const p = o.project;
-  // Packs are owned by a team account (STICKER_OWNER_ID) unless the order names an owner; buyers just add the link.
-  const ownerId = p.telegram_owner_id ?? Number(setting(ctx, 'STICKER_OWNER_ID'));
+  // Every pack is owned by our team account (STICKER_OWNER_ID), which has started the bot; buyers just get the link.
+  const ownerId = Number(setting(ctx, 'STICKER_OWNER_ID'));
   if (!ownerId) throw new SetupRequiredError('Set STICKER_OWNER_ID (a team member who has started the bot).');
   botToken(ctx);
   const me = await telegram(ctx, 'getMe', {});

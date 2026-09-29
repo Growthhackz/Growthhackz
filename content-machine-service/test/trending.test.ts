@@ -153,7 +153,8 @@ describe('sticker pack for trending orders', () => {
     await t.setSetting('CALLBACK_URL', 'https://buybot.example.com/hooks');
     await t.setSetting('CALLBACK_SECRET', 's');
 
-    const o = (await t.api('POST', '/v1/trending', purchase)).body;
+    // The buyer's Telegram ID never owns the pack: they haven't started our bot.
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, telegram_owner_id: 42 })).body;
     await drain(t);
     const pngs = Array.from({ length: 5 }, (_, i) => ({ kind: `sticker_png_${i}`, mime: 'image/png', base64: pngBytes(512, 512).toString('base64') }));
     // Media render first (memes/trailers), then stickers.
