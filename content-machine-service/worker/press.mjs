@@ -96,9 +96,14 @@ export async function submitRelease(release, cfg = pressConfig()) {
     await page.waitForTimeout(3000);
     if (await onForm()) { await snapshot(page, cfg, 'rejected'); throw new NotPostedError(`1888 rejected the form: ${alerts.join(' | ').slice(0, 300) || 'no message'}`); }
     const final = page.locator('input[type="submit"], input[type="image"], button').filter({hasNotText: /edit|back|modify|cancel/i});
-    const candidates = await final.evaluateAll(els => els.map((e, i) => ({i, label: `${e.value || ''} ${e.alt || ''} ${e.name || ''} ${e.textContent || ''}`.toLowerCase()})));
-    const pick = candidates.find(c => /submit|confirm|publish|post|continue|proceed/.test(c.label) && !/edit|back|modify|search/.test(c.label));
-    if (!pick) { await snapshot(page, cfg, 'preview'); throw new NotPostedError('1888 preview page had no final submit button; nothing was sent.'); }
+    // Image buttons often carry their meaning only in the image file name (e.g. submit_btn.gif).
+    const candidates = await final.evaluateAll(els => els.map((e, i) => ({i, label: `${e.value || ''} ${e.alt || ''} ${e.name || ''} ${e.id || ''} ${e.title || ''} ${e.getAttribute('src') || ''} ${e.textContent || ''}`.replace(/\s+/g, ' ').trim().toLowerCase()})));
+    const pick = candidates.find(c => /submit|confirm|publish|post|continue|proceed|send|finish|complete/.test(c.label) && !/edit|back|modify|search|subscribe|newsletter|login/.test(c.label));
+    if (!pick) {
+      await snapshot(page, cfg, 'preview');
+      const seen = candidates.map(c => c.label.slice(0, 40)).filter(Boolean).slice(0, 8).join(' | ') || 'none';
+      throw new NotPostedError(`1888 preview page had no final submit button; nothing was sent. Page: ${page.url().slice(0, 100)}; buttons seen: ${seen}`);
+    }
 
     // From the final click on, the release may have been sent.
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), final.nth(pick.i).click()]);
