@@ -137,8 +137,11 @@ export async function pressCycle(client, {submit = submitRelease, check = checkR
       const r = await submit(c.target.release);
       await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: null});
     } catch (e) {
-      if (e instanceof NotPostedError) await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message});
-      else await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null});
+      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
+      else {
+        console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`);
+        await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)});
+      }
     }
   }
   const due = await client.request('listings/check-claim', {kinds: ['press_1888']});

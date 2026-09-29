@@ -111,8 +111,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   });
   app.post('/v1/publish/claim', async (req) => publishClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
   app.post<{ Params: Params }>('/v1/publish/:id/complete', async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown };
-    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted);
+    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown; note?: unknown };
+    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted, b.note);
   });
   /** Directory listings waiting on the site's review: the worker checks whether the coin page is live yet. */
   app.post('/v1/listings/check-claim', async (req) => listingCheckClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));

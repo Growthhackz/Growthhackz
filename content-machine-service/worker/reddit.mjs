@@ -167,6 +167,6 @@ export async function publishReddit(client, post = postToReddit) {
     await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url, verified});
   } catch (e) {
     if (e instanceof NotPostedError) await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message});
-    else await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null});
+    else { console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`); await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)}); }
   }
 }

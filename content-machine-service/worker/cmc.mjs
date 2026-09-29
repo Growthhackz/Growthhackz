@@ -3,7 +3,10 @@ import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {chromium} from 'playwright';
-import {NotPostedError} from './reddit.mjs';
+import {installCookieSession, NotPostedError} from './reddit.mjs';
+
+/** A cookie export from a browser logged in to CoinMarketCap skips the login (and its human check). */
+export const CMC_COOKIES = {domain: /(^|\.)coinmarketcap\.com$/, isLogin: () => true, label: 'CoinMarketCap login cookies'};
 
 /** CoinMarketCap community: posts from our profile page's compose icon (beside "All Posts"). */
 export const cmcConfig = (env = process.env) => ({
@@ -13,6 +16,7 @@ export const cmcConfig = (env = process.env) => ({
   origin: (env.CMC_BASE_URL || 'https://coinmarketcap.com').replace(/\/$/, ''),
   statePath: env.CMC_STATE_PATH || resolve(env.DIRECTORY_STATE_DIR || '.', 'cmc-session.json'),
   debugDir: env.DIRECTORY_DEBUG_DIR || null,
+  cookies: env.CMC_COOKIES,
 });
 
 const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -78,7 +82,10 @@ async function openComposer(page) {
  * Post was clicked but the post could not be found (it may exist).
  */
 export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
-  if (!cfg.email || !cfg.password) throw new NotPostedError('Set CMC_EMAIL and CMC_PASSWORD on the worker.');
+  if (cfg.cookies) {
+    try { installCookieSession(cfg.statePath, cfg.cookies, CMC_COOKIES); } catch (e) { throw new NotPostedError(`CMC_COOKIES: ${e.message}`); }
+  }
+  if (!existsSync(cfg.statePath) && (!cfg.email || !cfg.password)) throw new NotPostedError('Set CMC_COOKIES (or CMC_EMAIL and CMC_PASSWORD) on the worker.');
   const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined});
   try {
     const context = await browser.newContext({...(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}), viewport: {width: 1300, height: 900}});
@@ -138,7 +145,7 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
 
 /** One cycle: claim a CMC post from the service, publish it with the campaign image, report the outcome. */
 export async function publishCmc(client, post = postToCmc, env = process.env) {
-  if (!env.CMC_EMAIL || !env.CMC_PASSWORD) return;
+  if (!env.CMC_COOKIES && (!env.CMC_EMAIL || !env.CMC_PASSWORD)) return;
   const c = await client.request('publish/claim', {kinds: ['cmc_community']});
   if (!c) return;
   const dir = await mkdtemp(join(tmpdir(), 'cm-cmc-'));
@@ -152,8 +159,13 @@ export async function publishCmc(client, post = postToCmc, env = process.env) {
     const {url} = await post(c.target, image);
     await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url});
   } catch (e) {
-    if (e instanceof NotPostedError) await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message});
-    else await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null});
+    if (e instanceof NotPostedError) {
+      console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`);
+      await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message});
+    } else {
+      console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`);
+      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)});
+    }
   } finally {
     await rm(dir, {recursive: true, force: true});
   }
