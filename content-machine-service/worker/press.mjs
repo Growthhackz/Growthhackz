@@ -90,23 +90,35 @@ export async function submitRelease(release, cfg = pressConfig()) {
     if (cfg.phone) await page.locator('input[name="txtphone"]').fill(cfg.phone);
     if (cfg.zip) await page.locator('input[name="txtzipcode"]').fill(cfg.zip);
     for (const name of ['chk1', 'chk2', 'chk3']) { const b = page.locator(`input[name="${name}"]`); if (await b.count()) await b.check(); }
+    // The release date must be at least one day after the site's own date (and within 180 days): use the next day.
+    const serverDate = await page.locator('input[name="serverdate"]').getAttribute('value').catch(() => null);
+    if (serverDate && (await page.locator('select[name="cmbday"]').count())) {
+      const [y, m, d] = serverDate.split('/').map(Number);
+      const next = new Date(Date.UTC(y, m - 1, d + 1));
+      const pad = n => String(n).padStart(2, '0');
+      try {
+        await page.locator('select[name="cmbyear"]').selectOption(String(next.getUTCFullYear()));
+        await page.locator('select[name="cmbmonth"]').selectOption(pad(next.getUTCMonth() + 1));
+        await page.locator('select[name="cmbday"]').selectOption(pad(next.getUTCDate()));
+      } catch (e) { throw new NotPostedError(`1888 release date could not be set: ${String(e.message).split('\n')[0].slice(0, 120)}`); }
+    }
 
     // Step 1 goes to preview.php; the form's own validation alerts mean nothing was sent.
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), page.locator('form[name="pressreleaseform"] input[type="image"], form[name="pressreleaseform"] [type="submit"]').last().click()]);
     await page.waitForTimeout(3000);
     if (await onForm()) { await snapshot(page, cfg, 'rejected'); throw new NotPostedError(`1888 rejected the form: ${alerts.join(' | ').slice(0, 300) || 'no message'}`); }
-    const final = page.locator('input[type="submit"], input[type="image"], button').filter({hasNotText: /edit|back|modify|cancel/i});
-    // Image buttons often carry their meaning only in the image file name (e.g. submit_btn.gif).
-    const candidates = await final.evaluateAll(els => els.map((e, i) => ({i, label: `${e.value || ''} ${e.alt || ''} ${e.name || ''} ${e.id || ''} ${e.title || ''} ${e.getAttribute('src') || ''} ${e.textContent || ''}`.replace(/\s+/g, ' ').trim().toLowerCase()})));
-    const pick = candidates.find(c => /submit|confirm|publish|post|continue|proceed|send|finish|complete/.test(c.label) && !/edit|back|modify|search|subscribe|newsletter|login/.test(c.label));
-    if (!pick) {
-      await snapshot(page, cfg, 'preview');
-      const seen = candidates.map(c => c.label.slice(0, 40)).filter(Boolean).slice(0, 8).join(' | ') || 'none';
-      throw new NotPostedError(`1888 preview page had no final submit button; nothing was sent. Page: ${page.url().slice(0, 100)}; buttons seen: ${seen}`);
-    }
-
+    // The preview page is a plan picker with a paid plan ticked by default. Only ever submit on the free plan:
+    // tick it, wait for its panel, then use that panel's own continue link. Anything else: nothing is sent.
+    const free = page.locator('#prvfpck01, input[name="r1"][onclick*="display_pr_plan_preview(\'0\'"]').first();
+    if (!(await free.count())) { await snapshot(page, cfg, 'preview'); throw new NotPostedError(`1888 did not offer the free plan on ${page.url().slice(0, 80)}; nothing was sent.`); }
+    await free.click();
+    const panelReady = await page
+      .waitForFunction(() => { const el = document.getElementById('plan_preview'); return !!el && el.innerHTML.includes('confirm_pr') && !/Plan\s*-\s*\$\s*\d/.test(el.innerText); }, null, {timeout: 30000})
+      .then(() => true, () => false);
+    if (!panelReady) { await snapshot(page, cfg, 'plan'); throw new NotPostedError('1888 free plan panel did not load (or showed a paid plan); nothing was sent.'); }
+    const finalLink = page.locator('#plan_preview a[onclick*="confirm_pr"]').first();
     // From the final click on, the release may have been sent.
-    await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), final.nth(pick.i).click()]);
+    await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), finalLink.click()]);
     await page.waitForTimeout(3000);
     const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
     if (/thank you|successfully|has been (submitted|received)|pending (review|approval)|under review|will be reviewed/.test(text)) return {submitted: true};

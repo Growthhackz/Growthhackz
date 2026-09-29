@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
-import {NotPostedError} from './reddit.mjs';
+import {installCookieSession, NotPostedError} from './reddit.mjs';
 
 /** Directory sites. Paths are relative to each site's origin so tests can point at a local fake. */
 export const SITES = {
@@ -15,7 +15,10 @@ export const SITES = {
 export const siteConfig = (site, env = process.env) => {
   const s = SITES[site]; if (!s) throw new Error(`Unknown site ${site}`);
   const origin = env[`${site.toUpperCase()}_BASE_URL`] || s.origin;
-  return {...s, site, origin, username: env[s.user], password: env[s.pass], statePath: resolve(env.DIRECTORY_STATE_DIR || '.', `${site}-session.json`), debugDir: env.DIRECTORY_DEBUG_DIR || null};
+  // <SITE>_COOKIES: a cookie export from a browser logged in to the site; skips a login that needs a human check.
+  const cookies = env[`${site.toUpperCase()}_COOKIES`];
+  const domain = new RegExp(`(^|\\.)${new URL(origin).hostname.replace(/^www\./, '').replace(/\./g, '\\.')}$`);
+  return {...s, site, origin, username: env[s.user], password: env[s.pass], cookies, cookieSite: {domain, isLogin: () => true, label: `${site} login cookies`}, statePath: resolve(env.DIRECTORY_STATE_DIR || '.', `${site}-session.json`), debugDir: env.DIRECTORY_DEBUG_DIR || null};
 };
 
 const CHAINS = {
@@ -106,8 +109,21 @@ async function applyField(page, f, plan, logoPath) {
 
 async function launch() { return chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined}); }
 
+/** Everything up to the filled form sends nothing, so any failure here is NotPostedError (safe to retry). */
 async function openSubmitForm(browser, cfg) {
-  if (!cfg.username || !cfg.password) throw new NotPostedError(`Set ${cfg.user} and ${cfg.pass} on the worker.`);
+  try {
+    return await openSubmitFormUnsafe(browser, cfg);
+  } catch (e) {
+    if (e instanceof NotPostedError) throw e;
+    throw new NotPostedError(`${cfg.site}: could not open the submit form (${String(e?.message || e).split('\n')[0].slice(0, 160)}); nothing was sent.`);
+  }
+}
+
+async function openSubmitFormUnsafe(browser, cfg) {
+  if (cfg.cookies) {
+    try { installCookieSession(cfg.statePath, cfg.cookies, cfg.cookieSite); } catch (e) { throw new NotPostedError(`${cfg.site.toUpperCase()}_COOKIES: ${e.message}`); }
+  }
+  if (!existsSync(cfg.statePath) && (!cfg.username || !cfg.password)) throw new NotPostedError(`Set ${cfg.site.toUpperCase()}_COOKIES (or ${cfg.user} and ${cfg.pass}) on the worker.`);
   const context = await browser.newContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {});
   const page = await context.newPage();
   const submitUrl = cfg.origin + cfg.submit;
@@ -117,8 +133,14 @@ async function openSubmitForm(browser, cfg) {
   if (!(await onForm())) {
     await page.goto(cfg.origin + cfg.login, {waitUntil: 'domcontentloaded'});
     await page.locator('input[type="email"], input[name*="email" i], input[name*="user" i], input[name*="login" i]').first().fill(cfg.username);
+    if (!cfg.username || !cfg.password) throw new NotPostedError(`${cfg.site}: the saved session has expired; refresh ${cfg.site.toUpperCase()}_COOKIES.`);
     await page.locator('input[type="password"]').first().fill(cfg.password);
-    await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), page.locator('form:has(input[type="password"]) [type="submit"], form:has(input[type="password"]) button').first().click()]);
+    const loginButton = page.locator('form:has(input[type="password"]) [type="submit"], form:has(input[type="password"]) button').first();
+    await page.waitForTimeout(1500);
+    // A login button that stays disabled is waiting on a human check (captcha), which is never bypassed.
+    if (await loginButton.isDisabled().catch(() => false))
+      throw new NotPostedError(`${cfg.site}: the login needs a human check (captcha); set ${cfg.site.toUpperCase()}_COOKIES from a logged-in browser.`);
+    await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), loginButton.click({timeout: 15000})]);
     await page.waitForTimeout(1500);
     await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
     if (!(await onForm())) throw new NotPostedError(`${cfg.site}: login failed or the submit form is not reachable.`);
@@ -213,7 +235,7 @@ async function logoFile(client, listing) {
 
 /** One cycle: submit one due listing, then check one listing that is waiting for review. */
 export async function directoryCycle(client, {submit = submitListing, check = checkListing, env = process.env} = {}) {
-  const sites = Object.keys(SITES).filter(s => env[SITES[s].user] && env[SITES[s].pass]);
+  const sites = Object.keys(SITES).filter(s => env[`${s.toUpperCase()}_COOKIES`] || (env[SITES[s].user] && env[SITES[s].pass]));
   if (!sites.length) return;
   const c = await client.request('publish/claim', {kinds: sites});
   if (c) {
