@@ -4,7 +4,8 @@ import {createServer} from 'node:http';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {postToReddit,publishReddit,NotPostedError} from './reddit.mjs';
+import {postToReddit,publishReddit,NotPostedError,cookiesToState,installCookieSession} from './reddit.mjs';
+import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 
 const posts=[];let rateLimited=false;
 const page=b=>`<!doctype html><html><body>${b}</body></html>`;
@@ -31,10 +32,24 @@ try{
  await assert.rejects(()=>postToReddit(target,{...opts,password:'nope',statePath:join(dir,'fresh.json')}),NotPostedError);
  // Rate limit shown on the form after submit: reported as not posted.
  rateLimited=true;await assert.rejects(()=>postToReddit(target,opts),e=>e instanceof NotPostedError&&/too much/.test(e.message));assert.equal(posts.length,2);rateLimited=false;
+ // Session-only mode (cookies from the user's browser, no password): posts with the saved session.
+ const sessionOnly={...opts,username:undefined,password:undefined,statePath:join(dir,'cookies.json')};
+ writeFileSync(sessionOnly.statePath,JSON.stringify({cookies:[{name:'session',value:'ok',domain:'127.0.0.1',path:'/',expires:-1,httpOnly:false,secure:false,sameSite:'Lax'}],origins:[]}));
+ const r3=await postToReddit(target,sessionOnly);assert.match(r3.url,/\/comments\//);assert.equal(posts.length,3);
+ // Expired session and no password: reported as not posted, with what to do.
+ writeFileSync(sessionOnly.statePath,JSON.stringify({cookies:[],origins:[]}));
+ await assert.rejects(()=>postToReddit(target,sessionOnly),e=>e instanceof NotPostedError&&/REDDIT_COOKIES/.test(e.message));
+ // Cookie-Editor export → storage state; installed once per export, then left for the worker to refresh.
+ const exp=JSON.stringify([{domain:'.reddit.com',name:'reddit_session',value:'abc',path:'/',expirationDate:1893456000.5,httpOnly:true,secure:true,sameSite:'no_restriction',hostOnly:false},{domain:'www.google.com',name:'x',value:'y'}]);
+ const st=cookiesToState(exp);assert.deepEqual(st.cookies,[{name:'reddit_session',value:'abc',domain:'.reddit.com',path:'/',expires:1893456000,httpOnly:true,secure:true,sameSite:'None'}]);
+ assert.throws(()=>cookiesToState('[{"domain":".reddit.com","name":"loid","value":"1"}]'),/no Reddit login cookie/);
+ const sp=join(dir,'installed.json');assert.equal(installCookieSession(sp,exp),true);assert.equal(installCookieSession(sp,exp),false);
+ writeFileSync(sp,'{"cookies":[],"origins":[],"refreshed":true}');assert.equal(installCookieSession(sp,exp),false);assert.match(readFileSync(sp,'utf8'),/refreshed/);
+ assert.ok(existsSync(sp+'.source'));
  // publishReddit reports outcomes to the service.
  process.env.REDDIT_USERNAME='u';const calls=[];const client={request:async(path,data)=>{calls.push([path,data]);return path==='publish/claim'?{job:{id:'j',lease:'L'},target}:{};}};
  await publishReddit(client,async()=>({url:'https://www.reddit.com/r/moonshots/comments/x1/s/',verified:true}));assert.deepEqual(calls.at(-1),['publish/j/complete',{lease:'L',url:'https://www.reddit.com/r/moonshots/comments/x1/s/',verified:true}]);
  await publishReddit(client,async()=>{throw new NotPostedError('Login failed')});assert.deepEqual(calls.at(-1),['publish/j/fail',{lease:'L',error:'Login failed'}]);
  await publishReddit(client,async()=>{throw new Error('browser crashed')});assert.deepEqual(calls.at(-1),['publish/j/complete',{lease:'L',url:null}]);
- console.log('PASS: Reddit login, session reuse, two subreddit posts with logged-out check, bad login and rate limit not posted, outcome reporting.');
+ console.log('PASS: Reddit login, cookie-export session (no password), expired session reported, session reuse, two subreddit posts with logged-out check, bad login and rate limit not posted, outcome reporting.');
 }finally{server.close();await rm(dir,{recursive:true,force:true});}
