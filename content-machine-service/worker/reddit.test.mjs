@@ -7,13 +7,14 @@ import {join} from 'node:path';
 import {postToReddit,publishReddit,NotPostedError,cookiesToState,installCookieSession} from './reddit.mjs';
 import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 
-const posts=[];let rateLimited=false;
+const posts=[];let rateLimited=false;let challenge=false;
 const page=b=>`<!doctype html><html><body>${b}</body></html>`;
 const server=createServer(async(req,res)=>{const url=new URL(req.url,'http://x');const authed=/session=ok/.test(req.headers.cookie||'');let body='';for await(const c of req)body+=c;const form=new URLSearchParams(body);
  const send=(html,code=200,headers={})=>{res.writeHead(code,{'content-type':'text/html',...headers});res.end(page(html));};
  if(url.pathname==='/login/'&&req.method==='GET')return send('<form method="post"><input name="username"><input name="password" type="password"><button type="submit">Log In</button></form>');
  if(url.pathname==='/login/')return form.get('password')==='pw'?send('',302,{location:'/','set-cookie':'session=ok; Path=/'}):send('<p>bad</p><form method="post"><input name="username"><input name="password"><button>Log In</button></form>');
  if(url.pathname==='/')return send('home');
+ if(challenge&&!/solved=1/.test(req.headers.cookie||'')&&req.method==='GET'&&url.pathname.includes('/submit'))return send(`<script src="/challenge.js"></script><script>document.cookie='solved=1; path=/';setTimeout(()=>location.href=location.pathname+'?js_challenge=1&solution=x',300)</script>`);
  const m=url.pathname.match(/^\/r\/(\w+)\/submit$/);
  if(m&&req.method==='GET')return authed?send('<form method="post"><textarea name="title"></textarea><textarea name="text"></textarea><button type="submit" name="submit">submit</button></form>'):send('<a href="/login/">log in</a>');
  if(m){if(rateLimited)return send('<span class="error">you are doing that too much. try again in 9 minutes.</span><form method="post"><textarea name="title"></textarea><textarea name="text"></textarea><button name="submit">submit</button></form>');const id=(posts.length+1).toString(36)+'abc';posts.push({sub:m[1],id,title:form.get('title'),text:form.get('text')});return send('',302,{location:`/r/${m[1]}/comments/${id}/slug/`});}
@@ -36,6 +37,8 @@ try{
  const sessionOnly={...opts,username:undefined,password:undefined,statePath:join(dir,'cookies.json')};
  writeFileSync(sessionOnly.statePath,JSON.stringify({cookies:[{name:'session',value:'ok',domain:'127.0.0.1',path:'/',expires:-1,httpOnly:false,secure:false,sameSite:'Lax'}],origins:[]}));
  const r3=await postToReddit(target,sessionOnly);assert.match(r3.url,/\/comments\//);assert.equal(posts.length,3);
+ // Reddit's JS challenge on a new network is waited out, not mistaken for a logged-out page.
+ challenge=true;const r4=await postToReddit(target,sessionOnly);assert.match(r4.url,/\/comments\//);challenge=false;
  // Expired session and no password: reported as not posted, with what to do.
  writeFileSync(sessionOnly.statePath,JSON.stringify({cookies:[],origins:[]}));
  await assert.rejects(()=>postToReddit(target,sessionOnly),e=>e instanceof NotPostedError&&/REDDIT_COOKIES/.test(e.message));
