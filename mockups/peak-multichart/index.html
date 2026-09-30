@@ -63,6 +63,8 @@ a { color: inherit; }
 .seg button[aria-pressed="true"] { background: var(--night-3); color: var(--snow); box-shadow: inset 0 0 0 1px var(--line); }
 .seg button:hover { color: var(--snow); }
 .status { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--mist); }
+.pill.live { border-style: solid; border-color: rgba(70,224,169,.55); color: var(--up); }
+.pill.live .dot { background: var(--up); }
 .pill {
   display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px;
   border: 1px dashed rgba(255,179,107,.55); color: var(--glow-a); letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px;
@@ -166,6 +168,12 @@ a { color: inherit; }
 .up { color: var(--up); } .dn { color: var(--down); }
 
 .chart { position: relative; flex: 1; min-height: 0; margin: 4px 4px 0; }
+.chart .empty[hidden] { display: none; }
+.chart .empty { text-align: center; padding: 0 20px; line-height: 1.6; position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono); font-size: 11px; color: var(--fog); letter-spacing: .08em; text-transform: uppercase; z-index: 2; pointer-events: none; }
+.coin { width: 20px; height: 20px; border-radius: 50%; flex: none; object-fit: cover; background: var(--night-3); display: grid; place-items: center; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--mist); box-shadow: 0 0 0 1px var(--line); }
+.who .nm a { color: var(--mist); text-decoration: none; border-bottom: 1px dotted var(--fog); }
+.who .nm a:hover { color: var(--snow); }
+.slot { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .08em; padding: 2px 5px; border-radius: 4px; color: var(--night); background: var(--glow-b); text-transform: uppercase; }
 
 .c-foot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 8px 14px 10px; border-top: 1px solid rgba(37,48,79,.6); }
 .stat { min-width: 0; }
@@ -223,8 +231,8 @@ a { color: inherit; }
       <button type="button" id="ch-arc" data-chain="arc" aria-pressed="false">Arc</button>
     </div>
     <div class="status">
-      <span class="pill"><span class="dot"></span>Demo feed · simulated</span>
-      <span class="countdown">Board re-ranks in <b id="cd">0:15</b></span>
+      <span class="pill" id="feedPill"><span class="dot"></span><span id="feedLabel">Connecting…</span></span>
+      <span class="countdown" id="cdWrap">Board re-ranks in <b id="cd">0:15</b></span>
     </div>
   </header>
 
@@ -262,8 +270,8 @@ a { color: inherit; }
   <main class="wall summit-mode" id="wall"></main>
 
   <footer class="foot">
-    <span>Mockup. Every coin, price and chart here is simulated.</span>
-    <span>Demo clock runs 15× real time so candles form quickly.</span>
+    <span id="footSource">Mockup. Every coin, price and chart here is simulated.</span>
+    <span id="footNote">Demo clock runs 15× real time so candles form quickly.</span>
     <span>Charts: <a href="https://www.tradingview.com/lightweight-charts/">TradingView Lightweight Charts</a> (free, open source).</span>
   </footer>
 </div>
@@ -273,13 +281,15 @@ a { color: inherit; }
 (() => {
   const C = getComputedStyle(document.documentElement);
   const tok = n => C.getPropertyValue(n).trim();
-  const UP = tok('--up'), DOWN = tok('--down'), MIST = tok('--mist'), FOG = tok('--fog');
+  const UP = tok('--up'), DOWN = tok('--down'), FOG = tok('--fog');
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const CHAIN = { solana: 'sol', robinhood: 'hood', arc: 'arc' };
+  const CHAIN_LABEL = { sol: 'SOL', hood: 'HOOD', arc: 'ARC' };
 
   /* ---------- formatting ---------- */
   const SUB = '₀₁₂₃₄₅₆₇₈₉';
   function fmtPrice(p) {
-    if (!isFinite(p)) return '–';
+    if (p == null || !isFinite(p) || p <= 0) return '–';
     if (p >= 1000) return '$' + p.toLocaleString('en-US', { maximumFractionDigits: 0 });
     if (p >= 1) return '$' + p.toFixed(3);
     if (p >= 0.001) return '$' + p.toPrecision(4);
@@ -288,70 +298,22 @@ a { color: inherit; }
     const digits = Math.round(p * Math.pow(10, zeros + 4)).toString().slice(0, 4);
     return '$0.0' + String(zeros).split('').map(d => SUB[d]).join('') + digits;
   }
-  const fmtUsd = v => v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? '$' + (v / 1e3).toFixed(1) + 'K' : '$' + v.toFixed(0);
-  const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) >= 100 ? 0 : 1) + '%';
-  const fmtAge = m => m < 60 ? Math.floor(m) + 'm' : m < 1440 ? Math.floor(m / 60) + 'h ' + Math.floor(m % 60) + 'm' : Math.floor(m / 1440) + 'd';
-  const clock = t => { const d = new Date(t * 1000); return d.toTimeString().slice(0, 5); };
+  const fmtUsd = v => v == null || !isFinite(v) ? '–' : v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? '$' + (v / 1e3).toFixed(1) + 'K' : '$' + v.toFixed(0);
+  const fmtPct = v => v == null || !isFinite(v) ? '–' : (v >= 0 ? '+' : '') + (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en-US') : v.toFixed(Math.abs(v) >= 100 ? 0 : 1)) + '%';
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const safeUrl = u => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch { return null; } };
 
-  /* ---------- simulated universe ---------- */
-  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-  const R = rng(7);
-  const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  let MODE = 'boot';                       // 'live' | 'demo'
+  let simNow = Math.floor(Date.now() / 60000) * 60;
+  const nowSec = () => MODE === 'demo' ? simNow : Date.now() / 1000;
+  const clock = t => new Date(t * 1000).toTimeString().slice(0, 5);
 
-  const ROSTER = [
-    ['YETI', 'Yeti Inu', 'sol', 0.0000482], ['SHERPA', 'Sherpa Protocol', 'sol', 0.00312],
-    ['MOCHI', 'Mochi the Cat', 'sol', 0.000871], ['GLACR', 'Glacier', 'hood', 0.0421],
-    ['FROGGO', 'Froggo', 'sol', 0.00000613], ['CAIRN', 'Cairn AI', 'arc', 0.1873],
-    ['TUNDRA', 'Tundra', 'sol', 0.0152], ['PIXL', 'Pixel Goblins', 'sol', 0.000219],
-    ['WOMBO', 'Wombo', 'hood', 0.00641], ['ORBIT', 'Orbit Dog', 'sol', 0.0000921],
-    ['ZEPH', 'Zephyr', 'sol', 0.00117], ['KIWI', 'Kiwi Summit', 'arc', 0.0338],
-    ['BLORP', 'Blorp', 'sol', 0.00000288], ['HALO', 'Halo Finance', 'hood', 0.264],
-  ];
-  let simNow = Math.floor(Date.now() / 1000 / 60) * 60;   // demo clock, seconds
-  const TICK_MS = 700, SIM_PER_TICK = 10.5;                 // 15× real time
-
-  function makeCoin([tk, name, chain, p0], i) {
-    const vol = 0.012 + R() * 0.02;
-    const c = {
-      tk, name, chain, supply: 0, volK: 1, vol, drift: (R() - 0.35) * 0.0015,
-      score: 40 + R() * 60, prevRank: null, rank: null, isNew: false,
-      bars1: [], price: 0, liq: 0, vol24: 0, holders: Math.floor(800 + R() * 9000), ageMin: 30 + R() * 3000,
-      buys: 0.5, open24: 0, idx: i,
-    };
-    // 1-minute history, 26h of it so 24h change and 15m bars are real
-    let p = p0 * (0.55 + R() * 0.3);
-    let t = simNow - 1560 * 60;
-    for (let k = 0; k < 1560; k++, t += 60) {
-      const o = p;
-      const pump = R() < 0.002 ? (R() < 0.7 ? 1 : -1) * (0.08 + R() * 0.25) : 0;
-      let h = o, l = o;
-      for (let s = 0; s < 4; s++) { p *= Math.exp(c.drift * 0.04 + c.vol * 0.32 * gauss() + pump / 4); h = Math.max(h, p); l = Math.min(l, p); }
-      c.bars1.push({ time: t, open: o, high: h, low: l, close: p, value: Math.abs(Math.log(p / o)) * 4e5 * (0.5 + R()) + 2e3 * R() });
-    }
-    // rescale so the last close lands at p0
-    const k = p0 / p;
-    c.bars1.forEach(b => { b.open *= k; b.high *= k; b.low *= k; b.close *= k; });
-    c.price = p0;
-    c.open24 = c.bars1[c.bars1.length - 1440].open;
-    const mc = Math.exp(Math.log(4e5) + R() * Math.log(120));   // $400K to $48M
-    c.supply = mc / p0;
-    c.liq = mc * (0.06 + R() * 0.1);
-    const raw = c.bars1.slice(-1440).reduce((s, b) => s + b.value, 0);
-    c.volK = mc * (0.4 + R() * 2.2) / raw;
-    c.bars1.forEach(b => b.value *= c.volK);
-    c.vol24 = c.bars1.slice(-1440).reduce((s, b) => s + b.value, 0);
-    return c;
-  }
-  const universe = ROSTER.map(makeCoin);
-  let board = universe.slice(0, 10);
-  let bench = universe.slice(10);
-  board.forEach((c, i) => { c.rank = i; c.prevRank = i; c.score = 100 - i * 6 + R() * 4; });
-
-  const pctBack = (c, mins) => { const b = c.bars1; const ref = b[Math.max(0, b.length - 1 - mins)].open; return (c.price / ref - 1) * 100; };
-  const chg24 = c => (c.price / c.open24 - 1) * 100;
-
-  /* ---------- candle aggregation ---------- */
+  /* ---------- shared state ---------- */
+  // coin: {key, tk, name, chain, rank, prevRank, isNew, score, price, ch5, ch1h, ch24, mc, liq, vol24, buys, holders,
+  //        icon, chartUrl, peakPage, slot, pool, chainId, bars1}
+  let board = [];
   let TF = 1;
+
   function aggregate(bars, tf) {
     if (tf === 1) return bars.map(b => ({ ...b }));
     const out = []; const span = tf * 60;
@@ -365,38 +327,56 @@ a { color: inherit; }
   }
   const volBar = b => ({ time: b.time, value: b.value, color: b.close >= b.open ? 'rgba(70,224,169,.28)' : 'rgba(255,95,126,.28)' });
 
+  // fold a new trade price into the 1-minute bars and the visible candle
+  function pushPrice(c, price, tSec, vol = 0) {
+    if (!(price > 0)) return;
+    const minute = Math.floor(tSec / 60) * 60;
+    let b = c.bars1[c.bars1.length - 1];
+    if (!b) { b = { time: minute, open: price, high: price, low: price, close: price, value: 0 }; c.bars1.push(b); }
+    else if (minute > b.time) { b = { time: minute, open: b.close, high: b.close, low: b.close, close: b.close, value: 0 }; c.bars1.push(b); if (c.bars1.length > 1700) c.bars1.shift(); }
+    else if (minute < b.time) return;
+    b.close = price; b.high = Math.max(b.high, price); b.low = Math.min(b.low, price); b.value += vol;
+    const r = cards.get(c.key);
+    if (!r || !r.hasData) return;
+    const span = TF * 60, bucket = Math.floor(minute / span) * span;
+    const agg = aggregate(c.bars1.filter(x => x.time >= bucket), TF)[0];
+    try { r.candles.update(agg); r.volume.update(volBar(agg)); } catch (e) { loadSeries(c); }
+  }
+
   /* ---------- cards ---------- */
   const wall = document.getElementById('wall');
-  const cards = new Map();   // tk -> {el, chart, candles, volume, refs}
+  const cards = new Map();
 
   function buildCard(c) {
     const el = document.createElement('article');
     el.className = 'card';
-    el.id = 'card-' + c.tk;
-    el.dataset.tk = c.tk;
-    const chainLabel = { sol: 'SOL', hood: 'HOOD', arc: 'ARC' }[c.chain];
+    el.dataset.key = c.key;
+    const chart = safeUrl(c.chartUrl);
+    const icon = safeUrl(c.icon);
     el.innerHTML = `
       <div class="c-head">
         <div class="rank" aria-label="Rank"></div>
         <div class="who">
-          <div class="tk">$${c.tk} <span class="chain ${c.chain}">${chainLabel}</span></div>
-          <div class="nm">${c.name}</div>
+          <div class="tk">${icon ? `<img class="coin" src="${esc(icon)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="coin">${esc(c.tk.slice(0, 1))}</span>`}$${esc(c.tk)} <span class="chain ${c.chain}">${CHAIN_LABEL[c.chain] || esc(c.chainId).toUpperCase()}</span>${c.slot ? `<span class="slot" title="Peak slot: ${esc(c.slot)}">${esc(c.slot)}</span>` : ''}</div>
+          <div class="nm">${esc(c.name)}${chart ? ` · <a href="${esc(chart)}" target="_blank" rel="noopener">Chart ↗</a>` : ''}</div>
         </div>
         <span class="move s">–</span>
       </div>
       <div class="px">
         <span class="p"></span>
-        <span class="chgs"><span>5m<em data-k="5"></em></span><span>1h<em data-k="60"></em></span><span>24h<em data-k="24h"></em></span></span>
+        <span class="chgs"><span>5m<em></em></span><span>1h<em></em></span><span>24h<em></em></span></span>
       </div>
-      <div class="chart"></div>
+      <div class="chart"><div class="empty">Loading chart…</div></div>
       <div class="c-foot">
         <div class="stat"><span>Mcap</span><b data-s="mc"></b></div>
         <div class="stat"><span>Liq</span><b data-s="liq"></b></div>
         <div class="stat"><span>Vol 24h</span><b data-s="vol"></b></div>
         <div class="stat"><span>Buys 5m</span><b data-s="buys"></b><div class="press"><i></i></div></div>
       </div>`;
+    const img = el.querySelector('img.coin');
+    if (img) img.addEventListener('error', () => { const s = document.createElement('span'); s.className = 'coin'; s.textContent = c.tk.slice(0, 1); img.replaceWith(s); });
     const chartEl = el.querySelector('.chart');
-    const chart = LightweightCharts.createChart(chartEl, {
+    const lw = LightweightCharts.createChart(chartEl, {
       autoSize: true,
       localization: { locale: 'en-US' },
       layout: { attributionLogo: false, background: { type: 'solid', color: 'transparent' }, textColor: FOG, fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10 },
@@ -406,142 +386,84 @@ a { color: inherit; }
       crosshair: { mode: 1, vertLine: { color: 'rgba(255,179,107,.5)', labelBackgroundColor: '#17203a' }, horzLine: { color: 'rgba(255,179,107,.5)', labelBackgroundColor: '#17203a' } },
       handleScale: { mouseWheel: false }, handleScroll: { mouseWheel: false, pressedMouseMove: true },
     });
-    const candles = chart.addCandlestickSeries({
+    const candles = lw.addCandlestickSeries({
       upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, borderVisible: false,
       priceFormat: { type: 'custom', formatter: p => fmtPrice(p).replace('$', ''), minMove: 1e-12 },
       priceLineColor: 'rgba(255,179,107,.8)', priceLineStyle: 2,
     });
-    const volume = chart.addHistogramSeries({ priceScaleId: '', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    const volume = lw.addHistogramSeries({ priceScaleId: '', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     const rec = {
-      el, chart, candles, volume,
+      el, chart: lw, candles, volume, hasData: false,
+      emptyEl: el.querySelector('.empty'),
       rankEl: el.querySelector('.rank'), moveEl: el.querySelector('.move'), pEl: el.querySelector('.p'),
       chg: [...el.querySelectorAll('.chgs em')], st: Object.fromEntries([...el.querySelectorAll('[data-s]')].map(n => [n.dataset.s, n])),
-      press: el.querySelector('.press i'), lastBarTime: 0, lastPrice: c.price,
+      press: el.querySelector('.press i'), lastPrice: c.price,
     };
-    el.addEventListener('mouseenter', () => setHot(c.tk, true));
-    el.addEventListener('mouseleave', () => setHot(c.tk, false));
-    cards.set(c.tk, rec);
+    el.addEventListener('mouseenter', () => setHot(c.key, true));
+    el.addEventListener('mouseleave', () => setHot(c.key, false));
+    cards.set(c.key, rec);
     loadSeries(c);
     return el;
   }
 
   function loadSeries(c) {
-    const r = cards.get(c.tk);
-    const agg = aggregate(c.bars1.slice(-Math.min(c.bars1.length, 160 * TF)), TF);
+    const r = cards.get(c.key); if (!r) return;
+    if (!c.bars1.length) { r.hasData = false; r.emptyEl.hidden = false; r.emptyEl.textContent = c.chartState || 'Loading chart…'; return; }
+    const agg = aggregate(c.bars1.slice(-160 * TF), TF);
     r.candles.setData(agg);
     r.volume.setData(agg.map(volBar));
-    r.lastBarTime = agg[agg.length - 1].time;
+    r.hasData = true; r.emptyEl.hidden = true;
     r.chart.timeScale().scrollToRealTime();
   }
 
   function paintCard(c, flash) {
-    const r = cards.get(c.tk);
+    const r = cards.get(c.key); if (!r) return;
     r.rankEl.textContent = c.rank + 1;
     const d = c.prevRank == null ? null : c.prevRank - c.rank;
     if (c.isNew) { r.moveEl.className = 'move n'; r.moveEl.textContent = 'NEW'; }
     else if (d > 0) { r.moveEl.className = 'move u'; r.moveEl.textContent = '▲ ' + d; }
     else if (d < 0) { r.moveEl.className = 'move d'; r.moveEl.textContent = '▼ ' + (-d); }
     else { r.moveEl.className = 'move s'; r.moveEl.textContent = '='; }
-    r.moveEl.title = c.isNew ? 'New on the board' : 'Change since last re-rank';
+    r.moveEl.title = c.isNew ? 'New on the board' : 'Change since the last board update';
     r.pEl.textContent = fmtPrice(c.price);
-    if (flash && c.price !== r.lastPrice && !REDUCED) {
+    if (flash && c.price !== r.lastPrice && r.lastPrice != null && !REDUCED) {
       r.pEl.classList.remove('fu', 'fd'); void r.pEl.offsetWidth;
       r.pEl.classList.add(c.price > r.lastPrice ? 'fu' : 'fd');
       setTimeout(() => r.pEl.classList.remove('fu', 'fd'), 120);
     }
     r.lastPrice = c.price;
-    const vals = [pctBack(c, 5), pctBack(c, 60), chg24(c)];
-    r.chg.forEach((e, i) => { e.textContent = fmtPct(vals[i]); e.className = vals[i] >= 0 ? 'up' : 'dn'; });
-    r.st.mc.textContent = fmtUsd(c.price * c.supply);
+    [c.ch5, c.ch1h, c.ch24].forEach((v, i) => { const e = r.chg[i]; e.textContent = fmtPct(v); e.className = v == null ? '' : v >= 0 ? 'up' : 'dn'; });
+    r.st.mc.textContent = fmtUsd(c.mc);
     r.st.liq.textContent = fmtUsd(c.liq);
     r.st.vol.textContent = fmtUsd(c.vol24);
-    r.st.buys.textContent = Math.round(c.buys * 100) + '%';
-    r.press.style.width = (c.buys * 100) + '%';
+    r.st.buys.textContent = c.buys == null ? '–' : Math.round(c.buys * 100) + '%';
+    r.press.style.width = c.buys == null ? '50%' : (c.buys * 100) + '%';
   }
 
-  /* ---------- ticking ---------- */
-  function tick() {
-    simNow += SIM_PER_TICK;
-    for (const c of board) {
-      const burst = Math.random() < 0.006 ? (Math.random() < 0.72 ? 1 : -1) * (0.05 + Math.random() * 0.14) : 0;
-      const step = c.drift * 0.35 + c.vol * 0.42 * gauss() + burst;
-      c.price *= Math.exp(step);
-      const minute = Math.floor(simNow / 60) * 60;
-      let b = c.bars1[c.bars1.length - 1];
-      const v = (Math.abs(step) * 4e5 * (0.6 + Math.random()) + 300 * Math.random()) * c.volK;
-      if (b.time !== minute) { b = { time: minute, open: b.close, high: b.close, low: b.close, close: b.close, value: 0 }; c.bars1.push(b); if (c.bars1.length > 1700) c.bars1.shift(); }
-      b.close = c.price; b.high = Math.max(b.high, c.price); b.low = Math.min(b.low, c.price); b.value += v;
-      c.vol24 += v; c.buys += ((step > 0 ? 0.68 : 0.32) - c.buys) * 0.08;
-      c.liq *= Math.exp(step * 0.3); c.ageMin += SIM_PER_TICK / 60;
-      c.open24 = c.bars1[Math.max(0, c.bars1.length - 1440)].open;
-      c.score += step * 90 + (pctBack(c, 5) * 0.02) + (Math.random() - 0.5) * 1.2;
-      if (burst > 0) logEvent(`<b>$${c.tk}</b> <span class="u">wick ${fmtPct(burst * 100)}</span> in one candle`);
-
-      const r = cards.get(c.tk);
-      if (r) {
-        const span = TF * 60, bucket = Math.floor(minute / span) * span;
-        const agg = aggregate(c.bars1.filter(x => x.time >= bucket), TF)[0];
-        r.candles.update(agg); r.volume.update(volBar(agg));
-        paintCard(c, true);
-      }
-    }
-    peaksTarget();
-  }
-
-  /* ---------- re-ranking ---------- */
-  let untilRerank = 15, rerankCount = 0;
-  const cdEl = document.getElementById('cd');
-  function rerank() {
-    rerankCount++;
-    board.forEach(c => { c.prevRank = c.rank; c.isNew = false; });
-    // every third re-rank, the weakest coin falls off and a bench coin climbs on
-    if (rerankCount % 3 === 0 && bench.length) {
-      const sorted = [...board].sort((a, b) => b.score - a.score);
-      const out = sorted[sorted.length - 1];
-      const inn = bench.splice(Math.floor(Math.random() * bench.length), 1)[0];
-      board = board.filter(c => c !== out);
-      bench.push(out);
-      inn.score = sorted[sorted.length - 3].score + 2 + Math.random() * 4;
-      inn.isNew = true; inn.prevRank = null;
-      board.push(inn);
-      removeCard(out);
-      logEvent(`<b>$${out.tk}</b> <span class="d">slid off the board</span>`);
-      logEvent(`<b>$${inn.tk}</b> <span class="n">entered the board</span>`);
-    }
-    board.sort((a, b) => b.score - a.score);
-    board.forEach((c, i) => {
-      c.rank = i;
-      if (!c.isNew && c.prevRank != null && c.prevRank - i >= 2) logEvent(`<b>$${c.tk}</b> <span class="u">climbed #${c.prevRank + 1} → #${i + 1}</span>`);
-      if (!c.isNew && c.prevRank != null && i - c.prevRank >= 3) logEvent(`<b>$${c.tk}</b> <span class="d">dropped #${c.prevRank + 1} → #${i + 1}</span>`);
-      if (i === 0 && c.prevRank !== 0) logEvent(`<b>$${c.tk}</b> <span class="n">took the summit</span>`);
-    });
-    // normalise scores so they don't drift away
-    const top = board[0].score; board.forEach(c => c.score = c.score - top + 100);
-    layoutWall();
-  }
-
-  function removeCard(c) {
-    const r = cards.get(c.tk); if (!r) return;
-    r.chart.remove(); r.el.remove(); cards.delete(c.tk);
-    const s = summitEls.get(c.tk); if (s) { s.remove(); summitEls.delete(c.tk); }
-    peaks.delete(c.tk);
+  function removeCard(key) {
+    const r = cards.get(key); if (!r) return;
+    r.chart.remove(); r.el.remove(); cards.delete(key);
+    const s = summitEls.get(key); if (s) { s.remove(); summitEls.delete(key); }
+    peaks.delete(key);
   }
 
   // FLIP reorder so cards glide to their new rank
   function layoutWall() {
     const before = new Map();
-    cards.forEach((r, tk) => before.set(tk, r.el.getBoundingClientRect()));
+    cards.forEach((r, key) => before.set(key, r.el.getBoundingClientRect()));
+    for (const key of [...cards.keys()]) if (!board.some(c => c.key === key)) removeCard(key);
     board.forEach(c => {
-      let r = cards.get(c.tk);
-      if (!r) { const el = buildCard(c); el.classList.add('enter'); setTimeout(() => el.classList.remove('enter'), 950); r = cards.get(c.tk); }
+      let r = cards.get(c.key);
+      if (!r) { const el = buildCard(c); if (MODE !== 'boot') { el.classList.add('enter'); setTimeout(() => el.classList.remove('enter'), 950); } r = cards.get(c.key); }
       wall.appendChild(r.el);
       paintCard(c, false);
     });
     applyFilter();
+    peaksTarget();
     if (REDUCED) return;
     board.forEach(c => {
-      const r = cards.get(c.tk), a = before.get(c.tk); if (!a) return;
+      const r = cards.get(c.key), a = before.get(c.key); if (!a) return;
       const b = r.el.getBoundingClientRect();
       const dx = a.left - b.left, dy = a.top - b.top;
       if (!dx && !dy) return;
@@ -554,14 +476,26 @@ a { color: inherit; }
     });
   }
 
+  // log what changed between two orderings of the board
+  function logRankChanges(prevKeys) {
+    board.forEach((c, i) => {
+      if (c.isNew) { logEvent(`<b>$${esc(c.tk)}</b> <span class="n">entered the board at #${i + 1}</span>`); return; }
+      if (c.prevRank == null) return;
+      if (c.prevRank - i >= 2) logEvent(`<b>$${esc(c.tk)}</b> <span class="u">climbed #${c.prevRank + 1} → #${i + 1}</span>`);
+      if (i - c.prevRank >= 3) logEvent(`<b>$${esc(c.tk)}</b> <span class="d">dropped #${c.prevRank + 1} → #${i + 1}</span>`);
+      if (i === 0 && c.prevRank !== 0) logEvent(`<b>$${esc(c.tk)}</b> <span class="n">took the summit</span>`);
+    });
+    for (const [key, tk] of prevKeys) if (!board.some(c => c.key === key)) logEvent(`<b>$${esc(tk)}</b> <span class="d">slid off the board</span>`);
+  }
+
   /* ---------- filters & toggles ---------- */
   let chainFilter = 'all';
   function applyFilter() {
     let n = 0;
     board.forEach(c => {
       const show = chainFilter === 'all' || c.chain === chainFilter;
-      cards.get(c.tk).el.hidden = !show; if (show) n++;
-      const s = summitEls.get(c.tk); if (s) s.classList.toggle('dim', !show);
+      const r = cards.get(c.key); if (r) r.el.hidden = !show; if (show) n++;
+      const s = summitEls.get(c.key); if (s) s.classList.toggle('dim', !show);
     });
     document.getElementById('wallCount').textContent = n + (n === 1 ? ' chart' : ' charts');
   }
@@ -577,20 +511,19 @@ a { color: inherit; }
   segment('tfSeg', b => { TF = +b.dataset.tf; board.forEach(loadSeries); });
   segment('layoutSeg', b => { wall.classList.toggle('summit-mode', b.dataset.layout === 'summit'); wall.classList.toggle('even-mode', b.dataset.layout === 'even'); });
 
-  function setHot(tk, on) {
-    const s = summitEls.get(tk); if (s) s.classList.toggle('hot', on);
-    const r = cards.get(tk); if (r) r.el.classList.toggle('hot', on);
-    hotTk = on ? tk : null;
+  function setHot(key, on) {
+    const s = summitEls.get(key); if (s) s.classList.toggle('hot', on);
+    const r = cards.get(key); if (r) r.el.classList.toggle('hot', on);
   }
 
   /* ---------- event log ---------- */
   const logEl = document.getElementById('log');
-  let lastLog = {};
+  const lastLog = {};
   function logEvent(html) {
     if (lastLog[html] && Date.now() - lastLog[html] < 8000) return;
     lastLog[html] = Date.now();
     const li = document.createElement('li');
-    li.innerHTML = `<time>${clock(simNow)}</time><span>${html}</span>`;
+    li.innerHTML = `<time>${clock(nowSec())}</time><span>${html}</span>`;
     logEl.prepend(li);
     while (logEl.children.length > 9) logEl.lastChild.remove();
   }
@@ -601,9 +534,10 @@ a { color: inherit; }
   const ctx = cv.getContext('2d');
   const summitsBox = document.getElementById('summits');
   const summitEls = new Map();
-  const peaks = new Map();   // tk -> {x,h,tx,th}
-  let W = 0, H = 0, DPR = 1, hotTk = null;
+  const peaks = new Map();   // key -> {x,h,tx,th}
+  let W = 0, H = 0, DPR = 1;
   const SLOT = [4, 5, 3, 6, 2, 7, 1, 8, 0, 9];   // rank → slot, highest in the middle
+  let seed = 7; const R = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const stars = Array.from({ length: 90 }, () => [R(), R() * 0.6, R() * 1.2 + 0.2, R() * 6]);
 
   function resize() {
@@ -613,30 +547,30 @@ a { color: inherit; }
     peaksTarget(true);
   }
   function peaksTarget(snap) {
-    const n = board.length;
+    const n = Math.max(2, board.length);
     const scores = board.map(c => c.score), lo = Math.min(...scores), hi = Math.max(...scores);
     board.forEach(c => {
-      const slot = SLOT[c.rank] ?? c.rank;
+      const slot = n === 10 ? SLOT[c.rank] : c.rank;
       const tx = W * (0.07 + 0.82 * slot / (n - 1));
       const byRank = 1 - c.rank / (n - 1);
       const byScore = hi === lo ? 1 : (c.score - lo) / (hi - lo);
       const th = H * (0.12 + 0.26 * byRank + 0.08 * byScore);
-      let p = peaks.get(c.tk);
-      if (!p) { p = { x: tx, h: snap ? th : 0, tx, th }; peaks.set(c.tk, p); }
+      let p = peaks.get(c.key);
+      if (!p) { p = { x: tx, h: snap ? th : 0, tx, th }; peaks.set(c.key, p); }
       p.tx = tx; p.th = th;
       if (snap || REDUCED) { p.x = tx; p.h = th; }
-      if (!summitEls.has(c.tk)) {
+      if (!summitEls.has(c.key)) {
         const b = document.createElement('button');
         b.className = 'summit'; b.type = 'button';
-        b.innerHTML = `<span class="tag"><i></i><span class="tk">$${c.tk}</span></span><span class="chg"></span>`;
+        b.innerHTML = `<span class="tag"><i></i><span class="tk">$${esc(c.tk)}</span></span><span class="chg"></span>`;
         b.addEventListener('click', () => {
-          const r = cards.get(c.tk); if (!r) return;
+          const r = cards.get(c.key); if (!r) return;
           r.el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
-          setHot(c.tk, true); setTimeout(() => setHot(c.tk, false), 1600);
+          setHot(c.key, true); setTimeout(() => setHot(c.key, false), 1600);
         });
-        b.addEventListener('mouseenter', () => setHot(c.tk, true));
-        b.addEventListener('mouseleave', () => setHot(c.tk, false));
-        summitsBox.appendChild(b); summitEls.set(c.tk, b);
+        b.addEventListener('mouseenter', () => setHot(c.key, true));
+        b.addEventListener('mouseleave', () => setHot(c.key, false));
+        summitsBox.appendChild(b); summitEls.set(c.key, b);
       }
     });
   }
@@ -652,25 +586,20 @@ a { color: inherit; }
     const list = [...peaks.values()];
     for (const p of list) { p.x += (p.tx - p.x) * 0.06; p.h += (p.th - p.h) * 0.06; }
     ctx.clearRect(0, 0, W, H);
-    // stars
     for (const [sx, sy, sr, ph] of stars) { ctx.fillStyle = `rgba(238,242,251,${0.25 + 0.35 * Math.abs(Math.sin(t / 1400 + ph))})`; ctx.fillRect(sx * W, sy * H, sr, sr); }
     const base = H;
-    // far range
     ctx.beginPath(); ctx.moveTo(0, H);
     for (let x = 0; x <= W; x += 4) ctx.lineTo(x, H * 0.62 - (Math.sin(x * 0.009 + 2) * 0.5 + Math.sin(x * 0.023) * 0.3 + noise(x * 1.7) * 0.2) * H * 0.12);
     ctx.lineTo(W, H); ctx.closePath(); ctx.fillStyle = 'rgba(58,40,90,.55)'; ctx.fill();
-    // main range
     const pts = []; for (let x = 0; x <= W + 2; x += 2) pts.push([x, ridgeY(x, list, base)]);
     ctx.beginPath(); ctx.moveTo(0, H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(W, H); ctx.closePath();
     const g = ctx.createLinearGradient(0, H * 0.15, 0, H);
     g.addColorStop(0, '#3b2a5e'); g.addColorStop(0.45, '#1b1d3d'); g.addColorStop(1, '#0a0f1d');
     ctx.fillStyle = g; ctx.fill();
-    // alpenglow rim
     const rim = ctx.createLinearGradient(0, 0, W, 0);
     rim.addColorStop(0, 'rgba(157,139,255,.9)'); rim.addColorStop(0.5, 'rgba(255,179,107,1)'); rim.addColorStop(1, 'rgba(255,122,168,.9)');
     ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
     ctx.strokeStyle = rim; ctx.lineWidth = 1.6; ctx.shadowColor = 'rgba(255,150,120,.6)'; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
-    // snow caps + summit anchors
     ctx.save();
     ctx.beginPath(); ctx.moveTo(0, H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(W, H); ctx.closePath(); ctx.clip();
     for (const p of list) {
@@ -683,40 +612,213 @@ a { color: inherit; }
       ctx.fillStyle = sg; ctx.fill();
     }
     ctx.restore();
-    // labels
     for (const c of board) {
-      const p = peaks.get(c.tk), el = summitEls.get(c.tk); if (!p || !el) continue;
+      const p = peaks.get(c.key), el = summitEls.get(c.key); if (!p || !el) continue;
       const y = ridgeY(p.x, list, base);
       el.style.transform = `translate(${p.x}px, ${y - 2}px) translate(-50%, -100%)`;
       el.querySelector('i').textContent = '#' + (c.rank + 1);
       el.classList.toggle('top3', c.rank < 3);
-      const ch = el.querySelector('.chg'); const v = pctBack(c, 60);
-      ch.textContent = fmtPct(v); ch.className = 'chg ' + (v >= 0 ? 'up' : 'dn');
+      const ch = el.querySelector('.chg'); const v = c.ch1h;
+      ch.textContent = v == null ? '' : fmtPct(v); ch.className = 'chg ' + (v == null ? '' : v >= 0 ? 'up' : 'dn');
     }
     requestAnimationFrame(frame);
   }
 
-  /* ---------- boot ---------- */
-  function boot() {
+  /* ---------- status bar ---------- */
+  const cdEl = document.getElementById('cd'), cdWrap = document.getElementById('cdWrap');
+  function setMode(mode) {
+    MODE = mode;
+    const pill = document.getElementById('feedPill');
+    pill.classList.toggle('live', mode === 'live');
+    document.getElementById('feedLabel').textContent = mode === 'live' ? 'Live · Peak board' : 'Demo feed · simulated';
+    document.getElementById('footSource').innerHTML = mode === 'live'
+      ? 'Board: <a href="https://www.peakbuybot.com/">peakbuybot.com</a> (mirrors t.me/PeakTrending). Prices: DexScreener. Candles: GeckoTerminal.'
+      : 'Mockup. Every coin, price and chart here is simulated.';
+    document.getElementById('footNote').textContent = mode === 'live'
+      ? 'Prices refresh every 5s, candle history every 90s.'
+      : 'Live data needs the local server (node server.mjs). Demo clock runs 15× real time.';
+  }
+
+  /* =========================================================
+     LIVE: /api/board (Peak + DexScreener) and /api/candles (GeckoTerminal)
+     ========================================================= */
+  const POLL_MS = 5000, CANDLE_MS = 90000;
+  let lastBoardAt = 0;
+
+  function coinFromApi(t) {
+    return {
+      key: t.chain + ':' + t.mint, tk: t.symbol, name: t.name, chain: CHAIN[t.chain] || t.chain, chainId: t.chain,
+      rank: 0, prevRank: null, isNew: false, score: 0, bars1: [], candlesAt: 0, chartState: null,
+      icon: t.icon, chartUrl: t.chartUrl, peakPage: t.peakPage, slot: t.slot, pool: t.pool, tagline: t.tagline,
+    };
+  }
+  function applyApi(c, t) {
+    c.price = t.priceUsd ?? null;
+    c.ch5 = t.change?.m5 ?? null; c.ch1h = t.change?.h1 ?? null; c.ch24 = t.change?.h24 ?? null;
+    c.mc = t.marketCap; c.liq = t.liquidity; c.vol24 = t.volume24h; c.holders = t.holders;
+    const tx = t.txns5m; c.buys = tx && (tx.buys + tx.sells) > 0 ? tx.buys / (tx.buys + tx.sells) : null;
+    if (t.pool && !c.pool) c.pool = t.pool;
+  }
+
+  async function loadCandles(c) {
+    if (!c.pool) { c.chartState = 'No trading pair yet' + (c.tagline ? ' · ' + c.tagline : ''); loadSeries(c); return; }
+    c.candlesAt = Date.now();
+    try {
+      const r = await fetch(`/api/candles?chain=${encodeURIComponent(c.chainId)}&pool=${encodeURIComponent(c.pool)}`);
+      if (!r.ok) throw new Error(r.status);
+      const { candles } = await r.json();
+      if (!candles.length) { c.chartState = 'No trades yet'; loadSeries(c); return; }
+      // keep any live bars newer than the history we just got
+      const lastT = candles[candles.length - 1].time;
+      c.bars1 = candles.concat(c.bars1.filter(b => b.time > lastT));
+      c.chartState = null;
+      if (cards.has(c.key)) loadSeries(c);
+    } catch (e) {
+      c.candlesAt = Date.now() - CANDLE_MS + 15000;   // retry in 15s
+      if (!c.bars1.length) { c.chartState = 'Chart data busy, retrying'; loadSeries(c); }
+    }
+  }
+
+  async function pollBoard() {
+    const r = await fetch('/api/board', { headers: { accept: 'application/json' } });
+    if (!r.ok) throw new Error('board ' + r.status);
+    const j = await r.json();
+    if (!Array.isArray(j.tokens) || !j.tokens.length) throw new Error('empty board');
+    lastBoardAt = Date.now();
+    const prev = new Map(board.map(c => [c.key, c]));
+    const prevKeys = board.map(c => [c.key, c.tk]);
+    const first = MODE !== 'live';
+    const next = j.tokens.map((t, i) => {
+      let c = prev.get(t.chain + ':' + t.mint);
+      const isNew = !c && !first;
+      if (!c) c = coinFromApi(t);
+      c.prevRank = first ? i : (isNew ? null : c.rank);
+      c.isNew = isNew || (c.isNew && c.rank === i);   // keep NEW until it moves
+      c.rank = i;
+      const oldPrice = c.price;
+      applyApi(c, t);
+      c.score = 100 - i * 6 + Math.max(-50, Math.min(50, c.ch1h || 0)) * 0.05;
+      if (c.price && oldPrice && c.price !== oldPrice) pushPrice(c, c.price, Date.now() / 1000);
+      if (c.ch5 != null && Math.abs(c.ch5) >= 20 && Date.now() - (c.bigAt || 0) > 300000) c.bigAt = Date.now(), logEvent(`<b>$${esc(c.tk)}</b> <span class="${c.ch5 > 0 ? 'u' : 'd'}">${fmtPct(c.ch5)} in 5m</span>`);
+      return c;
+    });
+    const orderChanged = next.length !== board.length || next.some((c, i) => board[i] !== c);
+    board = next;
+    if (first) setMode('live');
+    if (orderChanged) { if (!first) logRankChanges(prevKeys); layoutWall(); }
+    else board.forEach(c => paintCard(c, true));
+    if (first) logEvent(`Board loaded · <b>${board.length}</b> coins from Peak`);
+    // stagger candle loads so GeckoTerminal's free limit is respected
+    board.filter(c => Date.now() - c.candlesAt > CANDLE_MS).slice(0, 4).forEach(loadCandles);
+  }
+
+  async function startLive() {
+    await pollBoard();              // throws if the server isn't there, which drops us into demo mode
+    setInterval(() => pollBoard().catch(() => {
+      document.getElementById('feedLabel').textContent = 'Live · reconnecting';
+    }), POLL_MS);
+    cdWrap.firstChild.textContent = 'Updated ';
+    setInterval(() => { const s = Math.round((Date.now() - lastBoardAt) / 1000); cdEl.textContent = s + 's ago'; }, 1000);
+  }
+
+  /* =========================================================
+     DEMO: simulated coins, used when the live server isn't reachable
+     ========================================================= */
+  function startDemo() {
+    setMode('demo');
+    const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const ROSTER = [
+      ['YETI', 'Yeti Inu', 'sol', 0.0000482], ['SHERPA', 'Sherpa Protocol', 'sol', 0.00312],
+      ['MOCHI', 'Mochi the Cat', 'sol', 0.000871], ['GLACR', 'Glacier', 'hood', 0.0421],
+      ['FROGGO', 'Froggo', 'sol', 0.00000613], ['CAIRN', 'Cairn AI', 'arc', 0.1873],
+      ['TUNDRA', 'Tundra', 'sol', 0.0152], ['PIXL', 'Pixel Goblins', 'sol', 0.000219],
+      ['WOMBO', 'Wombo', 'hood', 0.00641], ['ORBIT', 'Orbit Dog', 'sol', 0.0000921],
+      ['ZEPH', 'Zephyr', 'sol', 0.00117], ['KIWI', 'Kiwi Summit', 'arc', 0.0338],
+      ['BLORP', 'Blorp', 'sol', 0.00000288], ['HALO', 'Halo Finance', 'hood', 0.264],
+    ];
+    const TICK_MS = 700, SIM_PER_TICK = 10.5;
+    const pctBack = (c, mins) => { const b = c.bars1; const ref = b[Math.max(0, b.length - 1 - mins)].open; return (c.price / ref - 1) * 100; };
+    function makeCoin([tk, name, chain, p0]) {
+      const c = { key: 'demo:' + tk, tk, name, chain, chainId: chain, slot: null, icon: null, chartUrl: null, vol: 0.012 + R() * 0.02, drift: (R() - 0.35) * 0.0015,
+        score: 0, prevRank: null, rank: 0, isNew: false, bars1: [], buys: 0.5 };
+      let p = p0 * (0.55 + R() * 0.3), t = simNow - 1560 * 60;
+      for (let k = 0; k < 1560; k++, t += 60) {
+        const o = p; const pump = R() < 0.002 ? (R() < 0.7 ? 1 : -1) * (0.08 + R() * 0.25) : 0;
+        let h = o, l = o;
+        for (let s = 0; s < 4; s++) { p *= Math.exp(c.drift * 0.04 + c.vol * 0.32 * gauss() + pump / 4); h = Math.max(h, p); l = Math.min(l, p); }
+        c.bars1.push({ time: t, open: o, high: h, low: l, close: p, value: Math.abs(Math.log(p / o)) * 4e5 * (0.5 + R()) + 2e3 * R() });
+      }
+      const k = p0 / p; c.bars1.forEach(b => { b.open *= k; b.high *= k; b.low *= k; b.close *= k; });
+      c.price = p0;
+      const mc = Math.exp(Math.log(4e5) + R() * Math.log(120));
+      c.supply = mc / p0; c.liq = mc * (0.06 + R() * 0.1);
+      const raw = c.bars1.slice(-1440).reduce((s, b) => s + b.value, 0);
+      c.volK = mc * (0.4 + R() * 2.2) / raw; c.bars1.forEach(b => b.value *= c.volK);
+      c.vol24 = c.bars1.slice(-1440).reduce((s, b) => s + b.value, 0);
+      refresh(c);
+      return c;
+    }
+    function refresh(c) { c.ch5 = pctBack(c, 5); c.ch1h = pctBack(c, 60); c.ch24 = (c.price / c.bars1[Math.max(0, c.bars1.length - 1440)].open - 1) * 100; c.mc = c.price * c.supply; }
+    const universe = ROSTER.map(makeCoin);
+    board = universe.slice(0, 10);
+    let bench = universe.slice(10);
+    board.forEach((c, i) => { c.rank = i; c.prevRank = i; c.score = 100 - i * 6 + R() * 4; });
     layoutWall();
-    resize();
-    new ResizeObserver(resize).observe(ridge);
-    requestAnimationFrame(frame);
     simNow -= 900;
-    logEvent(`Board loaded · <b>10</b> coins across Solana, Robinhood, Arc`); simNow += 180;
-    logEvent(`<b>$${board[6].tk}</b> <span class="u">climbed #9 → #7</span>`); simNow += 240;
-    logEvent(`<b>$${board[3].tk}</b> <span class="u">wick +18.2%</span> in one candle`); simNow += 200;
-    logEvent(`<b>$${bench[1].tk}</b> <span class="d">slid off the board</span>`);
-    logEvent(`<b>$${board[9].tk}</b> <span class="n">entered the board</span>`); simNow += 280;
+    logEvent(`Board loaded · <b>10</b> coins across Solana, Robinhood, Arc`); simNow += 420;
+    logEvent(`<b>$${board[3].tk}</b> <span class="u">+18.2% in 5m</span>`); simNow += 480;
     logEvent(`<b>$${board[0].tk}</b> <span class="n">holds the summit</span>`);
-    setInterval(tick, TICK_MS);
+
     setInterval(() => {
-      untilRerank--;
-      if (untilRerank <= 0) { rerank(); untilRerank = 15; }
+      simNow += SIM_PER_TICK;
+      for (const c of board) {
+        const burst = Math.random() < 0.006 ? (Math.random() < 0.72 ? 1 : -1) * (0.05 + Math.random() * 0.14) : 0;
+        const step = c.drift * 0.35 + c.vol * 0.42 * gauss() + burst;
+        const v = (Math.abs(step) * 4e5 * (0.6 + Math.random()) + 300 * Math.random()) * c.volK;
+        c.price *= Math.exp(step);
+        pushPrice(c, c.price, simNow, v);
+        c.vol24 += v; c.buys += ((step > 0 ? 0.68 : 0.32) - c.buys) * 0.08; c.liq *= Math.exp(step * 0.3);
+        c.score += step * 90 + (c.ch5 * 0.02) + (Math.random() - 0.5) * 1.2;
+        refresh(c);
+        if (burst > 0) logEvent(`<b>$${c.tk}</b> <span class="u">wick ${fmtPct(burst * 100)}</span> in one candle`);
+        paintCard(c, true);
+      }
+      peaksTarget();
+    }, TICK_MS);
+
+    let untilRerank = 15, count = 0;
+    setInterval(() => {
+      if (--untilRerank <= 0) {
+        untilRerank = 15; count++;
+        const prevKeys = board.map(c => [c.key, c.tk]);
+        board.forEach(c => { c.prevRank = c.rank; c.isNew = false; });
+        if (count % 3 === 0 && bench.length) {
+          const sorted = [...board].sort((a, b) => b.score - a.score);
+          const out = sorted[sorted.length - 1];
+          const inn = bench.splice(Math.floor(Math.random() * bench.length), 1)[0];
+          board = board.filter(c => c !== out); bench.push(out);
+          inn.score = sorted[sorted.length - 3].score + 2 + Math.random() * 4; inn.isNew = true; inn.prevRank = null;
+          board.push(inn);
+        }
+        board.sort((a, b) => b.score - a.score);
+        board.forEach((c, i) => c.rank = i);
+        logRankChanges(prevKeys);
+        const top = board[0].score; board.forEach(c => c.score = c.score - top + 100);
+        layoutWall();
+      }
       cdEl.textContent = '0:' + String(untilRerank).padStart(2, '0');
     }, 1000);
   }
-  if (window.LightweightCharts) boot();
-  else document.getElementById('wall').innerHTML = '<p style="color:var(--mist)">The chart library did not load. Check your connection and reload.</p>';
+
+  /* ---------- boot ---------- */
+  if (!window.LightweightCharts) {
+    wall.innerHTML = '<p style="color:var(--mist)">The chart library did not load. Check your connection and reload.</p>';
+    return;
+  }
+  resize();
+  new ResizeObserver(resize).observe(ridge);
+  requestAnimationFrame(frame);
+  const canLive = location.protocol.startsWith('http') && !/claude|claudeusercontent/.test(location.hostname);
+  (canLive ? startLive() : Promise.reject(new Error('no server'))).catch(() => startDemo());
 })();
 </script>
