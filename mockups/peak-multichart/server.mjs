@@ -156,6 +156,8 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return send(res, 200, await readFile(path.join(HERE, 'index.html')), 'text/html; charset=utf-8');
     }
+    const asset = url.pathname.match(/^\/assets\/([a-z0-9-]+\.png)$/);
+    if (asset) return send(res, 200, await readFile(path.join(HERE, 'assets', asset[1])), 'image/png');
     if (url.pathname === '/api/board') return send(res, 200, await board());
     if (url.pathname === '/api/candles') {
       const chain = url.searchParams.get('chain'), pool = url.searchParams.get('pool');

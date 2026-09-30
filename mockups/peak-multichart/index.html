@@ -53,7 +53,7 @@ a { color: inherit; }
   background: linear-gradient(var(--night) 70%, rgba(0,0,0,0));
 }
 .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
-.brand svg { width: 30px; height: 30px; flex: none; }
+.brand .mark { width: 44px; height: 44px; flex: none; margin: -6px -2px -6px -6px; filter: drop-shadow(0 0 10px rgba(143,224,75,.35)); }
 .brand b { font-family: var(--brand); font-style: italic; font-weight: 900; font-size: 26px; letter-spacing: .02em; line-height: 1; }
 .brand small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--mist); letter-spacing: .12em; text-transform: uppercase; margin-top: 3px; }
 .seg { display: inline-flex; background: var(--night-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
@@ -270,9 +270,12 @@ a { color: inherit; }
 /* ---------- summit eruption (new #1) ---------- */
 .erupt { position: fixed; inset: 0; z-index: 100; pointer-events: none; display: grid; place-items: center; }
 .erupt canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.erupt .veil { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, rgba(204,255,0,.28), rgba(0,0,0,.88) 62%); opacity: 0; }
+.erupt .veil { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, rgba(143,224,75,.2), transparent 62%), rgba(0,0,0,.9); opacity: 0; }
 .erupt .flash { position: absolute; inset: 0; background: radial-gradient(circle at var(--fx, 50%) var(--fy, 40%), #ffffff, rgba(143,224,75,.7) 18%, rgba(204,255,0,0) 55%); opacity: 0; mix-blend-mode: screen; }
 .erupt-card { position: relative; display: grid; justify-items: center; gap: 10px; text-align: center; padding-inline: 16px; opacity: 0; }
+.erupt-card .peak-mark { width: clamp(84px, 11vw, 150px); height: auto; margin-bottom: -6px; filter: drop-shadow(0 0 30px rgba(143,224,75,.6)); }
+.erupt.go .peak-mark { animation: e-mark 4.4s cubic-bezier(.2,.9,.25,1) forwards; }
+@keyframes e-mark { 0%, 4% { opacity: 0; transform: translateY(60px) scale(.4) rotate(-8deg); } 14% { opacity: 1; transform: translateY(-10px) scale(1.08) rotate(3deg); } 20% { transform: none; } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-40px) scale(1.1); } }
 .erupt-card .kicker { font-family: var(--mono); font-size: clamp(11px, 1.4vw, 15px); letter-spacing: .32em; text-transform: uppercase; color: var(--glow-a); }
 .erupt-card .cash {
   font-family: var(--brand); font-style: italic; font-weight: 900; line-height: .9; letter-spacing: .01em;
@@ -307,12 +310,8 @@ a { color: inherit; }
 <div class="wrap">
   <header class="bar">
     <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ccff00"/><stop offset="1" stop-color="#5c9e2e"/></linearGradient></defs>
-        <path d="M2 27 L12 9 L16 15 L20 6 L30 27 Z" fill="url(#lg)"/>
-        <path d="M17.6 10.4 L20 6 L22.4 10.4 L21 9.6 L20 11 L19 9.6 Z" fill="#eef2fb"/>
-      </svg>
-      <div><b>PEAK RIDGE</b><small>Top 10 trending · multichart</small></div>
+      <img class="mark" src="assets/peak-mark.png" alt="Peak" width="44" height="44">
+      <div><b>PEAK RIDGE</b><small>Peak Trending · top 10 live</small></div>
     </div>
     <div class="seg" role="group" aria-label="Chain filter" id="chainSeg">
       <button type="button" id="ch-all" data-chain="all" aria-pressed="true">All chains</button>
@@ -962,7 +961,8 @@ a { color: inherit; }
     erupting = true;
     const icon = safeUrl(c.icon);
     eruptCard.innerHTML = `
-      <div class="kicker">New #1 on Peak</div>
+      <img class="peak-mark" src="assets/peak-mark.png" alt="">
+      <div class="kicker">New #1 on Peak Trending</div>
       <div class="cash">$${esc(c.tk)}</div>
       <div class="who">${icon ? `<img class="coin" src="${esc(icon)}" alt="" referrerpolicy="no-referrer">` : `<span class="coin">${esc(c.tk.slice(0, 1))}</span>`}<span>${esc(c.name)} takes the summit</span></div>
       <div class="nums">${c.price ? `<span>Price<b>${fmtPrice(c.price)}</b></span>` : ''}${c.ch1h ? `<span>1h<b class="${c.ch1h >= 0 ? 'up' : 'dn'}">${fmtPct(c.ch1h)}</b></span>` : ''}${c.mc ? `<span>Mcap<b>${fmtUsd(c.mc)}</b></span>` : ''}</div>`;
