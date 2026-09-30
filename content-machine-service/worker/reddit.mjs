@@ -129,8 +129,15 @@ export async function postToReddit(target, {
       await gotoSettled(page, submitUrl);
       if (!(await title.count())) throw new NotPostedError(`Could not open the submit form for r/${target.subreddit}.`);
     }
+    // Some subreddits don't take text posts: the form then has no body box. Say what the page offers; nothing is sent.
+    const body = page.locator('textarea[name="text"]');
+    if (!(await body.count())) {
+      const offers = await page.locator('form#newlink input[name="kind"], .tabmenu.formtab a').evaluateAll(els => els.map(e => (e.value || e.textContent || '').trim()).filter(Boolean)).catch(() => []);
+      const note = (await page.locator('.submit_text, .md, .infobar').first().innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160);
+      throw new NotPostedError(`r/${target.subreddit} has no text-post box (post types offered: ${offers.join(', ') || 'none shown'}; page: ${page.url().split('?')[0]}${note ? `; says: ${note}` : ''}).`);
+    }
     await title.fill(target.title);
-    await page.locator('textarea[name="text"]').fill(target.text);
+    await body.fill(target.text);
     if (await captcha(page)) throw new NotPostedError('Reddit showed a CAPTCHA on the submit form.');
 
     // From here on the post may exist, so failures are reported as "maybe posted", never retried blindly.

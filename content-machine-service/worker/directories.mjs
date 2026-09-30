@@ -133,9 +133,17 @@ async function openSubmitFormUnsafe(browser, cfg) {
   const submitUrl = cfg.origin + cfg.submit;
   // Only the real coin form counts: a footer newsletter form on a login or error page must not look like success.
   const onForm = async () => !page.url().includes(cfg.login) && !(await page.locator('input[type="password"]').count()) && (await hasListingForm(page));
+  const clearChallenge = async where => {
+    for (let i = 0; i < 12 && (await cloudflareChallenge(page)); i++) await page.waitForTimeout(2500);
+    if (await cloudflareChallenge(page)) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${cfg.site}: Cloudflare's security check did not clear on the ${where} page; nothing was sent.`); }
+  };
+  const where = async () => `${page.url().split('?')[0]} "${(await page.title().catch(() => '')).slice(0, 60)}"`;
   await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
+  await clearChallenge('submit');
   if (!(await onForm())) {
     await page.goto(cfg.origin + cfg.login, {waitUntil: 'domcontentloaded'});
+    await clearChallenge('login');
+    if (!(await page.locator('input[type="password"]').count())) throw new NotPostedError(`${cfg.site}: neither the submit form nor a login form loaded (${await where()}); nothing was sent.`);
     await page.locator('input[type="email"], input[name*="email" i], input[name*="user" i], input[name*="login" i]').first().fill(cfg.username);
     if (!cfg.username || !cfg.password) throw new NotPostedError(`${cfg.site}: the saved session has expired; refresh ${cfg.site.toUpperCase()}_COOKIES.`);
     await page.locator('input[type="password"]').first().fill(cfg.password);
