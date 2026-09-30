@@ -1,0 +1,8 @@
+{
+  "name": "peak-ridge-broadcaster",
+  "private": true,
+  "description": "Streams the Peak Ridge broadcast frame 24/7 and keeps a pinned Telegram post updated.",
+  "scripts": { "start": "node broadcaster.mjs" },
+  "dependencies": { "playwright": "1.56.1" },
+  "engines": { "node": ">=20" }
+}

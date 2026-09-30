@@ -346,6 +346,42 @@ a { color: inherit; }
 @keyframes shake { 10%, 90% { transform: translate(-2px, 1px); } 20%, 80% { transform: translate(5px, -3px); } 30%, 50%, 70% { transform: translate(-8px, 4px); } 40%, 60% { transform: translate(8px, -4px); } }
 .preview-btn { border: 1px solid var(--line); background: var(--night-2); border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; color: var(--glow-a); cursor: pointer; }
 .preview-btn:hover { border-color: var(--glow-a); }
+
+/* ---------- broadcast: one fixed 1280×720 frame for the live stream and Telegram cards (?broadcast=1) ---------- */
+.ticker { display: none; }
+html.broadcast, html.broadcast body { overflow: hidden; cursor: none; }
+html.broadcast body { width: 1280px; height: 720px; }
+html.broadcast .wrap { max-width: none; width: 1280px; height: 720px; padding: 10px 14px; display: grid; gap: 10px 12px;
+  grid-template-columns: minmax(0, 1fr) 560px; grid-template-rows: 46px 300px minmax(0, 1fr) 32px;
+  grid-template-areas: "bar bar" "ridge pm" "wall pm" "tick tick"; }
+html.broadcast .bar { grid-area: bar; position: static; padding: 0; background: none; }
+html.broadcast #chainSeg, html.broadcast .wrap > .row, html.broadcast .foot, html.broadcast .card .join, html.broadcast .sc svg, html.broadcast .log,
+html.broadcast .pm-head p, html.broadcast .pm-tiles, html.broadcast .pm-lower, html.broadcast .pm-table .grp { display: none; }
+html.broadcast .hero { grid-area: ridge; display: block; margin: 0; }
+html.broadcast .ridge { height: 300px; }
+html.broadcast .ridge-head { max-width: none; }
+html.broadcast .ridge-head .eyebrow { white-space: nowrap; }
+html.broadcast .ridge-head h1 { display: none; }
+html.broadcast .pm { grid-area: pm; margin: 0; padding: 12px 12px 8px; gap: 8px; align-content: start; overflow: hidden; }
+html.broadcast .pm-head h2 { font-size: 22px; }
+html.broadcast .pm-wrap { overflow: hidden; }
+html.broadcast .pm-table { min-width: 0; }
+html.broadcast .pm-table td { padding: 6px 2px; }
+html.broadcast .pm-table :is(th, td):is(:nth-child(4), :nth-child(6), :nth-child(8), :nth-child(9), :nth-child(11), :nth-child(13), :nth-child(15), :nth-child(16), :nth-child(17), :nth-child(18), :nth-child(19), :nth-child(20), :nth-child(21)) { display: none; }
+html.broadcast .pm-table .who { min-width: 0; }
+html.broadcast .pm-table .who b { font-size: 17px; }
+html.broadcast .cell { min-width: 44px; }
+html.broadcast .wall { grid-area: wall; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 1fr; min-height: 0; }
+html.broadcast .wall .card:nth-child(n+4) { display: none; }
+html.broadcast .wall.summit-mode .card:first-child { grid-column: auto; grid-row: auto; }
+html.broadcast .card .c-foot, html.broadcast .card .chgs, html.broadcast .card .nm { display: none; }
+html.broadcast .card:first-child .px .p { font-size: 19px; }
+html.broadcast .ticker { grid-area: tick; display: flex; align-items: center; overflow: hidden; border-radius: 10px; border: 1px solid var(--line); background: var(--night-2); }
+html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0 14px -4px var(--night-2); flex: none; padding: 0 14px; height: 100%; display: flex; align-items: center; gap: 8px; background: var(--glow-a); color: #000; font-family: var(--display); font-weight: 900; font-size: 16px; letter-spacing: .03em; }
+.tk-track { display: flex; gap: 34px; white-space: nowrap; padding-left: 24px; animation: tick 60s linear infinite; font-family: var(--mono); font-size: 13px; }
+.tk-track b { font-family: var(--display); font-size: 16px; letter-spacing: .03em; margin-right: 6px; }
+.tk-track i { font-style: normal; color: var(--glow-a); margin-right: 6px; }
+@keyframes tick { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
   .wrap.shake { animation: none; }
   .dot, .card.enter, .log li { animation: none; }
@@ -448,6 +484,8 @@ a { color: inherit; }
   <main class="wall summit-mode" id="wall"></main>
 
 
+  <div class="ticker" id="ticker" aria-hidden="true"><span class="cta" id="tickerCta">LIVE BOARD</span><div class="tk-track" id="tickerTrack"></div></div>
+
   <footer class="foot">
     <span id="footSource">Mockup. Every coin, price and chart here is simulated.</span>
     <span id="footNote">Demo clock runs 15× real time so candles form quickly.</span>
@@ -494,6 +532,8 @@ a { color: inherit; }
   const tgUrl = c => { const u = safeUrl(c.telegram); return u && /^https:\/\/t\.me\//.test(u) ? u : null; };
   const rankFs = (rank, top, bottom) => top - (top - bottom) * Math.min(rank, 9) / 9;   // #1 biggest, #10 smallest
 
+  const BROADCAST = new URLSearchParams(location.search).has('broadcast');
+  if (BROADCAST) document.documentElement.classList.add('broadcast');
   let MODE = 'boot';                       // 'live' | 'demo'
   let simNow = Math.floor(Date.now() / 60000) * 60;
   const nowSec = () => MODE === 'demo' ? simNow : Date.now() / 1000;
@@ -804,7 +844,7 @@ a { color: inherit; }
     if (el.dataset.sig !== sig) {
       el.dataset.sig = sig;
       el.className = 'summit r' + (c.rank + 1) + (c.rank < 5 ? ' top5' : '') + (c.rank < 3 ? ' top3' : '') + (el.classList.contains('dim') ? ' dim' : '') + (el.classList.contains('hot') ? ' hot' : '');
-      el.style.setProperty('--fs', rankFs(c.rank, 22, 11) + 'px');
+      el.style.setProperty('--fs', (BROADCAST ? rankFs(c.rank, 17, 10) : rankFs(c.rank, 22, 11)) + 'px');
       el.innerHTML = `<span class="row"><button type="button" class="tag">${c.rank < 3 ? coinImg(c) : ''}<span><i>#${c.rank + 1}</i><span class="tk">$${esc(c.tk)}</span></span></button>${tg ? `<a class="join" href="${esc(tg)}" target="_blank" rel="noopener" title="Join $${esc(c.tk)} on Telegram">JOIN</a>` : ''}</span><span class="chg"></span>`;
     }
     const ch = el.querySelector('.chg'), v = c.ch1h;
@@ -868,7 +908,7 @@ a { color: inherit; }
       const free = (x, b) => !placed.some(q => x - w / 2 < q.r + 4 && x + w / 2 > q.l - 4 && b > q.top && b - h < q.bottom);
       let lx = clampX(p.x), bottom = y - 14, found = false;
       // try sliding outward, then inward, then climbing (at most 70px), keeping the first free spot
-      const maxLift = W < 560 ? H * 0.42 : 70;   // phones hide the headline, so labels may climb higher there
+      const maxLift = W < 560 || BROADCAST ? H * 0.5 : 70;   // phones hide the headline, so labels may climb higher there
       for (let lift = 0; lift <= maxLift; lift += 22) {
         for (const dx of [0, 30, 60, 90, -30, -60]) {
           const x = clampX(p.x + out * dx), b = Math.max(y - 14 - lift, h + 4);
@@ -968,7 +1008,8 @@ a { color: inherit; }
     spreadDots(rows);
 
     // table, highest score first
-    const sorted = [...rows].sort((a, b) => (b.m.score ?? -1) - (a.m.score ?? -1));
+    let sorted = [...rows].sort((a, b) => (b.m.score ?? -1) - (a.m.score ?? -1));
+    if (BROADCAST) renderTicker();
     pmBody.innerHTML = sorted.map(({ c, m }, i) => {
       const ph = PHASES[m.phase] || PHASES.chop, cl = m.cells || {};
       const d15 = m.dScore15 ?? m.dScore5;
@@ -986,7 +1027,7 @@ a { color: inherit; }
         <td><span class="ph" style="--c:${ph.color}" title="${esc(ph.tip)}">${ph.label}</span></td>
         ${pc}${vc}${hc}
         <td><span class="cell${b5 == null ? ' na' : ''}" style="--bgc:${heatBg(b5 == null ? null : Math.tanh((b5 - 0.5) * 4))}">${b5 == null ? '–' : Math.round(b5 * 100) + '%'}</span></td>
-      </tr>${why ? `<tr class="sub${dim ? ' dim' : ''}" data-key="${esc(c.key)}"><td></td><td colspan="20" class="why">${why}</td></tr>` : ''}`;
+      </tr>${why && !BROADCAST ? `<tr class="sub${dim ? ' dim' : ''}" data-key="${esc(c.key)}"><td></td><td colspan="20" class="why">${why}</td></tr>` : ''}`;
     }).join('');
 
     // tiles: the four things a trader wants first
@@ -999,6 +1040,11 @@ a { color: inherit; }
       ['Most buyers (5m)', best(r => r.m.cells?.buys5), r => Math.round(r.m.cells.buys5 * 100) + '%', r => `Score ${r.m.score} · ${PHASES[r.m.phase]?.label || ''}`],
     ];
     pmTiles.innerHTML = tiles.map(([label, r, big, sub]) => r ? `<button type="button" class="tile" data-key="${esc(r.c.key)}" style="--c:${scoreColor(r.m.score)}"><span class="lbl">${label}</span>${coinImg(r.c)}<span class="nm">$${esc(r.c.tk)}</span><span class="big">${esc(String(big(r)))}</span><span class="sub">${esc(sub(r))}</span></button>` : `<div class="tile"><span class="lbl">${label}</span><span class="sub">${label.startsWith('Heating') ? 'Needs 5 minutes of score history' : 'Waiting for data'}</span></div>`).join('');
+  }
+  function renderTicker() {
+    document.getElementById('tickerCta').textContent = 'LIVE BOARD · ' + location.host.replace(/^www\./, '');
+    const items = board.map(c => `<span><i>#${c.rank + 1}</i><b>$${esc(c.tk)}</b>${fmtPrice(c.price)} <span class="${(c.ch1h || 0) >= 0 ? 'up' : 'dn'}">${c.ch1h == null ? '' : fmtPct(c.ch1h) + ' 1h'}</span>${c.mo?.score != null ? ` · momentum ${c.mo.score}` : ''}</span>`).join('');
+    document.getElementById('tickerTrack').innerHTML = items + items;
   }
   pmBody.addEventListener('click', e => { const tr = e.target.closest('tr[data-key]'); if (tr) jumpTo(tr.dataset.key); });
   pmTiles.addEventListener('click', e => { const t = e.target.closest('[data-key]'); if (t) jumpTo(t.dataset.key); });
