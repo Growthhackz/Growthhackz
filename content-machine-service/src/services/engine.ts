@@ -815,7 +815,9 @@ export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise
   let sent = 0;
   let failed = 0;
   for (const e of rows) {
-    if (!types.has(e.type)) {
+    // Admin test orders never call back; neither do event types the receiver doesn't take.
+    const isTest = get<{ t: number | null }>(ctx.db, "SELECT json_extract(input, '$.test') AS t FROM orders WHERE id = :id", { id: e.order_id })?.t === 1;
+    if (!types.has(e.type) || isTest) {
       run(ctx.db, 'UPDATE events SET sent = 1 WHERE id = :id', { id: e.id });
       continue;
     }
