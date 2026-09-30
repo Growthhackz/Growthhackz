@@ -1,0 +1,722 @@
+<title>Peak Ridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a live mountain range of the top 10 as the hero (height = trend strength),
+   then a summit-first multichart wall (rank #1 is the big tile), board events in a side log.
+   Deliberately single-theme: night on the mountain, lit by alpenglow. */
+:root {
+  color-scheme: dark;
+  --night: #0a0f1d;        /* page ground, blue-black */
+  --night-2: #10172a;      /* raised surface */
+  --night-3: #17203a;      /* hover / chips */
+  --line: #25304f;         /* hairlines */
+  --snow: #eef2fb;         /* primary text */
+  --mist: #93a0c2;         /* secondary text */
+  --fog: #5c688a;          /* tertiary text */
+  --glow-a: #ffb36b;       /* alpenglow amber */
+  --glow-b: #ff7aa8;       /* alpenglow rose */
+  --glow-c: #9d8bff;       /* dusk violet */
+  --up: #46e0a9;
+  --down: #ff5f7e;
+  --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 14px;
+}
+html, body { background: var(--night); color: var(--snow); }
+body {
+  font-family: var(--body);
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 520px at 50% -140px, rgba(157,139,255,.18), transparent 70%),
+    radial-gradient(900px 400px at 85% 260px, rgba(255,122,168,.08), transparent 70%),
+    var(--night);
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--glow-a); outline-offset: 2px; border-radius: 6px; }
+
+.wrap { max-width: 1480px; margin: 0 auto; padding-inline: 20px; padding-block: 0 40px; }
+
+/* ---------- top bar ---------- */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px;
+  padding-block: 12px;
+  background: linear-gradient(var(--night) 70%, rgba(10,15,29,0));
+}
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+.brand svg { width: 30px; height: 30px; flex: none; }
+.brand b { font-family: var(--display); font-weight: 900; font-size: 26px; letter-spacing: .04em; line-height: 1; }
+.brand small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--mist); letter-spacing: .12em; text-transform: uppercase; margin-top: 3px; }
+.seg { display: inline-flex; background: var(--night-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.seg button {
+  border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; color: var(--mist); letter-spacing: .02em;
+}
+.seg button[aria-pressed="true"] { background: var(--night-3); color: var(--snow); box-shadow: inset 0 0 0 1px var(--line); }
+.seg button:hover { color: var(--snow); }
+.status { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--mist); }
+.pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px;
+  border: 1px dashed rgba(255,179,107,.55); color: var(--glow-a); letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px;
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--glow-a); box-shadow: 0 0 0 0 rgba(255,179,107,.6); animation: ping 1.8s infinite; }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(255,179,107,.55); } 80%,100% { box-shadow: 0 0 0 9px rgba(255,179,107,0); } }
+.countdown b { color: var(--snow); font-weight: 700; }
+
+/* ---------- ridge hero ---------- */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin-top: 6px; }
+.ridge {
+  position: relative; height: 400px; border-radius: 22px; overflow: hidden;
+  background: linear-gradient(180deg, #0c1224 0%, #1a1b3c 52%, #3a2447 78%, #5b2d45 100%);
+  border: 1px solid var(--line);
+}
+.ridge canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ridge-head { position: absolute; left: 22px; top: 18px; z-index: 3; pointer-events: none; max-width: 60%; }
+.eyebrow { font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--mist); }
+.ridge-head h1 {
+  font-family: var(--display); font-weight: 900; font-size: clamp(34px, 5vw, 58px); line-height: .9; margin: 6px 0 0;
+  letter-spacing: .01em; text-wrap: balance;
+  background: linear-gradient(92deg, var(--snow) 0%, var(--snow) 40%, var(--glow-a) 70%, var(--glow-b) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.ridge-head p { color: var(--mist); margin: 8px 0 0; font-size: 13px; max-width: 42ch; }
+.alt-scale { position: absolute; right: 12px; top: 16px; bottom: 16px; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; pointer-events: none; font-family: var(--mono); font-size: 9.5px; color: rgba(238,242,251,.35); }
+.alt-scale span { display: flex; align-items: center; gap: 6px; }
+.alt-scale span::after { content: ""; width: 10px; height: 1px; background: rgba(238,242,251,.3); }
+.summit {
+  position: absolute; left: 0; top: 0; z-index: 4; transform: translate(-50%, -100%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border: 0; background: none; padding: 0 0 6px;
+  transition: opacity .3s;
+}
+.summit .tag {
+  font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .04em; line-height: 1;
+  padding: 4px 7px 3px; border-radius: 6px; background: rgba(10,15,29,.72); border: 1px solid rgba(238,242,251,.18);
+  white-space: nowrap; backdrop-filter: blur(4px);
+}
+.summit .tag i { font-style: normal; color: var(--glow-a); margin-right: 5px; }
+.summit .chg { font-family: var(--mono); font-size: 10px; font-weight: 700; }
+.summit::after { content: ""; width: 1px; height: 8px; background: rgba(238,242,251,.55); }
+.summit.dim { opacity: .22; }
+.summit.hot .tag { border-color: var(--glow-a); box-shadow: 0 0 18px rgba(255,179,107,.45); }
+
+.log { background: var(--night-2); border: 1px solid var(--line); border-radius: 22px; padding: 16px 16px 10px; display: flex; flex-direction: column; min-width: 0; height: 400px; }
+.log h2 { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: .03em; margin: 4px 0 10px; }
+.log ol { list-style: none; margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.log li { display: grid; grid-template-columns: 46px 1fr; gap: 8px; font-size: 12.5px; padding: 6px 0; border-top: 1px solid rgba(37,48,79,.7); animation: slidein .5s ease-out; }
+.log li:first-child { border-top: 0; }
+.log time { font-family: var(--mono); font-size: 10.5px; color: var(--fog); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.log b { font-weight: 700; }
+.log .u { color: var(--up); } .log .d { color: var(--down); } .log .n { color: var(--glow-a); }
+@keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- controls row ---------- */
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 22px 0 12px; }
+.row h2 { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: .03em; margin: 0 auto 0 0; }
+.row h2 span { font-family: var(--mono); font-weight: 400; font-size: 11px; color: var(--mist); letter-spacing: .1em; margin-left: 10px; text-transform: uppercase; }
+
+/* ---------- chart wall ---------- */
+.wall { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 318px; gap: 14px; }
+.wall.summit-mode .card:first-child { grid-column: span 2; grid-row: span 2; }
+.wall.even-mode { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: 300px; }
+
+.card {
+  position: relative; min-width: 0; display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(23,32,58,.75), rgba(16,23,42,.9));
+  border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+  transition: border-color .25s, box-shadow .25s;
+}
+.card:hover, .card.hot { border-color: rgba(255,179,107,.55); box-shadow: 0 0 0 1px rgba(255,179,107,.15), 0 12px 40px -18px rgba(255,122,168,.45); }
+.card.enter { animation: enter .9s cubic-bezier(.2,.8,.2,1); }
+@keyframes enter { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+.card[hidden] { display: none !important; }
+
+.c-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 14px 6px; }
+.rank { font-family: var(--display); font-weight: 900; font-size: 38px; line-height: .8; letter-spacing: -.01em; min-width: 1.3ch; text-align: center;
+  background: linear-gradient(180deg, var(--snow), #b8c2dd); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.card:first-child .rank { background: linear-gradient(180deg, var(--glow-a), var(--glow-b)); -webkit-background-clip: text; background-clip: text; }
+.who { min-width: 0; }
+.who .tk { display: flex; align-items: center; gap: 7px; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: .03em; line-height: 1; }
+.who .nm { color: var(--mist); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.chain { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--mist); }
+.chain.sol { color: #b79bff; border-color: rgba(183,155,255,.35); }
+.chain.hood { color: #c6f36b; border-color: rgba(198,243,107,.35); }
+.chain.arc { color: #7fd8ff; border-color: rgba(127,216,255,.35); }
+.move { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+.move.u { color: var(--up); background: rgba(70,224,169,.12); }
+.move.d { color: var(--down); background: rgba(255,95,126,.12); }
+.move.n { color: var(--night); background: var(--glow-a); }
+.move.s { color: var(--fog); }
+
+.px { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; padding: 0 14px; }
+.px .p { font-family: var(--mono); font-weight: 700; font-size: 19px; font-variant-numeric: tabular-nums; border-radius: 4px; padding: 0 2px; margin-left: -2px; transition: background .6s; }
+.card:first-child .px .p { font-size: 28px; }
+.px .p.fu { background: rgba(70,224,169,.22); transition: none; }
+.px .p.fd { background: rgba(255,95,126,.22); transition: none; }
+.chgs { display: flex; gap: 10px; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chgs span { color: var(--fog); }
+.chgs em { font-style: normal; font-weight: 700; margin-left: 3px; }
+.up { color: var(--up); } .dn { color: var(--down); }
+
+.chart { position: relative; flex: 1; min-height: 0; margin: 4px 4px 0; }
+
+.c-foot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 8px 14px 10px; border-top: 1px solid rgba(37,48,79,.6); }
+.stat { min-width: 0; }
+.stat span { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--fog); }
+.stat b { display: block; font-family: var(--mono); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.press { display: flex; height: 4px; border-radius: 3px; overflow: hidden; margin-top: 5px; background: var(--down); }
+.press i { display: block; background: var(--up); transition: width .8s; }
+
+.wall.even-mode .c-foot .stat:nth-child(4) { display: none; }
+.wall.even-mode .c-foot { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.foot { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--fog); font-size: 12px; font-family: var(--mono); }
+
+@media (max-width: 1200px) {
+  .wall, .wall.even-mode { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .log { height: auto; max-height: 240px; }
+  .wall, .wall.even-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .wrap { padding-inline: 16px; }
+  .ridge { height: 300px; }
+  .summit:not(.top3) .tk { display: none; }
+  .summit:not(.top3) .tag i { margin-right: 0; }
+  .ridge-head { max-width: 88%; }
+  .ridge-head p { display: none; }
+  .summit .tag { font-size: 12px; padding: 3px 5px 2px; }
+  .summit .chg { display: none; }
+  .wall, .wall.even-mode { grid-template-columns: minmax(0, 1fr); grid-auto-rows: 300px; }
+  .wall.summit-mode .card:first-child { grid-column: auto; grid-row: span 1; }
+  .card:first-child .px .p { font-size: 22px; }
+  .status .countdown { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot, .card.enter, .log li { animation: none; }
+}
+</style>
+
+<div class="wrap">
+  <header class="bar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb36b"/><stop offset="1" stop-color="#ff7aa8"/></linearGradient></defs>
+        <path d="M2 27 L12 9 L16 15 L20 6 L30 27 Z" fill="url(#lg)"/>
+        <path d="M17.6 10.4 L20 6 L22.4 10.4 L21 9.6 L20 11 L19 9.6 Z" fill="#eef2fb"/>
+      </svg>
+      <div><b>PEAK RIDGE</b><small>Top 10 trending · multichart</small></div>
+    </div>
+    <div class="seg" role="group" aria-label="Chain filter" id="chainSeg">
+      <button type="button" id="ch-all" data-chain="all" aria-pressed="true">All chains</button>
+      <button type="button" id="ch-sol" data-chain="sol" aria-pressed="false">Solana</button>
+      <button type="button" id="ch-hood" data-chain="hood" aria-pressed="false">Robinhood</button>
+      <button type="button" id="ch-arc" data-chain="arc" aria-pressed="false">Arc</button>
+    </div>
+    <div class="status">
+      <span class="pill"><span class="dot"></span>Demo feed · simulated</span>
+      <span class="countdown">Board re-ranks in <b id="cd">0:15</b></span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="ridge" id="ridge">
+      <canvas id="ridgeCanvas" aria-hidden="true"></canvas>
+      <div class="ridge-head">
+        <div class="eyebrow">Peak Trending · live board</div>
+        <h1>Who's on top right now</h1>
+        <p>Each summit is a coin on the board. Taller means stronger trend. Tap a summit to jump to its chart.</p>
+      </div>
+      <div class="alt-scale" aria-hidden="true"><span>STRONG</span><span></span><span></span><span>WEAK</span></div>
+      <div id="summits"></div>
+    </div>
+    <aside class="log" aria-live="polite">
+      <div class="eyebrow">Trail log</div>
+      <h2>Board moves</h2>
+      <ol id="log"></ol>
+    </aside>
+  </section>
+
+  <div class="row">
+    <h2>The wall <span id="wallCount">10 charts</span></h2>
+    <div class="seg" role="group" aria-label="Candle size" id="tfSeg">
+      <button type="button" id="tf-1" data-tf="1" aria-pressed="true">1m</button>
+      <button type="button" id="tf-5" data-tf="5" aria-pressed="false">5m</button>
+      <button type="button" id="tf-15" data-tf="15" aria-pressed="false">15m</button>
+    </div>
+    <div class="seg" role="group" aria-label="Layout" id="layoutSeg">
+      <button type="button" id="lay-summit" data-layout="summit" aria-pressed="true">Summit</button>
+      <button type="button" id="lay-even" data-layout="even" aria-pressed="false">Even grid</button>
+    </div>
+  </div>
+
+  <main class="wall summit-mode" id="wall"></main>
+
+  <footer class="foot">
+    <span>Mockup. Every coin, price and chart here is simulated.</span>
+    <span>Demo clock runs 15× real time so candles form quickly.</span>
+    <span>Charts: <a href="https://www.tradingview.com/lightweight-charts/">TradingView Lightweight Charts</a> (free, open source).</span>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(() => {
+  const C = getComputedStyle(document.documentElement);
+  const tok = n => C.getPropertyValue(n).trim();
+  const UP = tok('--up'), DOWN = tok('--down'), MIST = tok('--mist'), FOG = tok('--fog');
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- formatting ---------- */
+  const SUB = '₀₁₂₃₄₅₆₇₈₉';
+  function fmtPrice(p) {
+    if (!isFinite(p)) return '–';
+    if (p >= 1000) return '$' + p.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    if (p >= 1) return '$' + p.toFixed(3);
+    if (p >= 0.001) return '$' + p.toPrecision(4);
+    // memecoin notation: $0.0₅4821 = 0.000004821
+    const zeros = Math.floor(-Math.log10(p));
+    const digits = Math.round(p * Math.pow(10, zeros + 4)).toString().slice(0, 4);
+    return '$0.0' + String(zeros).split('').map(d => SUB[d]).join('') + digits;
+  }
+  const fmtUsd = v => v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? '$' + (v / 1e3).toFixed(1) + 'K' : '$' + v.toFixed(0);
+  const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) >= 100 ? 0 : 1) + '%';
+  const fmtAge = m => m < 60 ? Math.floor(m) + 'm' : m < 1440 ? Math.floor(m / 60) + 'h ' + Math.floor(m % 60) + 'm' : Math.floor(m / 1440) + 'd';
+  const clock = t => { const d = new Date(t * 1000); return d.toTimeString().slice(0, 5); };
+
+  /* ---------- simulated universe ---------- */
+  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const R = rng(7);
+  const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+
+  const ROSTER = [
+    ['YETI', 'Yeti Inu', 'sol', 0.0000482], ['SHERPA', 'Sherpa Protocol', 'sol', 0.00312],
+    ['MOCHI', 'Mochi the Cat', 'sol', 0.000871], ['GLACR', 'Glacier', 'hood', 0.0421],
+    ['FROGGO', 'Froggo', 'sol', 0.00000613], ['CAIRN', 'Cairn AI', 'arc', 0.1873],
+    ['TUNDRA', 'Tundra', 'sol', 0.0152], ['PIXL', 'Pixel Goblins', 'sol', 0.000219],
+    ['WOMBO', 'Wombo', 'hood', 0.00641], ['ORBIT', 'Orbit Dog', 'sol', 0.0000921],
+    ['ZEPH', 'Zephyr', 'sol', 0.00117], ['KIWI', 'Kiwi Summit', 'arc', 0.0338],
+    ['BLORP', 'Blorp', 'sol', 0.00000288], ['HALO', 'Halo Finance', 'hood', 0.264],
+  ];
+  let simNow = Math.floor(Date.now() / 1000 / 60) * 60;   // demo clock, seconds
+  const TICK_MS = 700, SIM_PER_TICK = 10.5;                 // 15× real time
+
+  function makeCoin([tk, name, chain, p0], i) {
+    const vol = 0.012 + R() * 0.02;
+    const c = {
+      tk, name, chain, supply: 0, volK: 1, vol, drift: (R() - 0.35) * 0.0015,
+      score: 40 + R() * 60, prevRank: null, rank: null, isNew: false,
+      bars1: [], price: 0, liq: 0, vol24: 0, holders: Math.floor(800 + R() * 9000), ageMin: 30 + R() * 3000,
+      buys: 0.5, open24: 0, idx: i,
+    };
+    // 1-minute history, 26h of it so 24h change and 15m bars are real
+    let p = p0 * (0.55 + R() * 0.3);
+    let t = simNow - 1560 * 60;
+    for (let k = 0; k < 1560; k++, t += 60) {
+      const o = p;
+      const pump = R() < 0.002 ? (R() < 0.7 ? 1 : -1) * (0.08 + R() * 0.25) : 0;
+      let h = o, l = o;
+      for (let s = 0; s < 4; s++) { p *= Math.exp(c.drift * 0.04 + c.vol * 0.32 * gauss() + pump / 4); h = Math.max(h, p); l = Math.min(l, p); }
+      c.bars1.push({ time: t, open: o, high: h, low: l, close: p, value: Math.abs(Math.log(p / o)) * 4e5 * (0.5 + R()) + 2e3 * R() });
+    }
+    // rescale so the last close lands at p0
+    const k = p0 / p;
+    c.bars1.forEach(b => { b.open *= k; b.high *= k; b.low *= k; b.close *= k; });
+    c.price = p0;
+    c.open24 = c.bars1[c.bars1.length - 1440].open;
+    const mc = Math.exp(Math.log(4e5) + R() * Math.log(120));   // $400K to $48M
+    c.supply = mc / p0;
+    c.liq = mc * (0.06 + R() * 0.1);
+    const raw = c.bars1.slice(-1440).reduce((s, b) => s + b.value, 0);
+    c.volK = mc * (0.4 + R() * 2.2) / raw;
+    c.bars1.forEach(b => b.value *= c.volK);
+    c.vol24 = c.bars1.slice(-1440).reduce((s, b) => s + b.value, 0);
+    return c;
+  }
+  const universe = ROSTER.map(makeCoin);
+  let board = universe.slice(0, 10);
+  let bench = universe.slice(10);
+  board.forEach((c, i) => { c.rank = i; c.prevRank = i; c.score = 100 - i * 6 + R() * 4; });
+
+  const pctBack = (c, mins) => { const b = c.bars1; const ref = b[Math.max(0, b.length - 1 - mins)].open; return (c.price / ref - 1) * 100; };
+  const chg24 = c => (c.price / c.open24 - 1) * 100;
+
+  /* ---------- candle aggregation ---------- */
+  let TF = 1;
+  function aggregate(bars, tf) {
+    if (tf === 1) return bars.map(b => ({ ...b }));
+    const out = []; const span = tf * 60;
+    for (const b of bars) {
+      const bucket = Math.floor(b.time / span) * span;
+      const last = out[out.length - 1];
+      if (last && last.time === bucket) { last.high = Math.max(last.high, b.high); last.low = Math.min(last.low, b.low); last.close = b.close; last.value += b.value; }
+      else out.push({ time: bucket, open: b.open, high: b.high, low: b.low, close: b.close, value: b.value });
+    }
+    return out;
+  }
+  const volBar = b => ({ time: b.time, value: b.value, color: b.close >= b.open ? 'rgba(70,224,169,.28)' : 'rgba(255,95,126,.28)' });
+
+  /* ---------- cards ---------- */
+  const wall = document.getElementById('wall');
+  const cards = new Map();   // tk -> {el, chart, candles, volume, refs}
+
+  function buildCard(c) {
+    const el = document.createElement('article');
+    el.className = 'card';
+    el.id = 'card-' + c.tk;
+    el.dataset.tk = c.tk;
+    const chainLabel = { sol: 'SOL', hood: 'HOOD', arc: 'ARC' }[c.chain];
+    el.innerHTML = `
+      <div class="c-head">
+        <div class="rank" aria-label="Rank"></div>
+        <div class="who">
+          <div class="tk">$${c.tk} <span class="chain ${c.chain}">${chainLabel}</span></div>
+          <div class="nm">${c.name}</div>
+        </div>
+        <span class="move s">–</span>
+      </div>
+      <div class="px">
+        <span class="p"></span>
+        <span class="chgs"><span>5m<em data-k="5"></em></span><span>1h<em data-k="60"></em></span><span>24h<em data-k="24h"></em></span></span>
+      </div>
+      <div class="chart"></div>
+      <div class="c-foot">
+        <div class="stat"><span>Mcap</span><b data-s="mc"></b></div>
+        <div class="stat"><span>Liq</span><b data-s="liq"></b></div>
+        <div class="stat"><span>Vol 24h</span><b data-s="vol"></b></div>
+        <div class="stat"><span>Buys 5m</span><b data-s="buys"></b><div class="press"><i></i></div></div>
+      </div>`;
+    const chartEl = el.querySelector('.chart');
+    const chart = LightweightCharts.createChart(chartEl, {
+      autoSize: true,
+      localization: { locale: 'en-US' },
+      layout: { attributionLogo: false, background: { type: 'solid', color: 'transparent' }, textColor: FOG, fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10 },
+      grid: { vertLines: { color: 'rgba(37,48,79,.35)' }, horzLines: { color: 'rgba(37,48,79,.35)' } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.22 } },
+      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 4, barSpacing: 6 },
+      crosshair: { mode: 1, vertLine: { color: 'rgba(255,179,107,.5)', labelBackgroundColor: '#17203a' }, horzLine: { color: 'rgba(255,179,107,.5)', labelBackgroundColor: '#17203a' } },
+      handleScale: { mouseWheel: false }, handleScroll: { mouseWheel: false, pressedMouseMove: true },
+    });
+    const candles = chart.addCandlestickSeries({
+      upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, borderVisible: false,
+      priceFormat: { type: 'custom', formatter: p => fmtPrice(p).replace('$', ''), minMove: 1e-12 },
+      priceLineColor: 'rgba(255,179,107,.8)', priceLineStyle: 2,
+    });
+    const volume = chart.addHistogramSeries({ priceScaleId: '', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    const rec = {
+      el, chart, candles, volume,
+      rankEl: el.querySelector('.rank'), moveEl: el.querySelector('.move'), pEl: el.querySelector('.p'),
+      chg: [...el.querySelectorAll('.chgs em')], st: Object.fromEntries([...el.querySelectorAll('[data-s]')].map(n => [n.dataset.s, n])),
+      press: el.querySelector('.press i'), lastBarTime: 0, lastPrice: c.price,
+    };
+    el.addEventListener('mouseenter', () => setHot(c.tk, true));
+    el.addEventListener('mouseleave', () => setHot(c.tk, false));
+    cards.set(c.tk, rec);
+    loadSeries(c);
+    return el;
+  }
+
+  function loadSeries(c) {
+    const r = cards.get(c.tk);
+    const agg = aggregate(c.bars1.slice(-Math.min(c.bars1.length, 160 * TF)), TF);
+    r.candles.setData(agg);
+    r.volume.setData(agg.map(volBar));
+    r.lastBarTime = agg[agg.length - 1].time;
+    r.chart.timeScale().scrollToRealTime();
+  }
+
+  function paintCard(c, flash) {
+    const r = cards.get(c.tk);
+    r.rankEl.textContent = c.rank + 1;
+    const d = c.prevRank == null ? null : c.prevRank - c.rank;
+    if (c.isNew) { r.moveEl.className = 'move n'; r.moveEl.textContent = 'NEW'; }
+    else if (d > 0) { r.moveEl.className = 'move u'; r.moveEl.textContent = '▲ ' + d; }
+    else if (d < 0) { r.moveEl.className = 'move d'; r.moveEl.textContent = '▼ ' + (-d); }
+    else { r.moveEl.className = 'move s'; r.moveEl.textContent = '='; }
+    r.moveEl.title = c.isNew ? 'New on the board' : 'Change since last re-rank';
+    r.pEl.textContent = fmtPrice(c.price);
+    if (flash && c.price !== r.lastPrice && !REDUCED) {
+      r.pEl.classList.remove('fu', 'fd'); void r.pEl.offsetWidth;
+      r.pEl.classList.add(c.price > r.lastPrice ? 'fu' : 'fd');
+      setTimeout(() => r.pEl.classList.remove('fu', 'fd'), 120);
+    }
+    r.lastPrice = c.price;
+    const vals = [pctBack(c, 5), pctBack(c, 60), chg24(c)];
+    r.chg.forEach((e, i) => { e.textContent = fmtPct(vals[i]); e.className = vals[i] >= 0 ? 'up' : 'dn'; });
+    r.st.mc.textContent = fmtUsd(c.price * c.supply);
+    r.st.liq.textContent = fmtUsd(c.liq);
+    r.st.vol.textContent = fmtUsd(c.vol24);
+    r.st.buys.textContent = Math.round(c.buys * 100) + '%';
+    r.press.style.width = (c.buys * 100) + '%';
+  }
+
+  /* ---------- ticking ---------- */
+  function tick() {
+    simNow += SIM_PER_TICK;
+    for (const c of board) {
+      const burst = Math.random() < 0.006 ? (Math.random() < 0.72 ? 1 : -1) * (0.05 + Math.random() * 0.14) : 0;
+      const step = c.drift * 0.35 + c.vol * 0.42 * gauss() + burst;
+      c.price *= Math.exp(step);
+      const minute = Math.floor(simNow / 60) * 60;
+      let b = c.bars1[c.bars1.length - 1];
+      const v = (Math.abs(step) * 4e5 * (0.6 + Math.random()) + 300 * Math.random()) * c.volK;
+      if (b.time !== minute) { b = { time: minute, open: b.close, high: b.close, low: b.close, close: b.close, value: 0 }; c.bars1.push(b); if (c.bars1.length > 1700) c.bars1.shift(); }
+      b.close = c.price; b.high = Math.max(b.high, c.price); b.low = Math.min(b.low, c.price); b.value += v;
+      c.vol24 += v; c.buys += ((step > 0 ? 0.68 : 0.32) - c.buys) * 0.08;
+      c.liq *= Math.exp(step * 0.3); c.ageMin += SIM_PER_TICK / 60;
+      c.open24 = c.bars1[Math.max(0, c.bars1.length - 1440)].open;
+      c.score += step * 90 + (pctBack(c, 5) * 0.02) + (Math.random() - 0.5) * 1.2;
+      if (burst > 0) logEvent(`<b>$${c.tk}</b> <span class="u">wick ${fmtPct(burst * 100)}</span> in one candle`);
+
+      const r = cards.get(c.tk);
+      if (r) {
+        const span = TF * 60, bucket = Math.floor(minute / span) * span;
+        const agg = aggregate(c.bars1.filter(x => x.time >= bucket), TF)[0];
+        r.candles.update(agg); r.volume.update(volBar(agg));
+        paintCard(c, true);
+      }
+    }
+    peaksTarget();
+  }
+
+  /* ---------- re-ranking ---------- */
+  let untilRerank = 15, rerankCount = 0;
+  const cdEl = document.getElementById('cd');
+  function rerank() {
+    rerankCount++;
+    board.forEach(c => { c.prevRank = c.rank; c.isNew = false; });
+    // every third re-rank, the weakest coin falls off and a bench coin climbs on
+    if (rerankCount % 3 === 0 && bench.length) {
+      const sorted = [...board].sort((a, b) => b.score - a.score);
+      const out = sorted[sorted.length - 1];
+      const inn = bench.splice(Math.floor(Math.random() * bench.length), 1)[0];
+      board = board.filter(c => c !== out);
+      bench.push(out);
+      inn.score = sorted[sorted.length - 3].score + 2 + Math.random() * 4;
+      inn.isNew = true; inn.prevRank = null;
+      board.push(inn);
+      removeCard(out);
+      logEvent(`<b>$${out.tk}</b> <span class="d">slid off the board</span>`);
+      logEvent(`<b>$${inn.tk}</b> <span class="n">entered the board</span>`);
+    }
+    board.sort((a, b) => b.score - a.score);
+    board.forEach((c, i) => {
+      c.rank = i;
+      if (!c.isNew && c.prevRank != null && c.prevRank - i >= 2) logEvent(`<b>$${c.tk}</b> <span class="u">climbed #${c.prevRank + 1} → #${i + 1}</span>`);
+      if (!c.isNew && c.prevRank != null && i - c.prevRank >= 3) logEvent(`<b>$${c.tk}</b> <span class="d">dropped #${c.prevRank + 1} → #${i + 1}</span>`);
+      if (i === 0 && c.prevRank !== 0) logEvent(`<b>$${c.tk}</b> <span class="n">took the summit</span>`);
+    });
+    // normalise scores so they don't drift away
+    const top = board[0].score; board.forEach(c => c.score = c.score - top + 100);
+    layoutWall();
+  }
+
+  function removeCard(c) {
+    const r = cards.get(c.tk); if (!r) return;
+    r.chart.remove(); r.el.remove(); cards.delete(c.tk);
+    const s = summitEls.get(c.tk); if (s) { s.remove(); summitEls.delete(c.tk); }
+    peaks.delete(c.tk);
+  }
+
+  // FLIP reorder so cards glide to their new rank
+  function layoutWall() {
+    const before = new Map();
+    cards.forEach((r, tk) => before.set(tk, r.el.getBoundingClientRect()));
+    board.forEach(c => {
+      let r = cards.get(c.tk);
+      if (!r) { const el = buildCard(c); el.classList.add('enter'); setTimeout(() => el.classList.remove('enter'), 950); r = cards.get(c.tk); }
+      wall.appendChild(r.el);
+      paintCard(c, false);
+    });
+    applyFilter();
+    if (REDUCED) return;
+    board.forEach(c => {
+      const r = cards.get(c.tk), a = before.get(c.tk); if (!a) return;
+      const b = r.el.getBoundingClientRect();
+      const dx = a.left - b.left, dy = a.top - b.top;
+      if (!dx && !dy) return;
+      r.el.style.transition = 'none';
+      r.el.style.transform = `translate(${dx}px, ${dy}px)`;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        r.el.style.transition = 'transform .9s cubic-bezier(.2,.8,.2,1), border-color .25s, box-shadow .25s';
+        r.el.style.transform = '';
+      }));
+    });
+  }
+
+  /* ---------- filters & toggles ---------- */
+  let chainFilter = 'all';
+  function applyFilter() {
+    let n = 0;
+    board.forEach(c => {
+      const show = chainFilter === 'all' || c.chain === chainFilter;
+      cards.get(c.tk).el.hidden = !show; if (show) n++;
+      const s = summitEls.get(c.tk); if (s) s.classList.toggle('dim', !show);
+    });
+    document.getElementById('wallCount').textContent = n + (n === 1 ? ' chart' : ' charts');
+  }
+  function segment(id, fn) {
+    const seg = document.getElementById(id);
+    seg.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      fn(b);
+    });
+  }
+  segment('chainSeg', b => { chainFilter = b.dataset.chain; applyFilter(); });
+  segment('tfSeg', b => { TF = +b.dataset.tf; board.forEach(loadSeries); });
+  segment('layoutSeg', b => { wall.classList.toggle('summit-mode', b.dataset.layout === 'summit'); wall.classList.toggle('even-mode', b.dataset.layout === 'even'); });
+
+  function setHot(tk, on) {
+    const s = summitEls.get(tk); if (s) s.classList.toggle('hot', on);
+    const r = cards.get(tk); if (r) r.el.classList.toggle('hot', on);
+    hotTk = on ? tk : null;
+  }
+
+  /* ---------- event log ---------- */
+  const logEl = document.getElementById('log');
+  let lastLog = {};
+  function logEvent(html) {
+    if (lastLog[html] && Date.now() - lastLog[html] < 8000) return;
+    lastLog[html] = Date.now();
+    const li = document.createElement('li');
+    li.innerHTML = `<time>${clock(simNow)}</time><span>${html}</span>`;
+    logEl.prepend(li);
+    while (logEl.children.length > 9) logEl.lastChild.remove();
+  }
+
+  /* ---------- the ridge ---------- */
+  const ridge = document.getElementById('ridge');
+  const cv = document.getElementById('ridgeCanvas');
+  const ctx = cv.getContext('2d');
+  const summitsBox = document.getElementById('summits');
+  const summitEls = new Map();
+  const peaks = new Map();   // tk -> {x,h,tx,th}
+  let W = 0, H = 0, DPR = 1, hotTk = null;
+  const SLOT = [4, 5, 3, 6, 2, 7, 1, 8, 0, 9];   // rank → slot, highest in the middle
+  const stars = Array.from({ length: 90 }, () => [R(), R() * 0.6, R() * 1.2 + 0.2, R() * 6]);
+
+  function resize() {
+    const b = ridge.getBoundingClientRect();
+    DPR = Math.min(2, devicePixelRatio || 1); W = b.width; H = b.height;
+    cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    peaksTarget(true);
+  }
+  function peaksTarget(snap) {
+    const n = board.length;
+    const scores = board.map(c => c.score), lo = Math.min(...scores), hi = Math.max(...scores);
+    board.forEach(c => {
+      const slot = SLOT[c.rank] ?? c.rank;
+      const tx = W * (0.07 + 0.82 * slot / (n - 1));
+      const byRank = 1 - c.rank / (n - 1);
+      const byScore = hi === lo ? 1 : (c.score - lo) / (hi - lo);
+      const th = H * (0.12 + 0.26 * byRank + 0.08 * byScore);
+      let p = peaks.get(c.tk);
+      if (!p) { p = { x: tx, h: snap ? th : 0, tx, th }; peaks.set(c.tk, p); }
+      p.tx = tx; p.th = th;
+      if (snap || REDUCED) { p.x = tx; p.h = th; }
+      if (!summitEls.has(c.tk)) {
+        const b = document.createElement('button');
+        b.className = 'summit'; b.type = 'button';
+        b.innerHTML = `<span class="tag"><i></i><span class="tk">$${c.tk}</span></span><span class="chg"></span>`;
+        b.addEventListener('click', () => {
+          const r = cards.get(c.tk); if (!r) return;
+          r.el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
+          setHot(c.tk, true); setTimeout(() => setHot(c.tk, false), 1600);
+        });
+        b.addEventListener('mouseenter', () => setHot(c.tk, true));
+        b.addEventListener('mouseleave', () => setHot(c.tk, false));
+        summitsBox.appendChild(b); summitEls.set(c.tk, b);
+      }
+    });
+  }
+  const noise = x => Math.sin(x * 0.051) * 0.5 + Math.sin(x * 0.137 + 1.3) * 0.3 + Math.sin(x * 0.31 + 4) * 0.2;
+  const shape = t => { const a = Math.abs(t); return a >= 1 ? 0 : Math.pow(1 - a, 1.55); };
+  function ridgeY(x, list, base) {
+    let m = 0;
+    for (const p of list) { const w = W * 0.075 + p.h * 0.55; m = Math.max(m, p.h * shape((x - p.x) / w)); }
+    return base - m - H * 0.06 - noise(x) * 6 * (0.4 + m / H);
+  }
+
+  function frame(t) {
+    const list = [...peaks.values()];
+    for (const p of list) { p.x += (p.tx - p.x) * 0.06; p.h += (p.th - p.h) * 0.06; }
+    ctx.clearRect(0, 0, W, H);
+    // stars
+    for (const [sx, sy, sr, ph] of stars) { ctx.fillStyle = `rgba(238,242,251,${0.25 + 0.35 * Math.abs(Math.sin(t / 1400 + ph))})`; ctx.fillRect(sx * W, sy * H, sr, sr); }
+    const base = H;
+    // far range
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 4) ctx.lineTo(x, H * 0.62 - (Math.sin(x * 0.009 + 2) * 0.5 + Math.sin(x * 0.023) * 0.3 + noise(x * 1.7) * 0.2) * H * 0.12);
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fillStyle = 'rgba(58,40,90,.55)'; ctx.fill();
+    // main range
+    const pts = []; for (let x = 0; x <= W + 2; x += 2) pts.push([x, ridgeY(x, list, base)]);
+    ctx.beginPath(); ctx.moveTo(0, H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(W, H); ctx.closePath();
+    const g = ctx.createLinearGradient(0, H * 0.15, 0, H);
+    g.addColorStop(0, '#3b2a5e'); g.addColorStop(0.45, '#1b1d3d'); g.addColorStop(1, '#0a0f1d');
+    ctx.fillStyle = g; ctx.fill();
+    // alpenglow rim
+    const rim = ctx.createLinearGradient(0, 0, W, 0);
+    rim.addColorStop(0, 'rgba(157,139,255,.9)'); rim.addColorStop(0.5, 'rgba(255,179,107,1)'); rim.addColorStop(1, 'rgba(255,122,168,.9)');
+    ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.strokeStyle = rim; ctx.lineWidth = 1.6; ctx.shadowColor = 'rgba(255,150,120,.6)'; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+    // snow caps + summit anchors
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(0, H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(W, H); ctx.closePath(); ctx.clip();
+    for (const p of list) {
+      const w = W * 0.075 + p.h * 0.55, sy = base - p.h - H * 0.06, depth = p.h * 0.16;
+      ctx.beginPath(); ctx.moveTo(p.x - w * 0.5, sy - 4);
+      for (let k = 0; k <= 12; k++) { const x = p.x - w * 0.22 + (w * 0.44) * k / 12; ctx.lineTo(x, sy + depth * (0.55 + 0.45 * Math.abs(Math.sin(k * 1.9 + p.x)))); }
+      ctx.lineTo(p.x + w * 0.5, sy - 4); ctx.closePath();
+      const sg = ctx.createLinearGradient(0, sy, 0, sy + depth);
+      sg.addColorStop(0, 'rgba(255,226,210,.95)'); sg.addColorStop(1, 'rgba(255,190,190,.05)');
+      ctx.fillStyle = sg; ctx.fill();
+    }
+    ctx.restore();
+    // labels
+    for (const c of board) {
+      const p = peaks.get(c.tk), el = summitEls.get(c.tk); if (!p || !el) continue;
+      const y = ridgeY(p.x, list, base);
+      el.style.transform = `translate(${p.x}px, ${y - 2}px) translate(-50%, -100%)`;
+      el.querySelector('i').textContent = '#' + (c.rank + 1);
+      el.classList.toggle('top3', c.rank < 3);
+      const ch = el.querySelector('.chg'); const v = pctBack(c, 60);
+      ch.textContent = fmtPct(v); ch.className = 'chg ' + (v >= 0 ? 'up' : 'dn');
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- boot ---------- */
+  function boot() {
+    layoutWall();
+    resize();
+    new ResizeObserver(resize).observe(ridge);
+    requestAnimationFrame(frame);
+    simNow -= 900;
+    logEvent(`Board loaded · <b>10</b> coins across Solana, Robinhood, Arc`); simNow += 180;
+    logEvent(`<b>$${board[6].tk}</b> <span class="u">climbed #9 → #7</span>`); simNow += 240;
+    logEvent(`<b>$${board[3].tk}</b> <span class="u">wick +18.2%</span> in one candle`); simNow += 200;
+    logEvent(`<b>$${bench[1].tk}</b> <span class="d">slid off the board</span>`);
+    logEvent(`<b>$${board[9].tk}</b> <span class="n">entered the board</span>`); simNow += 280;
+    logEvent(`<b>$${board[0].tk}</b> <span class="n">holds the summit</span>`);
+    setInterval(tick, TICK_MS);
+    setInterval(() => {
+      untilRerank--;
+      if (untilRerank <= 0) { rerank(); untilRerank = 15; }
+      cdEl.textContent = '0:' + String(untilRerank).padStart(2, '0');
+    }, 1000);
+  }
+  if (window.LightweightCharts) boot();
+  else document.getElementById('wall').innerHTML = '<p style="color:var(--mist)">The chart library did not load. Check your connection and reload.</p>';
+})();
+</script>
