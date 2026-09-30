@@ -237,8 +237,9 @@ describe('trending orchestration', () => {
     await t.api('POST', '/v1/trending', purchase);
     await drain(t);
     const binance = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body.target;
-    // Binance Square strips hyperlinks: handles instead.
-    expect(binance.text.endsWith('Find Moon Frog on Telegram: @moonfrog\nFollow Moon Frog on X: @moonfrog')).toBe(true);
+    // Binance Square strips hyperlinks and removes off-platform chat promotion: one website (or X) line, never Telegram.
+    expect(binance.text.endsWith('Website: moonfrog.example')).toBe(true);
+    expect(binance.text).not.toMatch(/Telegram/);
     expect(binance.text).not.toMatch(/https?:\/\//);
     const cmc = (await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.target;
     expect(cmc.text.endsWith('Telegram: https://t.me/moonfrog')).toBe(true);

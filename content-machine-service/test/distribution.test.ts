@@ -149,7 +149,8 @@ describe('Binance Square URLs', () => {
     const b = (await t.api('POST', '/v1/orders', { ...input, order_id: 'dist-bin', channels: ['binance'] })).body;
     for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
     const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body;
-    expect(c.target.text).toContain('Find Moon Frog on Telegram: @moonfrog');
+    expect(c.target.text).toContain('Follow Moon Frog on X: @moonfrog');
+    expect(c.target.text).not.toMatch(/Telegram/);
     expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url: null, note: 'no URL in output' })).body.status).toBe('uncertain');
     const rec = await t.api('POST', `/v1/jobs/${c.job.id}/reconcile`, { url: 'https://app.binance.com/uni-qr/cart/372000959647275?r=WWP7BX5G&l=en' });
     expect(rec.status).toBe(200);

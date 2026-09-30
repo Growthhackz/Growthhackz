@@ -449,12 +449,33 @@ export function handleOf(url: string | undefined, hosts: RegExp): string | null 
   }
 }
 
-/** Binance Square strips hyperlinks, so the post names the project's handles instead. */
+/** Real project websites only (not video, social or link hosts). */
+const NOT_A_SITE = /(^|\.)(tiktok\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|t\.me|telegram\.me|instagram\.com|facebook\.com|dexscreener\.com|pump\.fun)$/i;
+
+/**
+ * Binance Square: one project reference at most, never Telegram (Square removes posts that steer readers to outside
+ * communities, and strips hyperlinks). The project's own website when it has one, otherwise its X account.
+ */
 export function binanceHandles(p: Order['project']): string {
-  const name = p.name ?? 'the project';
-  const tg = handleOf(p.telegram_url, /^(www\.)?(t\.me|telegram\.me)$/);
+  let site: string | null = null;
+  try {
+    const host = p.website_url ? new URL(p.website_url).hostname.replace(/^www\./, '') : null;
+    site = host && !NOT_A_SITE.test(host) ? host : null;
+  } catch {
+    site = null;
+  }
+  if (site) return `Website: ${site}`;
   const x = handleOf(p.x_url, /^(www\.|mobile\.)?(x|twitter)\.com$/);
-  return [tg && `Find ${name} on Telegram: ${tg}`, x && `Follow ${name} on X: ${x}`].filter(Boolean).join('\n');
+  return x ? `Follow ${p.name ?? 'the project'} on X: ${x}` : '';
+}
+
+/** The article for Binance without any sentence that mentions Telegram. */
+export function binanceArticle(article: string): string {
+  return article
+    .split(/\n+/)
+    .map((para) => (para.match(/[^.!?]+[.!?]*\s*/g) ?? [para]).filter((sentence) => !/telegram|\btg\b/i.test(sentence)).join('').trim())
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /** Binance share links (app.binance.com/uni-qr/cart/<id>, …/square/post/<id>) → the canonical post URL. */
@@ -498,7 +519,7 @@ export function projectLinks(p: Order['project']): PageLink[] {
 /** What the worker should post; built here so the worker stays a thin publisher. */
 function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
-  if (kind === 'binance') return { title: copy.headline, text: [copy.article, binanceHandles(o.project)].filter(Boolean).join('\n\n') };
+  if (kind === 'binance') return { title: copy.headline, text: [binanceArticle(copy.article), binanceHandles(o.project)].filter(Boolean).join('\n\n') };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
   if (kind === 'bitcointalk') {
     const subject = (copy.forum_title ?? copy.headline).slice(0, 80);
