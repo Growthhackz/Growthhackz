@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env worker.mjs",
-    "test": "node render.test.mjs && node reddit.test.mjs && node directories.test.mjs && node distribution.test.mjs && node bitcointalk.test.mjs",
-    "inspect": "node --env-file-if-exists=.env directories.mjs inspect"
+    "test": "node render.test.mjs && node reddit.test.mjs && node directories.test.mjs && node firecrawl.test.mjs && node distribution.test.mjs && node bitcointalk.test.mjs",
+    "inspect": "node --env-file-if-exists=.env directories.mjs inspect",
+    "login": "node --env-file-if-exists=.env login.mjs"
   },
   "dependencies": {
     "playwright": "1.56.1",

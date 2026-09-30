@@ -3,8 +3,8 @@ import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {chromium} from 'playwright';
 import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {firecrawlSite, openBrowser, sessionContext} from './firecrawl.mjs';
 
 /** Directory sites. Paths are relative to each site's origin so tests can point at a local fake. */
 export const SITES = {
@@ -63,7 +63,7 @@ const PICK_LISTING_FORM = `window.pickListingForm = () => {
   return [...document.forms].map(f => [f, score(f)]).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 };`;
 
-async function hasListingForm(page) {
+export async function hasListingForm(page) {
   await page.evaluate(PICK_LISTING_FORM);
   return page.evaluate(() => !!window.pickListingForm());
 }
@@ -107,8 +107,14 @@ async function applyField(page, f, plan, logoPath) {
   await el.fill(text); return true;
 }
 
-/** DIRECTORY_PROXY (http://user:pass@host:port): listing sites block datacenter networks, so their traffic goes through it. */
-async function launch() { return chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(process.env.DIRECTORY_PROXY)}); }
+/**
+ * DIRECTORY_PROXY (http://user:pass@host:port): listing sites block datacenter networks, so their traffic goes through it.
+ * With Firecrawl the site's profile browser is used instead, opened on `path`; `save: false` for logged-out checks.
+ */
+async function launch(cfg, save = true, path = cfg.submit) {
+  try { return await openBrowser(cfg.site, cfg.origin + path, {proxy: redditProxy(process.env.DIRECTORY_PROXY), save}); }
+  catch (e) { throw new NotPostedError(`${cfg.site}: could not start the browser (${String(e?.message || e).split('\n')[0].slice(0, 160)}); nothing was sent.`); }
+}
 
 /** Cloudflare's "Performing security verification" interstitial (Turnstile). */
 const cloudflareChallenge = async page => (await page.locator('.cf-turnstile, iframe[src*="challenges.cloudflare.com"], #challenge-form').count()) > 0 || /performing security verification|just a moment/i.test(await page.title().catch(() => ''));
@@ -127,10 +133,12 @@ async function openSubmitFormUnsafe(browser, cfg) {
   if (cfg.cookies) {
     try { installCookieSession(cfg.statePath, cfg.cookies, cfg.cookieSite); } catch (e) { throw new NotPostedError(`${cfg.site.toUpperCase()}_COOKIES: ${e.message}`); }
   }
-  if (!existsSync(cfg.statePath) && (!cfg.username || !cfg.password)) throw new NotPostedError(`Set ${cfg.site.toUpperCase()}_COOKIES (or ${cfg.user} and ${cfg.pass}) on the worker.`);
-  const context = await browser.newContext(browserContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}));
-  const page = await context.newPage();
+  if (!existsSync(cfg.statePath) && (!cfg.username || !cfg.password) && !browser.firecrawl) throw new NotPostedError(`Set ${cfg.site.toUpperCase()}_COOKIES (or ${cfg.user} and ${cfg.pass}) on the worker.`);
+  const context = await sessionContext(browser, cfg.statePath, browserContext());
   const submitUrl = cfg.origin + cfg.submit;
+  // A Firecrawl session starts on the submit page: use that tab rather than loading it again.
+  const opened = browser.firecrawl?.page?.url().startsWith(submitUrl) ? browser.firecrawl.page : null;
+  const page = opened ?? await context.newPage();
   // Only the real coin form counts: a footer newsletter form on a login or error page must not look like success.
   const onForm = async () => !page.url().includes(cfg.login) && !(await page.locator('input[type="password"]').count()) && (await hasListingForm(page));
   const clearChallenge = async where => {
@@ -138,20 +146,21 @@ async function openSubmitFormUnsafe(browser, cfg) {
     if (await cloudflareChallenge(page)) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${cfg.site}: Cloudflare's security check did not clear on the ${where} page; nothing was sent.`); }
   };
   const where = async () => `${page.url().split('?')[0]} "${(await page.title().catch(() => '')).slice(0, 60)}"`;
-  await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
+  if (!opened) await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
   await clearChallenge('submit');
   if (!(await onForm())) {
+    if (browser.firecrawl && (!cfg.username || !cfg.password)) throw new NotPostedError(`${cfg.site}: not logged in; run \`node login.mjs ${cfg.site}\` to log in to the Firecrawl profile.`);
     await page.goto(cfg.origin + cfg.login, {waitUntil: 'domcontentloaded'});
     await clearChallenge('login');
     if (!(await page.locator('input[type="password"]').count())) throw new NotPostedError(`${cfg.site}: neither the submit form nor a login form loaded (${await where()}); nothing was sent.`);
+    if (!cfg.username || !cfg.password) throw new NotPostedError(browser.firecrawl ? `${cfg.site}: not logged in; run \`node login.mjs ${cfg.site}\` to log in to the Firecrawl profile.` : `${cfg.site}: the saved session has expired; refresh ${cfg.site.toUpperCase()}_COOKIES.`);
     await page.locator('input[type="email"], input[name*="email" i], input[name*="user" i], input[name*="login" i]').first().fill(cfg.username);
-    if (!cfg.username || !cfg.password) throw new NotPostedError(`${cfg.site}: the saved session has expired; refresh ${cfg.site.toUpperCase()}_COOKIES.`);
     await page.locator('input[type="password"]').first().fill(cfg.password);
     const loginButton = page.locator('form:has(input[type="password"]) [type="submit"], form:has(input[type="password"]) button').first();
     await page.waitForTimeout(1500);
     // A login button that stays disabled is waiting on a human check (captcha), which is never bypassed.
     if (await loginButton.isDisabled().catch(() => false))
-      throw new NotPostedError(`${cfg.site}: the login needs a human check (captcha); set ${cfg.site.toUpperCase()}_COOKIES from a logged-in browser.`);
+      throw new NotPostedError(`${cfg.site}: the login needs a human check (captcha); ${browser.firecrawl ? `log in by hand with \`node login.mjs ${cfg.site}\`` : `set ${cfg.site.toUpperCase()}_COOKIES from a logged-in browser`}.`);
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), loginButton.click({timeout: 15000})]);
     await page.waitForTimeout(1500);
     await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
@@ -175,7 +184,7 @@ async function debugSnapshot(page, cfg, tag) {
  * Throws NotPostedError when nothing was sent (login, unmapped required fields, validation errors).
  */
 export async function submitListing(site, listing, logoPath, cfg = siteConfig(site)) {
-  const browser = await launch();
+  const browser = await launch(cfg);
   try {
     const {page} = await openSubmitForm(browser, cfg);
     const fields = await describeForm(page);
@@ -211,7 +220,7 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
 
 /** Logged-out look for the live coin page: the known URL first, else the site's new-coins pages. */
 export async function checkListing(site, listing, submission = {}, cfg = siteConfig(site)) {
-  const browser = await launch();
+  const browser = await launch(cfg, false, '/');
   try {
     const page = await (await browser.newContext(browserContext())).newPage();
     const isOurs = async () => (await page.content()).toLowerCase().includes(listing.contract_address.toLowerCase());
@@ -231,7 +240,7 @@ export async function checkListing(site, listing, submission = {}, cfg = siteCon
 /** Dry run: opens the form, prints each field and what would go in it. Never submits. */
 export async function inspect(site, cfg = siteConfig(site)) {
   const sample = {name: 'Sample Token', symbol: 'SMPL', chain: 'solana', contract_address: 'So11111111111111111111111111111111111111112', description: 'Sample description', short_description: 'Sample', website_url: 'https://example.com', telegram_url: 'https://t.me/example', x_url: 'https://x.com/example', launch_date: '2026-01-01'};
-  const browser = await launch();
+  const browser = await launch(cfg, false);
   try {
     const {page} = await openSubmitForm(browser, cfg);
     const fields = await describeForm(page);
@@ -251,7 +260,7 @@ async function logoFile(client, listing) {
 
 /** One cycle: submit one due listing, then check one listing that is waiting for review. */
 export async function directoryCycle(client, {submit = submitListing, check = checkListing, env = process.env} = {}) {
-  const sites = Object.keys(SITES).filter(s => env[`${s.toUpperCase()}_COOKIES`] || (env[SITES[s].user] && env[SITES[s].pass]));
+  const sites = Object.keys(SITES).filter(s => env[`${s.toUpperCase()}_COOKIES`] || (env[SITES[s].user] && env[SITES[s].pass]) || firecrawlSite(s, env));
   if (!sites.length) return;
   const c = await client.request('publish/claim', {kinds: sites});
   if (c) {
