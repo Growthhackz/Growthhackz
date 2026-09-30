@@ -116,8 +116,41 @@ async function launch(cfg, save = true, path = cfg.submit) {
   catch (e) { throw new NotPostedError(`${cfg.site}: could not start the browser (${String(e?.message || e).split('\n')[0].slice(0, 160)}); nothing was sent.`); }
 }
 
-/** Cloudflare's "Performing security verification" interstitial (Turnstile). */
-const cloudflareChallenge = async page => (await page.locator('.cf-turnstile, iframe[src*="challenges.cloudflare.com"], #challenge-form').count()) > 0 || /performing security verification|just a moment/i.test(await page.title().catch(() => ''));
+/** Cloudflare's full-page "Just a moment…" / "Performing security verification" interstitial. */
+const cloudflareChallenge = async page => (await page.locator('#challenge-form').count().catch(() => 0)) > 0 || /performing security verification|just a moment/i.test(await page.title().catch(() => ''));
+
+/** Waits for the interstitial to finish on its own (it usually does on a residential IP); true if it cleared. */
+async function waitOutInterstitial(page, ms = 60000) {
+  for (let t = 0; t < ms && (await cloudflareChallenge(page)); t += 2500) await page.waitForTimeout(2500);
+  return !(await cloudflareChallenge(page));
+}
+
+/**
+ * An in-form human check (Turnstile, hCaptcha, reCAPTCHA). Managed/invisible ones pass by themselves and fill their
+ * response field; we wait for that. Returns true when one is still unanswered, which needs a person: never clicked for them.
+ */
+async function humanCheckPending(page, ms = 30000) {
+  const widgets = 'iframe[src*="hcaptcha.com"]:visible, iframe[src*="challenges.cloudflare.com"]:visible, iframe[src*="recaptcha"]:visible, .cf-turnstile, .h-captcha, .g-recaptcha';
+  const answered = () => page.evaluate(() => [...document.querySelectorAll('[name="cf-turnstile-response"],[name="h-captcha-response"],[name="g-recaptcha-response"]')].some(e => e.value));
+  if (!(await page.locator(widgets).count().catch(() => 0))) return false;
+  for (let t = 0; t < ms; t += 2000) { if (await answered().catch(() => false)) return false; await page.waitForTimeout(2000); }
+  return !(await answered().catch(() => false));
+}
+
+/** Cookie banners, notices and modals: their accept/close buttons only (never anything inside a check's frame). */
+async function dismissPopups(page) {
+  const buttons = page.locator([
+    '#onetrust-accept-btn-handler', '.cc-window .cc-btn', '.cc-banner .cc-btn', '[id*="cookie" i] button', '[class*="cookie" i] button',
+    '.modal.show button', '[role="dialog"]:visible button', '[aria-modal="true"] button',
+  ].join(', '));
+  const n = Math.min(await buttons.count().catch(() => 0), 12);
+  for (let i = 0; i < n; i++) {
+    const b = buttons.nth(i);
+    const text = ((await b.innerText().catch(() => '')) || (await b.getAttribute('aria-label').catch(() => '')) || '').trim();
+    if (/^(accept( all)?( cookies)?|allow( all)?|i agree|agree|got it|ok(ay)?|close|dismiss|continue|×|x)$/i.test(text) && (await b.isVisible().catch(() => false)))
+      await b.click({timeout: 3000}).catch(() => {});
+  }
+}
 
 /** Everything up to the filled form sends nothing, so any failure here is NotPostedError (safe to retry). */
 async function openSubmitForm(browser, cfg) {
@@ -142,8 +175,8 @@ async function openSubmitFormUnsafe(browser, cfg) {
   // Only the real coin form counts: a footer newsletter form on a login or error page must not look like success.
   const onForm = async () => !page.url().includes(cfg.login) && !(await page.locator('input[type="password"]').count()) && (await hasListingForm(page));
   const clearChallenge = async where => {
-    for (let i = 0; i < 12 && (await cloudflareChallenge(page)); i++) await page.waitForTimeout(2500);
-    if (await cloudflareChallenge(page)) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${cfg.site}: Cloudflare's security check did not clear on the ${where} page; nothing was sent.`); }
+    if (!(await waitOutInterstitial(page))) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${cfg.site}: Cloudflare's security check did not clear on the ${where} page; nothing was sent.`); }
+    await dismissPopups(page);
   };
   const where = async () => `${page.url().split('?')[0]} "${(await page.title().catch(() => '')).slice(0, 60)}"`;
   if (!opened) await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
@@ -164,7 +197,8 @@ async function openSubmitFormUnsafe(browser, cfg) {
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), loginButton.click({timeout: 15000})]);
     await page.waitForTimeout(1500);
     await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
-    if (!(await onForm())) throw new NotPostedError(`${cfg.site}: login failed or the submit form is not reachable.`);
+    await clearChallenge('submit');
+    if (!(await onForm())) throw new NotPostedError(`${cfg.site}: login failed or the submit form is not reachable (${await where()}).`);
     await context.storageState({path: cfg.statePath});
   }
   return {context, page};
@@ -187,32 +221,42 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
   const browser = await launch(cfg);
   try {
     const {page} = await openSubmitForm(browser, cfg);
-    const fields = await describeForm(page);
-    const missing = [];
-    for (const f of fields.filter(f => f.visible)) {
-      const plan = planField(f, {...listing, contact_email: cfg.username});
-      const ok = plan ? await applyField(page, f, plan, logoPath) : false;
-      if (!ok && f.required) missing.push(f.label || f.name || `#${f.idx}`);
+    const visibleNames = async () => (await describeForm(page)).filter(f => f.visible).map(f => f.name || f.idx).join('|');
+    // Multi-step forms: fill what each step shows, go on with its Next/Submit, until the site answers.
+    for (let step = 1; step <= 6; step++) {
+      await dismissPopups(page);
+      const fields = await describeForm(page);
+      const missing = [];
+      for (const f of fields.filter(f => f.visible)) {
+        const plan = planField(f, {...listing, contact_email: cfg.username});
+        const ok = plan ? await applyField(page, f, plan, logoPath) : false;
+        if (!ok && f.required) missing.push(f.label || f.name || `#${f.idx}`);
+      }
+      if (missing.length) { await debugSnapshot(page, cfg, 'unfilled'); throw new NotPostedError(`${site}: step ${step}: could not fill required fields: ${missing.join(', ')}`); }
+      if (await humanCheckPending(page)) { await debugSnapshot(page, cfg, 'check'); throw new NotPostedError(`${site}: step ${step} has a human check that needs a click; the listing was not sent.`); }
+      const before = page.url();
+      const shape = await visibleNames();
+      const button = page.locator('form[data-cm-form] [type="submit"]:visible, form[data-cm-form] button:not([type="button"]):visible, form[data-cm-form] button:visible:has-text("Next"), form[data-cm-form] button:visible:has-text("Continue")').last();
+      if (!(await button.count())) { await debugSnapshot(page, cfg, 'nosubmit'); throw new NotPostedError(`${site}: step ${step} has no submit or next button; nothing was sent.`); }
+      // A click that never happens (timeout) sent nothing; from a completed click on, the listing may have been sent.
+      await button.click({trial: true, timeout: 15000}).catch(async e => { await debugSnapshot(page, cfg, 'unclickable'); throw new NotPostedError(`${site}: step ${step} button not clickable (${String(e.message).split('\n')[0].slice(0, 120)}); nothing was sent.`); });
+      await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), button.click()]);
+      await page.waitForTimeout(2500);
+      // Cloudflare may hold the step behind its check. On a residential IP it usually clears by itself; it's never
+      // solved for it. While the check stands, the request hasn't reached the site.
+      if (!(await waitOutInterstitial(page))) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${site}: Cloudflare's security check did not clear after step ${step}, so the listing was not sent.`); }
+      await dismissPopups(page);
+      const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
+      const errors = (await page.locator('.error:visible, .alert-danger:visible, .invalid-feedback:visible, [role="alert"]:visible, .text-danger:visible').allInnerTexts().catch(() => [])).join(' ').trim();
+      if (/already (been )?(listed|exists|submitted|added)/.test(text + ' ' + errors.toLowerCase())) return {submitted: true, url: null, note: 'already listed'};
+      const url = page.url();
+      if (/\/coins?\//i.test(new URL(url).pathname)) return {submitted: true, url};
+      const moreForm = await hasListingForm(page);
+      if (moreForm && !errors && (url !== before || (await visibleNames()) !== shape)) continue;
+      if (!moreForm && /success|submitted|thank|pending|review|received|has been added/.test(text) && !errors) return {submitted: true, url: null};
+      if (errors) { await debugSnapshot(page, cfg, 'rejected'); throw new NotPostedError(`${site} rejected step ${step}: ${errors.slice(0, 200)}`); }
+      break;
     }
-    if (missing.length) { await debugSnapshot(page, cfg, 'unfilled'); throw new NotPostedError(`${site}: could not fill required fields: ${missing.join(', ')}`); }
-    const before = page.url();
-    const button = page.locator('form[data-cm-form] [type="submit"], form[data-cm-form] button:not([type="button"])').last();
-    if (!(await button.count())) { await debugSnapshot(page, cfg, 'nosubmit'); throw new NotPostedError(`${site}: the listing form has no submit button; nothing was sent.`); }
-    // A click that never happens (timeout) sent nothing; from a completed click on, the listing may have been sent.
-    await button.click({trial: true, timeout: 15000}).catch(async e => { await debugSnapshot(page, cfg, 'unclickable'); throw new NotPostedError(`${site}: submit button not clickable (${String(e.message).split('\n')[0].slice(0, 120)}); nothing was sent.`); });
-    await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), button.click()]);
-    await page.waitForTimeout(2500);
-    // Cloudflare may hold the submission behind its check. On a residential IP it usually clears by itself; it's never
-    // solved for it. While the check stands, the request hasn't reached the site, so nothing was sent.
-    for (let i = 0; i < 12 && (await cloudflareChallenge(page)); i++) await page.waitForTimeout(2500);
-    if (await cloudflareChallenge(page)) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${site}: Cloudflare's security check did not clear, so the listing was not sent.`); }
-    const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
-    const errors = (await page.locator('.error:visible, .alert-danger:visible, .invalid-feedback:visible, [role="alert"]:visible, .text-danger:visible').allInnerTexts().catch(() => [])).join(' ').trim();
-    if (/already (been )?(listed|exists|submitted|added)/.test(text + ' ' + errors.toLowerCase())) return {submitted: true, url: null, note: 'already listed'};
-    const url = page.url();
-    if (/\/coins?\//i.test(new URL(url).pathname)) return {submitted: true, url};
-    if (/success|submitted|thank|pending|review|received|has been added/.test(text) && !errors) return {submitted: true, url: null};
-    if (errors && url === before) { await debugSnapshot(page, cfg, 'rejected'); throw new NotPostedError(`${site} rejected the listing: ${errors.slice(0, 200)}`); }
     await debugSnapshot(page, cfg, 'unclear');
     return {submitted: false};
   } finally { await browser.close(); }
