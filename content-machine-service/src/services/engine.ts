@@ -558,7 +558,9 @@ export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   }
   const parts = [copy.article];
   if (image) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
-  const l = links(o.project, true);
+  // Crypto subreddits auto-remove t.me links: Telegram goes as its @handle.
+  const tg = handleOf(o.project.telegram_url, /^(www\.)?(t|telegram)\.me$/);
+  const l = [tg && `Telegram: ${tg}`, o.project.x_url && `X: ${o.project.x_url}`, o.project.website_url && `Website: ${o.project.website_url}`].filter(Boolean).join('\n');
   if (l) parts.push(l);
   return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };
 }
