@@ -23,6 +23,7 @@ import {
 import { publicHub, renderHub } from '../services/hubService.js';
 import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, loadOrder, presentOrder, readAsset, recentProblems, retryJob } from '../services/orderService.js';
 import { saveSetting, settingsSummary } from '../services/settingsService.js';
+import { assistDone, assistView, renderAssist } from '../services/assistService.js';
 
 type Params = { id: string };
 type AssetParams = { id: string; assetId: string };
@@ -167,6 +168,24 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(asset.mime)) throw new NotFoundError('Asset');
     return sendAsset(reply, req, asset, bytes, 'public, max-age=86400');
   });
+
+  // ---- operator posting pages (token in the DM'd link) ----
+  app.get<{ Params: { token: string } }>('/assist/:token', async (req, reply) => {
+    try {
+      return reply
+        .header('content-type', 'text/html; charset=utf-8')
+        .header('referrer-policy', 'no-referrer')
+        .header(
+          'content-security-policy',
+          "default-src 'none'; img-src 'self' https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        )
+        .send(renderAssist(assistView(ctx, req.params.token)));
+    } catch (err) {
+      if (err instanceof NotFoundError) return reply.code(404).type('text/plain').send('This posting link has expired.');
+      throw err;
+    }
+  });
+  app.post<{ Params: { token: string } }>('/assist/:token/done', async (req) => assistDone(ctx, req.params.token, req.body));
 
   // ---- public project hub (only when PUBLIC_HUB_ENABLED) ----
   app.get<{ Params: Params }>('/projects/:id', async (req, reply) => {
