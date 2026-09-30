@@ -599,7 +599,9 @@ export function publishClaim(ctx: ServiceContext, kinds: unknown = ['binance']) 
   expireLeases(ctx);
   // Posts handed to a person (ASSIST_KINDS) are never the worker's.
   const handed = assistKinds(ctx);
-  const wanted = (Array.isArray(kinds) ? kinds : ['binance']).filter((k): k is string => WORKER_PUBLICATIONS.includes(k) && !handed.includes(k));
+  // `reddit` stands for every subreddit item.
+  const asked = (Array.isArray(kinds) ? kinds : ['binance']).flatMap((k) => (k === 'reddit' ? Object.keys(REDDIT_SUBREDDITS) : [k]));
+  const wanted = asked.filter((k): k is string => WORKER_PUBLICATIONS.includes(k) && !handed.includes(k));
   if (!wanted.length) return null;
   const rows = all<JobRow>(
     ctx.db,
