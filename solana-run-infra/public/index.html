@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wallet Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>Wallets</h1>
+  <form id="create-form">
+    <input name="label" placeholder="label" pattern="[a-zA-Z0-9_-]{1,32}" required>
+    <button type="submit">Add wallet</button>
+  </form>
+</header>
+
+<main>
+  <table id="wallets">
+    <thead>
+      <tr>
+        <th>Label</th><th>Address</th><th>Balance</th>
+        <th>Buy %</th><th>Sell %</th><th>Trades</th><th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <p id="empty" hidden>No wallets yet. Add one above.</p>
+</main>
+
+<dialog id="settings-dialog">
+  <form method="dialog" id="settings-form">
+    <h2>Settings — <span id="settings-label"></span></h2>
+    <label>Buy (% of SOL per buy)
+      <input type="number" name="spendPct" min="1" max="100" step="1" required>
+    </label>
+    <label>Sell (% of tokens per sell)
+      <input type="number" name="sellPct" min="1" max="100" step="1" required>
+    </label>
+    <label>Trades to run
+      <input type="number" name="tradeCount" min="0" step="1" required>
+    </label>
+    <label>Slippage (bps)
+      <input type="number" name="slippageBps" min="1" max="5000" step="1" required>
+    </label>
+    <label>SOL floor (stop when balance drops below)
+      <input type="number" name="solFloor" min="0" step="0.001" required>
+    </label>
+    <label class="check">
+      <input type="checkbox" name="useBundles"> Use atomic bundles
+    </label>
+    <menu>
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button value="save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>
