@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
-import {installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
 
 /** Directory sites. Paths are relative to each site's origin so tests can point at a local fake. */
 export const SITES = {
@@ -128,7 +128,7 @@ async function openSubmitFormUnsafe(browser, cfg) {
     try { installCookieSession(cfg.statePath, cfg.cookies, cfg.cookieSite); } catch (e) { throw new NotPostedError(`${cfg.site.toUpperCase()}_COOKIES: ${e.message}`); }
   }
   if (!existsSync(cfg.statePath) && (!cfg.username || !cfg.password)) throw new NotPostedError(`Set ${cfg.site.toUpperCase()}_COOKIES (or ${cfg.user} and ${cfg.pass}) on the worker.`);
-  const context = await browser.newContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {});
+  const context = await browser.newContext(browserContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}));
   const page = await context.newPage();
   const submitUrl = cfg.origin + cfg.submit;
   // Only the real coin form counts: a footer newsletter form on a login or error page must not look like success.
@@ -205,7 +205,7 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
 export async function checkListing(site, listing, submission = {}, cfg = siteConfig(site)) {
   const browser = await launch();
   try {
-    const page = await (await browser.newContext()).newPage();
+    const page = await (await browser.newContext(browserContext())).newPage();
     const isOurs = async () => (await page.content()).toLowerCase().includes(listing.contract_address.toLowerCase());
     if (submission.url) { const r = await page.goto(submission.url, {waitUntil: 'domcontentloaded'}).catch(() => null); if (r?.ok() && await isOurs()) return {live: true, url: page.url()}; }
     for (const path of cfg.browse) {

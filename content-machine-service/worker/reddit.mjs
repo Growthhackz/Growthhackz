@@ -21,6 +21,10 @@ export async function gotoSettled(page, url) {
 
 const captcha = page => page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, .h-captcha').count();
 
+/** A regular desktop Chrome identity; headless Chromium otherwise announces itself as "HeadlessChrome", which sites block. */
+export const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+export const browserContext = (extra = {}) => ({userAgent: BROWSER_UA, locale: 'en-US', viewport: {width: 1366, height: 900}, ...extra});
+
 /** REDDIT_PROXY (http://user:pass@host:port): Reddit blocks datacenter networks, so only Reddit traffic goes through it. */
 export function redditProxy(raw = process.env.REDDIT_PROXY) {
   if (!raw) return undefined;
@@ -74,7 +78,7 @@ export async function redditWhoAmI({statePath = process.env.REDDIT_STATE_PATH ||
   if (!existsSync(statePath)) return null;
   const browser = await chromium.launch({headless: true, executablePath, proxy: redditProxy()});
   try {
-    const context = await browser.newContext({storageState: statePath});
+    const context = await browser.newContext(browserContext({storageState: statePath}));
     const page = await context.newPage();
     await gotoSettled(page, `${base}/api/me.json`);
     const text = await page.locator('body').innerText().catch(() => '');
@@ -114,7 +118,7 @@ export async function postToReddit(target, {
   if ((!username || !password) && !existsSync(statePath)) throw new NotPostedError('Set REDDIT_COOKIES (a cookie export from a logged-in browser) on the worker.');
   const browser = await chromium.launch({headless: true, executablePath, proxy: redditProxy()});
   try {
-    const context = await browser.newContext(existsSync(statePath) ? {storageState: statePath} : {});
+    const context = await browser.newContext(browserContext(existsSync(statePath) ? {storageState: statePath} : {}));
     const page = await context.newPage();
     const submitUrl = `${base}/r/${encodeURIComponent(target.subreddit)}/submit?selftext=true`;
     const title = page.locator('textarea[name="title"]');
@@ -149,7 +153,7 @@ export async function postToReddit(target, {
 }
 
 async function visibleLoggedOut(browser, url, title) {
-  const context = await browser.newContext();
+  const context = await browser.newContext(browserContext());
   try {
     const page = await context.newPage();
     const r = await page.goto(url, {waitUntil: 'domcontentloaded'});
