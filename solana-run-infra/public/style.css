@@ -134,3 +134,10 @@ dialog ul { margin: 0; padding-left: 18px; color: var(--muted); }
 .venue { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); }
 .venue.raydium { color: #8fa8ff; border-color: #3a4a8a; }
 .venue.pumpswap { color: var(--good); border-color: #1f6b4a; }
+
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login-card {
+  width: min(360px, 100%); display: grid; gap: 14px; padding: 28px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+}
+.login-card label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }

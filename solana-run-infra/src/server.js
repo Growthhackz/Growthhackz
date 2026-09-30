@@ -12,38 +12,64 @@ import { normalizeRules, scheduleConflict, MIN_INTERVAL_MINUTES } from './rules.
 import { inspectPool, VENUE_NAMES } from './venues/index.js';
 import { TradeEngine } from './engine.js';
 import { getTokenBalance, getDecimals, toUi } from './tokens.js';
+import { createAuth } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE = process.env.WALLET_DIR ?? path.join(__dirname, '..', 'wallets');
 const PASS = process.env.WALLET_PASSPHRASE;
 const RPC = process.env.RPC_URL;
 const PORT = Number(process.env.PORT ?? 3000);
-// Loopback only by default. There is no auth, so never expose this on a public interface.
+// Loopback only by default. For remote access keep this as is and put a
+// private tunnel in front (see README-REMOTE.md), listing its hostname in
+// ALLOWED_HOSTS.
 const HOST = process.env.HOST ?? '127.0.0.1';
+const EXTRA_HOSTS = (process.env.ALLOWED_HOSTS ?? '')
+  .split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
+const LOOPBACK_BIND = ['127.0.0.1', 'localhost', '::1'].includes(HOST);
+const REMOTE = !LOOPBACK_BIND || EXTRA_HOSTS.length > 0;
 const LOG_DIR = process.env.LOG_DIR ?? path.join(__dirname, '..', 'logs');
 const RECEIVER = process.env.RECEIVER_PUBKEY ? new PublicKey(process.env.RECEIVER_PUBKEY) : null;
 
 if (!PASS) throw new Error('set WALLET_PASSPHRASE');
 if (!RPC) throw new Error('set RPC_URL');
+if (REMOTE && APP_PASSWORD.length < 12) {
+  throw new Error('remote access (HOST or ALLOWED_HOSTS set) requires APP_PASSWORD of 12+ characters');
+}
+if (APP_PASSWORD && APP_PASSWORD.length < 12) throw new Error('APP_PASSWORD must be 12+ characters');
 
 const connection = new Connection(RPC, 'confirmed');
 const app = express();
 
-// Reject requests whose Host isn't loopback, which blocks DNS-rebinding
-// attacks from a web page open in the same browser.
-const ALLOWED_HOSTS = new Set([
-  `localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`
-]);
+// Only answer to known hostnames: loopback plus ALLOWED_HOSTS. This blocks
+// DNS-rebinding attacks from other web pages.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 app.use((req, res, next) => {
-  if (HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1') {
-    if (!ALLOWED_HOSTS.has(req.headers.host ?? '')) {
-      return res.status(403).json({ error: 'forbidden host' });
-    }
-  }
+  const host = (req.headers.host ?? '').toLowerCase();
+  const bare = host.replace(/:\d+$/, '');
+  const ok = (LOCAL_HOSTS.has(bare) && host === `${bare}:${PORT}`)
+    || EXTRA_HOSTS.includes(host) || EXTRA_HOSTS.includes(bare);
+  if (!ok) return res.status(403).json({ error: 'forbidden host' });
+  next();
+});
+
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   next();
 });
 
 app.use(express.json());
+
+// With APP_PASSWORD set, everything but the login page requires a session.
+const auth = APP_PASSWORD ? createAuth({ password: APP_PASSWORD }) : null;
+if (auth) {
+  app.use(auth.middleware);
+  auth.install(app);
+}
+app.get('/api/session', (_req, res) => res.json({ auth: Boolean(auth) }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Validates the label on every /:label route before any path is built from it.

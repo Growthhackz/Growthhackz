@@ -8,6 +8,10 @@ async function api(path, opts = {}) {
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
+  if (res.status === 401) {
+    location.replace('/login.html');
+    throw new Error('login required');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -446,6 +450,13 @@ stopForm.onsubmit = async (e) => {
     submit.disabled = false;
     submit.textContent = 'Stop now';
   }
+};
+
+const logout = $('#logout');
+api('/api/session').then(({ auth }) => { logout.hidden = !auth; }).catch(() => {});
+logout.onclick = async () => {
+  await api('/api/logout', { method: 'POST' }).catch(() => {});
+  location.replace('/login.html');
 };
 
 refresh().catch((e) => toast(e.message, true));

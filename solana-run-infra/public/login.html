@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wallet Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-page">
+<form id="login" class="login-card">
+  <h1>Wallet Manager</h1>
+  <label>Password
+    <input type="password" name="password" autocomplete="current-password" required autofocus>
+  </label>
+  <button type="submit" class="primary">Sign in</button>
+  <p id="login-error" class="error small" hidden></p>
+</form>
+<script type="module">
+  const form = document.getElementById('login');
+  const err = document.getElementById('login-error');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: form.password.value })
+    });
+    if (res.ok) return location.replace('/');
+    const data = await res.json().catch(() => ({}));
+    err.textContent = data.error || 'sign-in failed';
+    err.hidden = false;
+    form.password.select();
+  };
+</script>
+</body>
+</html>
