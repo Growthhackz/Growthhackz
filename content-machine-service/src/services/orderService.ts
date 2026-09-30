@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -162,7 +162,8 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
       const skipped =
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
         (input.test && channelOf(kind) === null && !['metadata', 'copy', 'campaign_image'].includes(kind)) ||
-        (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!));
+        (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!)) ||
+        (!!REDDIT_SUBREDDITS[kind] && !redditTargets(ctx).includes(kind));
       run(
         ctx.db,
         'INSERT INTO jobs (id, order_id, kind, rank, status, deadline_at, updated_at) VALUES (:id, :o, :kind, :rank, :status, :deadline, :t)',
@@ -194,6 +195,12 @@ export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   if (existing) return { order: loadOrder(ctx, existing.id), created: false };
   // Trending orders include the campaign art, stickers and the five-meme pack: about $1.40 of generation at list rates.
   return createOrder(ctx, { budget_cents: 250, ...rest, order_id: `trending:${purchase_id}`, channels: trendingChannels(ctx, channels) });
+}
+
+/** REDDIT_TARGETS as item kinds. */
+export function redditTargets(ctx: ServiceContext): string[] {
+  const listed = ctx.config.REDDIT_TARGETS.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return Object.entries(REDDIT_SUBREDDITS).filter(([, s]) => listed.includes('all') || listed.includes(s.toLowerCase())).map(([k]) => k);
 }
 
 export function loadOrder(ctx: ServiceContext, id: string): Order {

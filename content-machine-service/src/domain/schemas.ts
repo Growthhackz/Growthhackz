@@ -24,11 +24,25 @@ export const PRESS_KINDS = ['press_1888'];
 /** Give up waiting for a site's review after this long. */
 export const LISTING_REVIEW_MAX_MS = 7 * 24 * 60 * 60_000;
 
-/** Pipeline kind → subreddit. The `reddit` channel turns on every entry. */
-export const REDDIT_SUBREDDITS: Record<string, string> = {
-  reddit_moonshots: 'moonshots',
-  reddit_solanamemecoins: 'solanamemecoins',
-};
+/** Subreddits the Reddit account has joined, as Reddit spells them. REDDIT_TARGETS picks the ones each order gets. */
+export const SUBREDDITS = [
+  'moonshots',
+  'SolanaMemeCoins',
+  'MemecoinSeason',
+  'Solana_Memes',
+  'SolCoins',
+  'memecoinmoonshots',
+  'pumpfun',
+  'Memecoinhub',
+  'CryptoMoon',
+  'shitcoinmoonshots',
+  'memecoins',
+  'CryptoMarkets',
+  'CryptoMoonShots',
+];
+/** Pipeline kind (reddit_<lowercase name>) → subreddit. The `reddit` channel turns on the REDDIT_TARGETS entries. */
+export const REDDIT_SUBREDDITS: Record<string, string> = Object.fromEntries(SUBREDDITS.map((s) => [`reddit_${s.toLowerCase()}`, s]));
+const REDDIT_KINDS = Object.keys(REDDIT_SUBREDDITS);
 
 /** The channel that switches a pipeline kind on (kinds not listed are always on). */
 /** The five-meme pack (plan, renders, gallery page) is one switchable channel, so it costs nothing when off. */
@@ -179,8 +193,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['telegraph', 60],
   ['binance', 65],
   ['call_channel', 75],
-  ['reddit_moonshots', 80],
-  ['reddit_solanamemecoins', 81],
+  ...REDDIT_KINDS.map((k) => [k, 80] as const),
   ['coinsniper', 85],
   ['coinvote', 86],
   ['bitcointalk', 84],
@@ -204,7 +217,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
@@ -234,8 +247,7 @@ export const DEADLINE_MS: Record<string, number> = {
   binance: 12 * HOUR,
   cmc_community: 12 * HOUR,
   bitcointalk: 12 * HOUR,
-  reddit_moonshots: 12 * HOUR,
-  reddit_solanamemecoins: 12 * HOUR,
+  ...Object.fromEntries(REDDIT_KINDS.map((k) => [k, 12 * HOUR])),
   coinsniper: 8 * 24 * HOUR,
   coinvote: 8 * 24 * HOUR,
   press_1888: 8 * 24 * HOUR,
@@ -277,8 +289,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   telegraph: 'Telegraph article',
   binance: 'Binance Square article',
   call_channel: 'Call channel post',
-  reddit_moonshots: 'Reddit r/moonshots',
-  reddit_solanamemecoins: 'Reddit r/solanamemecoins',
+  ...Object.fromEntries(Object.entries(REDDIT_SUBREDDITS).map(([k, s]) => [k, `Reddit r/${s}`])),
   coinsniper: 'CoinSniper listing',
   coinvote: 'Coinvote listing',
   cmc_community: 'CoinMarketCap community post',

@@ -194,7 +194,7 @@ async function visibleLoggedOut(browser, url, title) {
 /** One cycle: claim a Reddit post from the service, publish it, report the outcome. */
 export async function publishReddit(client, post = postToReddit) {
   if (!process.env.REDDIT_USERNAME && !process.env.REDDIT_COOKIES) return;
-  const c = await client.request('publish/claim', {kinds: ['reddit_moonshots', 'reddit_solanamemecoins']});
+  const c = await client.request('publish/claim', {kinds: ['reddit']});
   if (!c) return;
   try {
     const {url, verified} = await post(c.target);

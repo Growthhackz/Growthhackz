@@ -33,7 +33,7 @@ const kindsOf = (o: any) => Object.fromEntries(o.jobs.map((j: any) => [j.kind, j
 describe('Reddit via the companion worker', () => {
   it('queues one post per subreddit with headline + article, and delivers the verified URL', async () => {
     const { t, o } = await setup({ PUBLIC_HUB_ENABLED: 'true' });
-    expect(kindsOf((await t.api('GET', `/v1/orders/${o.id}`)).body)).toMatchObject({ reddit_moonshots: 'queued', reddit_solanamemecoins: 'queued', binance: 'skipped' });
+    expect(kindsOf((await t.api('GET', `/v1/orders/${o.id}`)).body)).toMatchObject({ reddit_moonshots: 'queued', reddit_solanamemecoins: 'queued', binance: 'skipped', reddit_memecoinseason: 'skipped' });
     // A worker that only does Binance never gets Reddit work.
     expect((await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body).toBeNull();
 
@@ -51,7 +51,7 @@ describe('Reddit via the companion worker', () => {
       const r = await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url, verified: true });
       expect(r.body.status).toBe('delivered');
     }
-    expect(seen.sort()).toEqual(['moonshots', 'solanamemecoins']);
+    expect(seen.sort()).toEqual(['SolanaMemeCoins', 'moonshots']);
     const done = (await t.api('GET', `/v1/orders/${o.id}`)).body;
     expect(done.jobs.find((j: any) => j.kind === 'reddit_moonshots').result.url).toBe('https://www.reddit.com/r/moonshots/comments/abc123/moon_frog/');
   });

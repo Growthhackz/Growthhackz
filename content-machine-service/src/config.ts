@@ -59,6 +59,8 @@ const EnvSchema = z.object({
    * post opens pre-filled on the site, and they pass its human check and submit. Comma list of item kinds.
    */
   ASSIST_KINDS: z.string().default(''),
+  /** Subreddits each order posts to when it has the `reddit` channel (names from SUBREDDITS, or `all`). */
+  REDDIT_TARGETS: z.string().default('moonshots,SolanaMemeCoins'),
 
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */
