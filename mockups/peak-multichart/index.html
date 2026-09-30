@@ -209,7 +209,40 @@ a { color: inherit; }
   .card:first-child .px .p { font-size: 22px; }
   .status .countdown { display: none; }
 }
+
+/* ---------- summit eruption (new #1) ---------- */
+.erupt { position: fixed; inset: 0; z-index: 100; pointer-events: none; display: grid; place-items: center; }
+.erupt canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.erupt .veil { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, rgba(255,122,168,.28), rgba(10,15,29,.88) 62%); opacity: 0; }
+.erupt .flash { position: absolute; inset: 0; background: radial-gradient(circle at var(--fx, 50%) var(--fy, 40%), #fff6e8, rgba(255,179,107,.7) 18%, rgba(255,122,168,0) 55%); opacity: 0; mix-blend-mode: screen; }
+.erupt-card { position: relative; display: grid; justify-items: center; gap: 10px; text-align: center; padding-inline: 16px; opacity: 0; }
+.erupt-card .kicker { font-family: var(--mono); font-size: clamp(11px, 1.4vw, 15px); letter-spacing: .32em; text-transform: uppercase; color: var(--glow-a); }
+.erupt-card .cash {
+  font-family: var(--display); font-weight: 900; line-height: .82; letter-spacing: .01em;
+  font-size: clamp(72px, 16vw, 230px); max-width: 94vw; overflow-wrap: anywhere;
+  background: linear-gradient(180deg, #fff 0%, #ffe3c7 38%, var(--glow-a) 62%, var(--glow-b) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 28px rgba(255,150,110,.55)) drop-shadow(0 6px 0 rgba(10,15,29,.6));
+}
+.erupt-card .who { display: flex; align-items: center; gap: 12px; font-size: clamp(14px, 1.8vw, 20px); color: var(--snow); font-weight: 600; }
+.erupt-card .who img, .erupt-card .who .coin { width: clamp(34px, 4vw, 52px); height: clamp(34px, 4vw, 52px); font-size: 18px; box-shadow: 0 0 0 2px var(--glow-a), 0 0 24px rgba(255,179,107,.6); }
+.erupt-card .nums { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; font-family: var(--mono); font-size: clamp(13px, 1.6vw, 18px); font-variant-numeric: tabular-nums; }
+.erupt-card .nums span { color: var(--mist); }
+.erupt-card .nums b { color: var(--snow); margin-left: 6px; }
+.erupt.go .veil { animation: e-veil 4.4s ease forwards; }
+.erupt.go .flash { animation: e-flash 1.1s ease-out forwards; }
+.erupt.go .erupt-card { animation: e-card 4.4s cubic-bezier(.2,.9,.25,1) forwards; }
+.erupt.go .erupt-card .cash { animation: e-cash 4.4s cubic-bezier(.2,.9,.25,1) forwards; }
+@keyframes e-veil { 0% { opacity: 0; } 8% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes e-flash { 0% { opacity: 0; } 6% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes e-card { 0%, 6% { opacity: 0; transform: translateY(40px) scale(.7); } 16% { opacity: 1; transform: translateY(-6px) scale(1.04); } 22% { transform: none; } 80% { opacity: 1; transform: scale(1.01); } 100% { opacity: 0; transform: translateY(-30px) scale(1.12); } }
+@keyframes e-cash { 0%, 8% { letter-spacing: .3em; } 24% { letter-spacing: .01em; } 100% { letter-spacing: .03em; } }
+.wrap.shake { animation: shake .7s cubic-bezier(.36,.07,.19,.97); }
+@keyframes shake { 10%, 90% { transform: translate(-2px, 1px); } 20%, 80% { transform: translate(5px, -3px); } 30%, 50%, 70% { transform: translate(-8px, 4px); } 40%, 60% { transform: translate(8px, -4px); } }
+.preview-btn { border: 1px solid var(--line); background: var(--night-2); border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; color: var(--glow-a); cursor: pointer; }
+.preview-btn:hover { border-color: var(--glow-a); }
 @media (prefers-reduced-motion: reduce) {
+  .wrap.shake { animation: none; }
   .dot, .card.enter, .log li { animation: none; }
 }
 </style>
@@ -261,6 +294,7 @@ a { color: inherit; }
       <button type="button" id="tf-5" data-tf="5" aria-pressed="false">5m</button>
       <button type="button" id="tf-15" data-tf="15" aria-pressed="false">15m</button>
     </div>
+    <button type="button" class="preview-btn" id="previewErupt">Preview #1 moment</button>
     <div class="seg" role="group" aria-label="Layout" id="layoutSeg">
       <button type="button" id="lay-summit" data-layout="summit" aria-pressed="true">Summit</button>
       <button type="button" id="lay-even" data-layout="even" aria-pressed="false">Even grid</button>
@@ -269,11 +303,19 @@ a { color: inherit; }
 
   <main class="wall summit-mode" id="wall"></main>
 
+
   <footer class="foot">
     <span id="footSource">Mockup. Every coin, price and chart here is simulated.</span>
     <span id="footNote">Demo clock runs 15× real time so candles form quickly.</span>
     <span>Charts: <a href="https://www.tradingview.com/lightweight-charts/">TradingView Lightweight Charts</a> (free, open source).</span>
   </footer>
+</div>
+
+<div class="erupt" id="erupt" hidden aria-live="assertive">
+  <div class="veil"></div>
+  <canvas id="eruptCanvas" aria-hidden="true"></canvas>
+  <div class="flash"></div>
+  <div class="erupt-card" id="eruptCard"></div>
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -624,6 +666,71 @@ a { color: inherit; }
     requestAnimationFrame(frame);
   }
 
+  /* ---------- summit eruption: plays when a new coin takes #1 ---------- */
+  const eruptEl = document.getElementById('erupt'), eruptCard = document.getElementById('eruptCard');
+  const ecv = document.getElementById('eruptCanvas'), ectx = ecv.getContext('2d');
+  const eruptQueue = []; let erupting = false;
+  function erupt(c) { eruptQueue.push(c); if (!erupting) nextEruption(); }
+  function nextEruption() {
+    const c = eruptQueue.shift(); if (!c) { erupting = false; return; }
+    erupting = true;
+    const icon = safeUrl(c.icon);
+    eruptCard.innerHTML = `
+      <div class="kicker">New #1 on Peak</div>
+      <div class="cash">$${esc(c.tk)}</div>
+      <div class="who">${icon ? `<img class="coin" src="${esc(icon)}" alt="" referrerpolicy="no-referrer">` : `<span class="coin">${esc(c.tk.slice(0, 1))}</span>`}<span>${esc(c.name)} takes the summit</span></div>
+      <div class="nums">${c.price ? `<span>Price<b>${fmtPrice(c.price)}</b></span>` : ''}${c.ch1h ? `<span>1h<b class="${c.ch1h >= 0 ? 'up' : 'dn'}">${fmtPct(c.ch1h)}</b></span>` : ''}${c.mc ? `<span>Mcap<b>${fmtUsd(c.mc)}</b></span>` : ''}</div>`;
+    // erupt from the #1 summit on the ridge when it's on screen, else from the bottom centre
+    const s = summitEls.get(c.key), sr = s && s.getBoundingClientRect();
+    const ox = sr && sr.bottom > 0 && sr.top < innerHeight ? sr.left + sr.width / 2 : innerWidth / 2;
+    const oy = sr && sr.bottom > 0 && sr.top < innerHeight ? sr.bottom : innerHeight * 0.92;
+    eruptEl.style.setProperty('--fx', ox + 'px'); eruptEl.style.setProperty('--fy', oy + 'px');
+    eruptEl.hidden = false; eruptEl.classList.remove('go'); void eruptEl.offsetWidth; eruptEl.classList.add('go');
+    const wrapEl = document.querySelector('.wrap');
+    if (!REDUCED) { wrapEl.classList.remove('shake'); void wrapEl.offsetWidth; wrapEl.classList.add('shake'); }
+    const dpr = Math.min(2, devicePixelRatio || 1), EW = innerWidth, EH = innerHeight;
+    ecv.width = EW * dpr; ecv.height = EH * dpr; ectx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const COLORS = ['#fff6e8', '#ffd29a', '#ffb36b', '#ff9a7a', '#ff7aa8', '#9d8bff'];
+    const parts = [];
+    const burst = (n, speed, spread, life) => {
+      for (let i = 0; i < n; i++) {
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * spread, v = speed * (0.35 + Math.random() * 0.9);
+        parts.push({ x: ox + (Math.random() - 0.5) * 20, y: oy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: 1.2 + Math.random() * 3.6,
+          life: life * (0.6 + Math.random() * 0.6), age: 0, col: COLORS[(Math.random() * COLORS.length) | 0], rock: Math.random() < 0.12 });
+      }
+    };
+    if (!REDUCED) { burst(320, EH * 0.032, 1.3, 2.6); setTimeout(() => burst(160, EH * 0.024, 0.9, 2.2), 260); setTimeout(() => burst(120, EH * 0.02, 2.2, 2.0), 620); }
+    const rings = REDUCED ? [] : [0, 180, 420].map(d => ({ d }));
+    const t0 = performance.now();
+    (function step(now) {
+      const t = now - t0, dt = 1 / 60;
+      ectx.clearRect(0, 0, EW, EH);
+      // lava glow at the vent
+      const glow = Math.max(0, 1 - t / 2600);
+      if (glow > 0) { const g = ectx.createRadialGradient(ox, oy, 0, ox, oy, EH * 0.5); g.addColorStop(0, `rgba(255,170,110,${0.55 * glow})`); g.addColorStop(1, 'rgba(255,122,168,0)'); ectx.fillStyle = g; ectx.fillRect(0, 0, EW, EH); }
+      for (const ring of rings) {
+        const rt = (t - ring.d) / 1100; if (rt < 0 || rt > 1) continue;
+        ectx.beginPath(); ectx.arc(ox, oy, rt * Math.max(EW, EH) * 0.75, 0, Math.PI * 2);
+        ectx.strokeStyle = `rgba(255,214,170,${0.55 * (1 - rt)})`; ectx.lineWidth = 3 + 14 * (1 - rt); ectx.stroke();
+      }
+      ectx.globalCompositeOperation = 'lighter';
+      for (const p of parts) {
+        p.age += dt; if (p.age > p.life) continue;
+        p.vy += EH * 0.00055; p.vx *= 0.992; p.vy *= 0.992; p.x += p.vx; p.y += p.vy;
+        const k = 1 - p.age / p.life;
+        ectx.globalAlpha = Math.min(1, k * 1.4);
+        ectx.fillStyle = p.col;
+        if (p.rock) { ectx.fillRect(p.x, p.y, p.r * 1.6, p.r * 1.6); }
+        else { ectx.beginPath(); ectx.arc(p.x, p.y, p.r * (0.5 + k), 0, Math.PI * 2); ectx.fill();
+          ectx.globalAlpha = 0.25 * k; ectx.beginPath(); ectx.moveTo(p.x, p.y); ectx.lineTo(p.x - p.vx * 3, p.y - p.vy * 3); ectx.strokeStyle = p.col; ectx.lineWidth = p.r; ectx.stroke(); }
+      }
+      ectx.globalAlpha = 1; ectx.globalCompositeOperation = 'source-over';
+      if (t < 4400) requestAnimationFrame(step);
+      else { eruptEl.hidden = true; eruptEl.classList.remove('go'); ectx.clearRect(0, 0, EW, EH); setTimeout(nextEruption, 400); }
+    })(t0);
+  }
+  document.getElementById('previewErupt').addEventListener('click', () => { if (board[0]) erupt(board[0]); });
+
   /* ---------- status bar ---------- */
   const cdEl = document.getElementById('cd'), cdWrap = document.getElementById('cdWrap');
   function setMode(mode) {
@@ -702,12 +809,14 @@ a { color: inherit; }
       if (c.ch5 != null && Math.abs(c.ch5) >= 20 && Date.now() - (c.bigAt || 0) > 300000) c.bigAt = Date.now(), logEvent(`<b>$${esc(c.tk)}</b> <span class="${c.ch5 > 0 ? 'u' : 'd'}">${fmtPct(c.ch5)} in 5m</span>`);
       return c;
     });
+    const prevTop = board[0] && board[0].key;
     const orderChanged = next.length !== board.length || next.some((c, i) => board[i] !== c);
     board = next;
     if (first) setMode('live');
     if (orderChanged) { if (!first) logRankChanges(prevKeys); layoutWall(); }
     else board.forEach(c => paintCard(c, true));
     if (first) logEvent(`Board loaded · <b>${board.length}</b> coins from Peak`);
+    if (!first && board[0] && board[0].key !== prevTop) erupt(board[0]);
     // stagger candle loads so GeckoTerminal's free limit is respected
     board.filter(c => Date.now() - c.candlesAt > CANDLE_MS).slice(0, 4).forEach(loadCandles);
   }
@@ -800,11 +909,13 @@ a { color: inherit; }
           inn.score = sorted[sorted.length - 3].score + 2 + Math.random() * 4; inn.isNew = true; inn.prevRank = null;
           board.push(inn);
         }
+        const prevTop = board[0] && board[0].key;
         board.sort((a, b) => b.score - a.score);
         board.forEach((c, i) => c.rank = i);
         logRankChanges(prevKeys);
         const top = board[0].score; board.forEach(c => c.score = c.score - top + 100);
         layoutWall();
+        if (board[0].key !== prevTop) setTimeout(() => erupt(board[0]), 500);
       }
       cdEl.textContent = '0:' + String(untilRerank).padStart(2, '0');
     }, 1000);
