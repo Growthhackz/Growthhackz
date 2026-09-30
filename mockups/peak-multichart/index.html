@@ -95,19 +95,67 @@ a { color: inherit; }
 .alt-scale span::after { content: ""; width: 10px; height: 1px; background: rgba(238,242,251,.3); }
 .summit {
   position: absolute; left: 0; top: 0; z-index: 4; transform: translate(-50%, -100%);
-  display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border: 0; background: none; padding: 0 0 6px;
-  transition: opacity .3s;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 0 6px;
+  transition: opacity .3s; --fs: 15px;
 }
+.summit.r1 { z-index: 7; } .summit.r2, .summit.r3 { z-index: 6; }
+.summit .row { display: flex; align-items: center; gap: 6px; }
 .summit .tag {
-  font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .04em; line-height: 1;
-  padding: 4px 7px 3px; border-radius: 6px; background: rgba(10,15,29,.72); border: 1px solid rgba(238,242,251,.18);
+  font-family: var(--display); font-weight: 800; font-size: var(--fs); letter-spacing: .04em; line-height: 1; cursor: pointer; color: var(--snow);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: .28em .45em .2em; border-radius: 7px; background: rgba(10,15,29,.74); border: 1px solid rgba(238,242,251,.18);
   white-space: nowrap; backdrop-filter: blur(4px);
 }
-.summit .tag i { font-style: normal; color: var(--glow-a); margin-right: 5px; }
+.summit .tag img, .summit .tag .coin { width: calc(var(--fs) * 1.55); height: calc(var(--fs) * 1.55); font-size: 11px; margin: -.1em 0; }
+.summit.r1 .tag { border-color: rgba(255,179,107,.7); box-shadow: 0 0 22px rgba(255,179,107,.35); }
+.join {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-decoration: none; color: var(--night);
+  background: linear-gradient(90deg, var(--glow-a), var(--glow-b)); padding: 5px 8px; border-radius: 6px; white-space: nowrap;
+  box-shadow: 0 0 16px rgba(255,122,168,.45); pointer-events: auto;
+}
+.join:hover { filter: brightness(1.1); }
+.join[hidden] { display: none; }
+.summit .tag i { font-style: normal; color: var(--glow-a); margin-right: .3em; }
 .summit .chg { font-family: var(--mono); font-size: 10px; font-weight: 700; }
-.summit::after { content: ""; width: 1px; height: 8px; background: rgba(238,242,251,.55); }
+.summit::after { content: ""; width: 1px; height: var(--stem, 8px); transform: translateX(var(--sx, 0px)); background: rgba(238,242,251,.55); }
 .summit.dim { opacity: .22; }
 .summit.hot .tag { border-color: var(--glow-a); box-shadow: 0 0 18px rgba(255,179,107,.45); }
+
+/* ---------- momentum board ---------- */
+.mo-sec { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin-top: 16px; }
+.mo { position: relative; height: 430px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line);
+  background: radial-gradient(600px 300px at 85% 10%, rgba(70,224,169,.07), transparent 70%), radial-gradient(600px 300px at 10% 95%, rgba(255,95,126,.06), transparent 70%), var(--night-2); }
+.mo canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.mo-head { position: absolute; left: 22px; top: 18px; z-index: 3; pointer-events: none; }
+.mo-head h2 { font-family: var(--display); font-weight: 900; font-size: clamp(24px, 3vw, 34px); line-height: .95; margin: 6px 0 0; letter-spacing: .01em; }
+.mo-q { position: absolute; z-index: 2; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; opacity: .75; }
+.mo-q.tr { right: 60px; top: 104px; color: var(--up); } .mo-q.br { right: 60px; bottom: 50px; color: var(--glow-c); }
+.mo-q.tl { left: 60px; top: 104px; color: #7fd8ff; } .mo-q.bl { left: 60px; bottom: 50px; color: var(--down); }
+.mo-ax { position: absolute; z-index: 2; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: var(--fog); pointer-events: none; text-transform: uppercase; }
+.mo-ax.x { left: 50%; bottom: 10px; transform: translateX(-50%); } .mo-ax.y { left: 8px; top: 50%; transform: rotate(-90deg) translateX(50%); transform-origin: left top; }
+.mo-dot { position: absolute; left: 0; top: 0; z-index: 4; display: flex; align-items: center; gap: 6px; transition: opacity .3s; --fs: 13px; --ox: calc(var(--fs) * -.4); cursor: pointer; }
+.mo-dot.logo { --ox: calc(var(--fs) * -1.15); }
+.mo-dot.flip { flex-direction: row-reverse; --ox: calc(-100% + var(--fs) * .4); }
+.mo-dot.flip.logo { --ox: calc(-100% + var(--fs) * 1.15); }
+.mo-dot .pip { width: .8em; height: .8em; border-radius: 50%; background: var(--cat, var(--mist)); box-shadow: 0 0 0 3px rgba(10,15,29,.8), 0 0 14px var(--cat, transparent); font-size: var(--fs); flex: none; }
+.mo-dot img, .mo-dot .coin { width: 2.3em; height: 2.3em; font-size: var(--fs); flex: none; box-shadow: 0 0 0 2px var(--cat, var(--line)), 0 0 18px var(--cat, transparent); }
+.mo-dot .coin { font-size: 12px; width: calc(2.3 * var(--fs)); height: calc(2.3 * var(--fs)); }
+.mo-dot b { font-family: var(--display); font-weight: 800; font-size: var(--fs); letter-spacing: .04em; white-space: nowrap; text-shadow: 0 1px 8px rgba(10,15,29,.95), 0 0 2px rgba(10,15,29,1); }
+.mo-dot b i { font-style: normal; color: var(--glow-a); margin-right: 4px; font-size: .8em; }
+.mo-dot[hidden] { display: none; }
+.mo-dot.dim { opacity: .2; } .mo-dot.hot b { color: var(--glow-a); }
+.mo-list { background: var(--night-2); border: 1px solid var(--line); border-radius: 22px; padding: 16px 16px 10px; min-width: 0; height: 430px; display: flex; flex-direction: column; }
+.mo-list h2 { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: .03em; margin: 4px 0 8px; }
+.mo-list ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.mo-list li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 5px 0; border-top: 1px solid rgba(37,48,79,.7); font-size: 12px; }
+.mo-list li:first-child { border-top: 0; }
+.mo-list .n { font-family: var(--mono); font-size: 10.5px; color: var(--fog); }
+.mo-list .t { display: flex; align-items: center; gap: 6px; min-width: 0; font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .03em; white-space: nowrap; overflow: hidden; }
+.mo-list .t small { font-family: var(--mono); font-weight: 400; font-size: 10px; color: var(--fog); letter-spacing: 0; }
+.mo-list .t img, .mo-list .t .coin { width: 18px; height: 18px; font-size: 9px; }
+.cat { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 5px; white-space: nowrap; color: var(--cat); background: color-mix(in srgb, var(--cat) 14%, transparent); }
+.mo-list .mbar { grid-column: 2 / 4; height: 3px; border-radius: 2px; background: rgba(37,48,79,.8); overflow: hidden; }
+.mo-list .mbar i { display: block; height: 100%; background: var(--cat); transition: width .8s; }
 
 .log { background: var(--night-2); border: 1px solid var(--line); border-radius: 22px; padding: 16px 16px 10px; display: flex; flex-direction: column; min-width: 0; height: 400px; }
 .log h2 { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: .03em; margin: 4px 0 10px; }
@@ -173,6 +221,8 @@ a { color: inherit; }
 .coin { width: 20px; height: 20px; border-radius: 50%; flex: none; object-fit: cover; background: var(--night-3); display: grid; place-items: center; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--mist); box-shadow: 0 0 0 1px var(--line); }
 .who .nm a { color: var(--mist); text-decoration: none; border-bottom: 1px dotted var(--fog); }
 .who .nm a:hover { color: var(--snow); }
+.c-head .join { margin-right: 2px; }
+.c-end { display: flex; align-items: center; gap: 6px; }
 .slot { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .08em; padding: 2px 5px; border-radius: 4px; color: var(--night); background: var(--glow-b); text-transform: uppercase; }
 
 .c-foot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 8px 14px 10px; border-top: 1px solid rgba(37,48,79,.6); }
@@ -191,18 +241,24 @@ a { color: inherit; }
   .wall, .wall.even-mode { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 960px) {
-  .hero { grid-template-columns: minmax(0, 1fr); }
+  .hero, .mo-sec { grid-template-columns: minmax(0, 1fr); }
+  .mo-list { height: auto; }
   .log { height: auto; max-height: 240px; }
   .wall, .wall.even-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
   .wrap { padding-inline: 16px; }
-  .ridge { height: 300px; }
   .summit:not(.top3) .tk { display: none; }
   .summit:not(.top3) .tag i { margin-right: 0; }
+  .ridge { height: 340px; }
+  .ridge-head { display: none; }
+  .summit .tag { font-size: calc(var(--fs) * .78) !important; }
+  .mo-dot:not(.top5) b { display: none; }
+  .mo { height: 330px; }
+  .mo-q.tl { top: 76px; }
   .ridge-head { max-width: 88%; }
-  .ridge-head p { display: none; }
-  .summit .tag { font-size: 12px; padding: 3px 5px 2px; }
+  .ridge-head h1 { display: none; }
+  .ridge-head .eyebrow { font-size: 9.5px; }
   .summit .chg { display: none; }
   .wall, .wall.even-mode { grid-template-columns: minmax(0, 1fr); grid-auto-rows: 300px; }
   .wall.summit-mode .card:first-child { grid-column: auto; grid-row: span 1; }
@@ -273,9 +329,8 @@ a { color: inherit; }
     <div class="ridge" id="ridge">
       <canvas id="ridgeCanvas" aria-hidden="true"></canvas>
       <div class="ridge-head">
-        <div class="eyebrow">Peak Trending · live board</div>
+        <div class="eyebrow">Peak Trending · live board · tap a summit for its chart</div>
         <h1>Who's on top right now</h1>
-        <p>Each summit is a coin on the board. Taller means stronger trend. Tap a summit to jump to its chart.</p>
       </div>
       <div class="alt-scale" aria-hidden="true"><span>STRONG</span><span></span><span></span><span>WEAK</span></div>
       <div id="summits"></div>
@@ -284,6 +339,22 @@ a { color: inherit; }
       <div class="eyebrow">Trail log</div>
       <h2>Board moves</h2>
       <ol id="log"></ol>
+    </aside>
+  </section>
+
+  <section class="mo-sec">
+    <div class="mo" id="mo">
+      <canvas id="moCanvas" aria-hidden="true"></canvas>
+      <div class="mo-head"><div class="eyebrow">Momentum · live</div><h2>Who's climbing fastest</h2></div>
+      <span class="mo-q tr">Climbing fast</span><span class="mo-q br">Cooling off</span>
+      <span class="mo-q tl">Bouncing back</span><span class="mo-q bl">Sliding</span>
+      <span class="mo-ax x">1h trend →</span><span class="mo-ax y">5m speed →</span>
+      <div id="moDots"></div>
+    </div>
+    <aside class="mo-list">
+      <div class="eyebrow">Momentum ranking</div>
+      <h2>Hottest right now</h2>
+      <ol id="moList"></ol>
     </aside>
   </section>
 
@@ -345,6 +416,10 @@ a { color: inherit; }
   const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const safeUrl = u => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch { return null; } };
 
+  const coinImg = (c, cls = 'coin') => { const u = safeUrl(c.icon); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=&quot;${cls}&quot;>${esc(c.tk.slice(0, 1))}</span>'">` : `<span class="${cls}">${esc(c.tk.slice(0, 1))}</span>`; };
+  const tgUrl = c => { const u = safeUrl(c.telegram); return u && /^https:\/\/t\.me\//.test(u) ? u : null; };
+  const rankFs = (rank, top, bottom) => top - (top - bottom) * Math.min(rank, 9) / 9;   // #1 biggest, #10 smallest
+
   let MODE = 'boot';                       // 'live' | 'demo'
   let simNow = Math.floor(Date.now() / 60000) * 60;
   const nowSec = () => MODE === 'demo' ? simNow : Date.now() / 1000;
@@ -402,7 +477,7 @@ a { color: inherit; }
           <div class="tk">${icon ? `<img class="coin" src="${esc(icon)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="coin">${esc(c.tk.slice(0, 1))}</span>`}$${esc(c.tk)} <span class="chain ${c.chain}">${CHAIN_LABEL[c.chain] || esc(c.chainId).toUpperCase()}</span>${c.slot ? `<span class="slot" title="Peak slot: ${esc(c.slot)}">${esc(c.slot)}</span>` : ''}</div>
           <div class="nm">${esc(c.name)}${chart ? ` · <a href="${esc(chart)}" target="_blank" rel="noopener">Chart ↗</a>` : ''}</div>
         </div>
-        <span class="move s">–</span>
+        <span class="c-end"><a class="join" hidden target="_blank" rel="noopener">JOIN</a><span class="move s">–</span></span>
       </div>
       <div class="px">
         <span class="p"></span>
@@ -440,7 +515,7 @@ a { color: inherit; }
       emptyEl: el.querySelector('.empty'),
       rankEl: el.querySelector('.rank'), moveEl: el.querySelector('.move'), pEl: el.querySelector('.p'),
       chg: [...el.querySelectorAll('.chgs em')], st: Object.fromEntries([...el.querySelectorAll('[data-s]')].map(n => [n.dataset.s, n])),
-      press: el.querySelector('.press i'), lastPrice: c.price,
+      press: el.querySelector('.press i'), lastPrice: c.price, joinEl: el.querySelector('.join'),
     };
     el.addEventListener('mouseenter', () => setHot(c.key, true));
     el.addEventListener('mouseleave', () => setHot(c.key, false));
@@ -467,6 +542,8 @@ a { color: inherit; }
     else if (d > 0) { r.moveEl.className = 'move u'; r.moveEl.textContent = '▲ ' + d; }
     else if (d < 0) { r.moveEl.className = 'move d'; r.moveEl.textContent = '▼ ' + (-d); }
     else { r.moveEl.className = 'move s'; r.moveEl.textContent = '='; }
+    const tg = c.rank === 0 ? tgUrl(c) : null;
+    r.joinEl.hidden = !tg; if (tg) { r.joinEl.href = tg; r.joinEl.title = 'Join $' + c.tk + ' on Telegram'; }
     r.moveEl.title = c.isNew ? 'New on the board' : 'Change since the last board update';
     r.pEl.textContent = fmtPrice(c.price);
     if (flash && c.price !== r.lastPrice && r.lastPrice != null && !REDUCED) {
@@ -503,6 +580,7 @@ a { color: inherit; }
     });
     applyFilter();
     peaksTarget();
+    updateMomentum();
     if (REDUCED) return;
     board.forEach(c => {
       const r = cards.get(c.key), a = before.get(c.key); if (!a) return;
@@ -549,13 +627,14 @@ a { color: inherit; }
       fn(b);
     });
   }
-  segment('chainSeg', b => { chainFilter = b.dataset.chain; applyFilter(); });
+  segment('chainSeg', b => { chainFilter = b.dataset.chain; applyFilter(); updateMomentum(); });
   segment('tfSeg', b => { TF = +b.dataset.tf; board.forEach(loadSeries); });
   segment('layoutSeg', b => { wall.classList.toggle('summit-mode', b.dataset.layout === 'summit'); wall.classList.toggle('even-mode', b.dataset.layout === 'even'); });
 
   function setHot(key, on) {
     const s = summitEls.get(key); if (s) s.classList.toggle('hot', on);
     const r = cards.get(key); if (r) r.el.classList.toggle('hot', on);
+    const d = moDots.get(key); if (d) d.el.classList.toggle('hot', on);
   }
 
   /* ---------- event log ---------- */
@@ -578,7 +657,8 @@ a { color: inherit; }
   const summitEls = new Map();
   const peaks = new Map();   // key -> {x,h,tx,th}
   let W = 0, H = 0, DPR = 1;
-  const SLOT = [4, 5, 3, 6, 2, 7, 1, 8, 0, 9];   // rank → slot, highest in the middle
+  // rank → x position: #1 in the middle with room for its big label, then alternating out to the edges
+  const SLOT_X = [0.5, 0.665, 0.335, 0.785, 0.215, 0.87, 0.13, 0.93, 0.065, 0.975];
   let seed = 7; const R = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const stars = Array.from({ length: 90 }, () => [R(), R() * 0.6, R() * 1.2 + 0.2, R() * 6]);
 
@@ -592,29 +672,41 @@ a { color: inherit; }
     const n = Math.max(2, board.length);
     const scores = board.map(c => c.score), lo = Math.min(...scores), hi = Math.max(...scores);
     board.forEach(c => {
-      const slot = n === 10 ? SLOT[c.rank] : c.rank;
-      const tx = W * (0.07 + 0.82 * slot / (n - 1));
+      const tx = W * (n === 10 ? SLOT_X[c.rank] : 0.07 + 0.86 * c.rank / (n - 1));
       const byRank = 1 - c.rank / (n - 1);
       const byScore = hi === lo ? 1 : (c.score - lo) / (hi - lo);
-      const th = H * (0.12 + 0.26 * byRank + 0.08 * byScore);
+      const th = H * (0.1 + 0.24 * byRank + 0.08 * byScore);
       let p = peaks.get(c.key);
       if (!p) { p = { x: tx, h: snap ? th : 0, tx, th }; peaks.set(c.key, p); }
       p.tx = tx; p.th = th;
       if (snap || REDUCED) { p.x = tx; p.h = th; }
       if (!summitEls.has(c.key)) {
-        const b = document.createElement('button');
-        b.className = 'summit'; b.type = 'button';
-        b.innerHTML = `<span class="tag"><i></i><span class="tk">$${esc(c.tk)}</span></span><span class="chg"></span>`;
-        b.addEventListener('click', () => {
-          const r = cards.get(c.key); if (!r) return;
-          r.el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
-          setHot(c.key, true); setTimeout(() => setHot(c.key, false), 1600);
-        });
+        const b = document.createElement('div');
+        b.className = 'summit';
+        b.addEventListener('click', e => { if (e.target.closest('.tag')) jumpTo(c.key); });
         b.addEventListener('mouseenter', () => setHot(c.key, true));
         b.addEventListener('mouseleave', () => setHot(c.key, false));
         summitsBox.appendChild(b); summitEls.set(c.key, b);
       }
     });
+  }
+  function jumpTo(key) {
+    const r = cards.get(key); if (!r) return;
+    r.el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
+    setHot(key, true); setTimeout(() => setHot(key, false), 1600);
+  }
+  // summit label: logo for the top 3, cashtag sized by rank, JOIN on #1 when the coin has a Telegram
+  function summitLabel(el, c) {
+    const tg = c.rank === 0 ? tgUrl(c) : null;
+    const sig = [c.rank, c.tk, c.icon, tg].join('|');
+    if (el.dataset.sig !== sig) {
+      el.dataset.sig = sig;
+      el.className = 'summit r' + (c.rank + 1) + (c.rank < 5 ? ' top5' : '') + (c.rank < 3 ? ' top3' : '') + (el.classList.contains('dim') ? ' dim' : '') + (el.classList.contains('hot') ? ' hot' : '');
+      el.style.setProperty('--fs', rankFs(c.rank, 22, 11) + 'px');
+      el.innerHTML = `<span class="row"><button type="button" class="tag">${c.rank < 3 ? coinImg(c) : ''}<span><i>#${c.rank + 1}</i><span class="tk">$${esc(c.tk)}</span></span></button>${tg ? `<a class="join" href="${esc(tg)}" target="_blank" rel="noopener" title="Join $${esc(c.tk)} on Telegram">JOIN</a>` : ''}</span><span class="chg"></span>`;
+    }
+    const ch = el.querySelector('.chg'), v = c.ch1h;
+    ch.textContent = v == null ? '' : fmtPct(v); ch.className = 'chg ' + (v == null ? '' : v >= 0 ? 'up' : 'dn');
   }
   const noise = x => Math.sin(x * 0.051) * 0.5 + Math.sin(x * 0.137 + 1.3) * 0.3 + Math.sin(x * 0.31 + 4) * 0.2;
   const shape = t => { const a = Math.abs(t); return a >= 1 ? 0 : Math.pow(1 - a, 1.55); };
@@ -654,16 +746,170 @@ a { color: inherit; }
       ctx.fillStyle = sg; ctx.fill();
     }
     ctx.restore();
-    for (const c of board) {
+    // place labels by rank; a label that would cover a higher-ranked one climbs above it on a longer stem
+    const placed = [];
+    for (const c of [...board].sort((a, b) => a.rank - b.rank)) {
       const p = peaks.get(c.key), el = summitEls.get(c.key); if (!p || !el) continue;
-      const y = ridgeY(p.x, list, base);
-      el.style.transform = `translate(${p.x}px, ${y - 2}px) translate(-50%, -100%)`;
-      el.querySelector('i').textContent = '#' + (c.rank + 1);
-      el.classList.toggle('top3', c.rank < 3);
-      const ch = el.querySelector('.chg'); const v = c.ch1h;
-      ch.textContent = v == null ? '' : fmtPct(v); ch.className = 'chg ' + (v == null ? '' : v >= 0 ? 'up' : 'dn');
+      summitLabel(el, c);
+      const y = ridgeY(p.x, list, base) - 2;
+      const w = el.offsetWidth || 0, h = (el.offsetHeight || 0) - (el._stem || 8) - 6;
+      const clampX = x => Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, x));
+      const out = p.x >= W / 2 ? 1 : -1;
+      const free = (x, b) => !placed.some(q => x - w / 2 < q.r + 4 && x + w / 2 > q.l - 4 && b > q.top && b - h < q.bottom);
+      let lx = clampX(p.x), bottom = y - 14, found = false;
+      // try sliding outward, then inward, then climbing (at most 70px), keeping the first free spot
+      const maxLift = W < 560 ? H * 0.42 : 70;   // phones hide the headline, so labels may climb higher there
+      for (let lift = 0; lift <= maxLift; lift += 22) {
+        for (const dx of [0, 30, 60, 90, -30, -60]) {
+          const x = clampX(p.x + out * dx), b = Math.max(y - 14 - lift, h + 4);
+          if (free(x, b)) { lx = x; bottom = b; found = true; break; }
+        }
+        if (found) break;
+      }
+      placed.push({ l: lx - w / 2, r: lx + w / 2, top: bottom - h, bottom });
+      el._sx = (el._sx ?? 0) + ((p.x - (el._lx ?? lx)) - (el._sx ?? 0)) * (REDUCED ? 1 : 0.5);
+      el.style.setProperty('--sx', el._sx.toFixed(1) + 'px');
+      const want = y - 6 - bottom;
+      el._stem = (el._stem || 8) + (want - (el._stem || 8)) * (REDUCED ? 1 : 0.2);
+      el.style.setProperty('--stem', el._stem.toFixed(1) + 'px');
+      el._lx = el._lx == null || REDUCED ? lx : el._lx + (lx - el._lx) * 0.2;
+      el.style.transform = `translate(${el._lx}px, ${y}px) translate(-50%, -100%)`;
     }
+    moFrame();
     requestAnimationFrame(frame);
+  }
+
+  /* ---------- momentum board ---------- */
+  // x = 1h trend, y = 5m speed, both on a log-like scale so +8% and +800% both fit.
+  // Tails show where each coin has been over the last couple of minutes.
+  const moEl = document.getElementById('mo'), mcv = document.getElementById('moCanvas'), mctx = mcv.getContext('2d');
+  const moDotsBox = document.getElementById('moDots'), moListEl = document.getElementById('moList');
+  const moDots = new Map();   // key -> {el, x, y, tx, ty, trail: [[nx, ny]], sig}
+  let MW = 0, MH = 0;
+  const CATS = {
+    rocket:  { label: 'Climbing fast', color: tok('--up') },
+    steady:  { label: 'Always up',     color: tok('--glow-a') },
+    cooling: { label: 'Cooling off',   color: tok('--glow-c') },
+    bounce:  { label: 'Bouncing back', color: '#7fd8ff' },
+    slide:   { label: 'Sliding',       color: tok('--down') },
+    hold:    { label: 'Holding gains', color: tok('--mist') },
+    flat:    { label: 'Flat',          color: tok('--fog') },
+    none:    { label: 'No trades yet', color: tok('--fog') },
+  };
+  const slog = (v, k, max) => { v = v || 0; const s = Math.sign(v) * Math.log1p(Math.abs(v) / k) / Math.log1p(max / k); return Math.max(-1, Math.min(1, s)); };
+  // share of green 1m candles over the last 30 minutes of trading
+  function consistency(c) {
+    const b = c.bars1; if (!b || b.length < 8) return null;
+    const since = b[b.length - 1].time - 30 * 60, recent = b.filter(x => x.time > since);
+    if (recent.length < 6) return null;
+    return recent.filter(x => x.close >= x.open).length / recent.length;
+  }
+  function momentum(c) {
+    if (!(c.price > 0)) return { cat: 'none', score: -2, cons: null, nx: 0, ny: 0 };
+    const v5 = c.ch5 || 0, v1 = c.ch1h || 0, cons = consistency(c);
+    let cat = v1 > 0 ? 'hold' : 'flat';
+    if (v5 >= 5 && v1 >= 0) cat = 'rocket';
+    else if (v1 > 0 && cons != null && cons >= 0.55 && v5 > -3) cat = 'steady';
+    else if (v1 > 0 && v5 <= -3) cat = 'cooling';
+    else if (v1 <= 0 && v5 >= 3) cat = 'bounce';
+    else if (v1 < 0 && v5 < 0) cat = 'slide';
+    const score = 0.6 * slog(v5, 2, 500) + 0.4 * slog(v1, 5, 5000) + (cons == null ? 0 : (cons - 0.5) * 0.3);
+    return { cat, score, cons, nx: slog(v1, 5, 5000), ny: slog(v5, 2, 500) };
+  }
+  function moResize() {
+    const b = moEl.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+    MW = b.width; MH = b.height; PADX = MW < 560 ? 42 : 60; mcv.width = MW * dpr; mcv.height = MH * dpr; mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    moDots.forEach(d => { d.x = d.tx = moX(d.nx); d.y = d.ty = moY(d.ny); });
+  }
+  let PADX = 60; const PADT = 100, PADB = 44;
+  const moX = nx => PADX + (nx + 1) / 2 * (MW - PADX * 2);
+  const moY = ny => PADT + (1 - (ny + 1) / 2) * (MH - PADT - PADB);
+  function updateMomentum() {
+    const rows = board.map(c => ({ c, m: momentum(c) }));
+    for (const key of [...moDots.keys()]) if (!board.some(c => c.key === key)) { moDots.get(key).el.remove(); moDots.delete(key); }
+    rows.forEach(({ c, m }) => {
+      let d = moDots.get(c.key);
+      if (!d) {
+        const el = document.createElement('div'); el.className = 'mo-dot';
+        el.addEventListener('click', () => jumpTo(c.key));
+        el.addEventListener('mouseenter', () => setHot(c.key, true));
+        el.addEventListener('mouseleave', () => setHot(c.key, false));
+        moDotsBox.appendChild(el);
+        d = { el, nx: m.nx, ny: m.ny, trail: [], sig: '' }; d.x = d.tx = moX(m.nx); d.y = d.ty = moY(m.ny);
+        moDots.set(c.key, d);
+      }
+      d.nx = m.nx; d.ny = m.ny; d.tx = moX(m.nx); d.ty = moY(m.ny); d.cat = m.cat;
+      const last = d.trail[d.trail.length - 1];
+      if (!last || Math.abs(last[0] - m.nx) + Math.abs(last[1] - m.ny) > 0.004) { d.trail.push([m.nx, m.ny]); if (d.trail.length > 28) d.trail.shift(); }
+      const sig = [c.rank, c.tk, c.icon, m.cat].join('|');
+      if (d.sig !== sig) {
+        d.sig = sig;
+        d.el.style.setProperty('--fs', rankFs(c.rank, 19, 10) + 'px');
+        d.el.style.setProperty('--cat', CATS[m.cat].color);
+        d.el.style.zIndex = 20 - c.rank;
+        d.el.classList.toggle('top5', c.rank < 5);
+        d.el.classList.toggle('logo', c.rank < 3);
+        d.el.innerHTML = `${c.rank < 3 ? coinImg(c) : '<span class="pip"></span>'}<b><i>#${c.rank + 1}</i>$${esc(c.tk)}</b>`;
+        d.el.title = `$${c.tk}: ${CATS[m.cat].label}`;
+      }
+      d.el.classList.toggle('dim', !(chainFilter === 'all' || c.chain === chainFilter));
+      d.el.hidden = m.cat === 'none'; d.none = m.cat === 'none';
+    });
+    spreadDots(rows);
+    // ranking list, hottest first
+    rows.sort((a, b) => b.m.score - a.m.score);
+    moListEl.innerHTML = rows.map(({ c, m }, i) => {
+      const cat = CATS[m.cat];
+      return `<li style="--cat:${cat.color}"><span class="n">${i + 1}</span><span class="t">${c.rank < 3 ? coinImg(c) : ''}$${esc(c.tk)} <small>#${c.rank + 1} on Peak${m.cons != null ? ` · ${Math.round(m.cons * 100)}% green` : ''}</small></span><span class="cat">${cat.label}</span><span class="mbar"><i style="width:${Math.round((m.score + 1) / 2 * 100)}%"></i></span></li>`;
+    }).join('');
+  }
+  // nudge targets apart so labels never sit on top of each other (higher Peak rank keeps its spot)
+  function spreadDots(rows) {
+    const ds = rows.filter(r => !moDots.get(r.c.key).none).sort((a, b) => a.c.rank - b.c.rank).map(r => moDots.get(r.c.key));
+    const box = d => { const w = d.el.offsetWidth || 80, h = (d.el.offsetHeight || 20) + 4, flip = d.tx > MW * 0.72; return { l: flip ? d.tx - w : d.tx - 12, r: flip ? d.tx + 12 : d.tx + w, h }; };
+    const placed = [];
+    for (const d of ds) {
+      const B = box(d), y0 = d.ty;
+      let best = y0;
+      for (const off of [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6]) {
+        const y = Math.max(PADT - 20, Math.min(MH - PADB + 6, y0 + off * 14));
+        if (!placed.some(q => B.l < q.r && B.r > q.l && Math.abs(y - q.y) < (B.h + q.h) / 2)) { best = y; break; }
+      }
+      d.ty = best;
+      placed.push({ l: B.l, r: B.r, y: best, h: B.h });
+    }
+  }
+  function moFrame() {
+    if (!MW) return;
+    mctx.clearRect(0, 0, MW, MH);
+    const x0 = moX(0), y0 = moY(0), L = PADX, R = MW - PADX, T = PADT, B = MH - PADB;
+    // quadrant wash
+    mctx.fillStyle = 'rgba(70,224,169,.05)'; mctx.fillRect(x0, T, R - x0, y0 - T);
+    mctx.fillStyle = 'rgba(255,95,126,.05)'; mctx.fillRect(L, y0, x0 - L, B - y0);
+    // grid + ticks
+    mctx.font = '9.5px "JetBrains Mono", ui-monospace, monospace'; mctx.fillStyle = 'rgba(147,160,194,.55)'; mctx.textAlign = 'center';
+    mctx.strokeStyle = 'rgba(37,48,79,.55)'; mctx.lineWidth = 1;
+    for (const v of [-50, -10, 10, 100, 1000]) { const x = moX(slog(v, 5, 5000)); mctx.beginPath(); mctx.moveTo(x, T); mctx.lineTo(x, B); mctx.stroke(); mctx.fillText((v > 0 ? '+' : '') + v + '%', x, B + 14); }
+    mctx.textAlign = 'right';
+    for (const v of [-50, -10, 10, 100]) { const y = moY(slog(v, 2, 500)); mctx.beginPath(); mctx.moveTo(L, y); mctx.lineTo(R, y); mctx.stroke(); mctx.fillText((v > 0 ? '+' : '') + v + '%', L - 6, y + 3); }
+    mctx.strokeStyle = 'rgba(238,242,251,.28)'; mctx.lineWidth = 1.2;
+    mctx.beginPath(); mctx.moveTo(x0, T); mctx.lineTo(x0, B); mctx.moveTo(L, y0); mctx.lineTo(R, y0); mctx.stroke();
+    // tails, then ease dots toward their targets
+    moDots.forEach(d => {
+      if (d.none) return;
+      const col = CATS[d.cat || 'hold'].color, pts = d.trail.map(([nx, ny]) => [moX(nx), moY(ny)]);
+      d.x += (d.tx - d.x) * (REDUCED ? 1 : 0.08); d.y += (d.ty - d.y) * (REDUCED ? 1 : 0.08);
+      if (Math.abs(d.y - moY(d.ny)) > 3) { mctx.strokeStyle = 'rgba(238,242,251,.25)'; mctx.lineWidth = 1; mctx.beginPath(); mctx.moveTo(moX(d.nx), moY(d.ny)); mctx.lineTo(d.x, d.y); mctx.stroke(); mctx.fillStyle = col; mctx.beginPath(); mctx.arc(moX(d.nx), moY(d.ny), 2.5, 0, 7); mctx.fill(); }
+      mctx.globalAlpha = d.el.classList.contains('dim') ? 0.15 : 1;
+      for (let i = 1; i < pts.length; i++) {
+        mctx.strokeStyle = col; mctx.lineWidth = 1 + 2.5 * i / pts.length;
+        mctx.globalAlpha = (d.el.classList.contains('dim') ? 0.15 : 0.7) * i / pts.length;
+        mctx.beginPath(); mctx.moveTo(pts[i - 1][0], pts[i - 1][1]); mctx.lineTo(pts[i][0], pts[i][1]); mctx.stroke();
+      }
+      mctx.globalAlpha = 1;
+      d.el.classList.toggle('flip', d.x > MW * 0.72);
+      d.el.style.transform = `translate(${d.x}px, ${d.y}px) translate(var(--ox), -50%)`;
+    });
   }
 
   /* ---------- summit eruption: plays when a new coin takes #1 ---------- */
@@ -756,7 +1002,7 @@ a { color: inherit; }
     return {
       key: t.chain + ':' + t.mint, tk: t.symbol, name: t.name, chain: CHAIN[t.chain] || t.chain, chainId: t.chain,
       rank: 0, prevRank: null, isNew: false, score: 0, bars1: [], candlesAt: 0, chartState: null,
-      icon: t.icon, chartUrl: t.chartUrl, peakPage: t.peakPage, slot: t.slot, pool: t.pool, tagline: t.tagline,
+      icon: t.icon, chartUrl: t.chartUrl, peakPage: t.peakPage, slot: t.slot, pool: t.pool, tagline: t.tagline, telegram: t.telegram,
     };
   }
   function applyApi(c, t) {
@@ -765,6 +1011,8 @@ a { color: inherit; }
     c.mc = t.marketCap; c.liq = t.liquidity; c.vol24 = t.volume24h; c.holders = t.holders;
     const tx = t.txns5m; c.buys = tx && (tx.buys + tx.sells) > 0 ? tx.buys / (tx.buys + tx.sells) : null;
     if (t.pool && !c.pool) c.pool = t.pool;
+    if (t.icon) c.icon = t.icon;
+    c.telegram = t.telegram || null;
   }
 
   async function loadCandles(c) {
@@ -814,7 +1062,7 @@ a { color: inherit; }
     board = next;
     if (first) setMode('live');
     if (orderChanged) { if (!first) logRankChanges(prevKeys); layoutWall(); }
-    else board.forEach(c => paintCard(c, true));
+    else { board.forEach(c => paintCard(c, true)); updateMomentum(); }
     if (first) logEvent(`Board loaded · <b>${board.length}</b> coins from Peak`);
     if (!first && board[0] && board[0].key !== prevTop) erupt(board[0]);
     // stagger candle loads so GeckoTerminal's free limit is respected
@@ -845,10 +1093,10 @@ a { color: inherit; }
       ['ZEPH', 'Zephyr', 'sol', 0.00117], ['KIWI', 'Kiwi Summit', 'arc', 0.0338],
       ['BLORP', 'Blorp', 'sol', 0.00000288], ['HALO', 'Halo Finance', 'hood', 0.264],
     ];
-    const TICK_MS = 700, SIM_PER_TICK = 10.5;
+    const TICK_MS = 700, SIM_PER_TICK = 10.5; let demoTicks = 0;
     const pctBack = (c, mins) => { const b = c.bars1; const ref = b[Math.max(0, b.length - 1 - mins)].open; return (c.price / ref - 1) * 100; };
     function makeCoin([tk, name, chain, p0]) {
-      const c = { key: 'demo:' + tk, tk, name, chain, chainId: chain, slot: null, icon: null, chartUrl: null, vol: 0.012 + R() * 0.02, drift: (R() - 0.35) * 0.0015,
+      const c = { key: 'demo:' + tk, tk, name, chain, chainId: chain, slot: null, icon: null, chartUrl: null, telegram: 'https://t.me/PeakTrending', vol: 0.012 + R() * 0.02, drift: (R() - 0.35) * 0.0015,
         score: 0, prevRank: null, rank: 0, isNew: false, bars1: [], buys: 0.5 };
       let p = p0 * (0.55 + R() * 0.3), t = simNow - 1560 * 60;
       for (let k = 0; k < 1560; k++, t += 60) {
@@ -893,6 +1141,7 @@ a { color: inherit; }
         paintCard(c, true);
       }
       peaksTarget();
+      if (++demoTicks % 3 === 0) updateMomentum();
     }, TICK_MS);
 
     let untilRerank = 15, count = 0;
@@ -928,6 +1177,8 @@ a { color: inherit; }
   }
   resize();
   new ResizeObserver(resize).observe(ridge);
+  moResize();
+  new ResizeObserver(moResize).observe(moEl);
   requestAnimationFrame(frame);
   const canLive = location.protocol.startsWith('http') && !/claude|claudeusercontent/.test(location.hostname);
   (canLive ? startLive() : Promise.reject(new Error('no server'))).catch(() => startDemo());

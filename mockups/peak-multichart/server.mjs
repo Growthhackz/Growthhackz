@@ -88,9 +88,30 @@ async function loadMarket(tokens) {
   return out;
 }
 
+const smallImg = u => u ? u.replace(/width=\d+&height=\d+/, 'width=160&height=160') : null;
+
+// Peak's token page lists the project's links and logo even when DexScreener has no listing yet.
+// Only used for the top 3 when DexScreener lacks a logo or Telegram, cached for 10 minutes.
+async function peakPageExtras(page) {
+  return cached(`peakpage:${page}`, 600_000, async () => {
+    const r = await fetch('https://www.peakbuybot.com' + page, { headers: { 'user-agent': 'peak-ridge/0.1' } });
+    if (!r.ok) return {};
+    const html = await r.text();
+    const telegram = html.match(/class="link-row" href="(https:\/\/t\.me\/[A-Za-z0-9_+\/]+)"/)?.[1] || null;
+    const icon = html.match(/property="og:image" content="(https:\/\/[^"]+)"/)?.[1] || null;
+    return { telegram, icon: icon && !/peakbuybot\.com\/assets\//.test(icon) ? icon : null };
+  }).catch(() => ({}));
+}
+
 async function board() {
   const peak = await cached('peak', BOARD_TTL, loadPeak);
   const market = await loadMarket(peak.tokens);
+  const extras = {};
+  await Promise.all(peak.tokens.slice(0, 3).map(async t => {
+    const info = market[`${t.chain}:${t.mint}`]?.info;
+    const hasTg = (info?.socials || []).some(x => x.type === 'telegram');
+    if (t.page && (!hasTg || !(info?.imageUrl || t.icon))) extras[t.mint] = await peakPageExtras(t.page);
+  }));
   return {
     updatedAt: peak.updatedAt,
     serverTime: Date.now(),
@@ -98,7 +119,9 @@ async function board() {
       const p = market[`${t.chain}:${t.mint}`];
       return {
         rank: t.rank, chain: t.chain, symbol: t.symbol, name: t.name, mint: t.mint,
-        icon: t.icon || p?.info?.imageUrl || null,
+        // logos come from DexScreener (Peak's own icon as fallback), asked for at a small size
+        icon: smallImg(p?.info?.imageUrl || t.icon || extras[t.mint]?.icon || null),
+        telegram: (p?.info?.socials || []).find(x => x.type === 'telegram' && /^https:\/\/t\.me\//.test(x.url || ''))?.url || extras[t.mint]?.telegram || null,
         slot: t.slot, permanent: !!t.permanent, holders: t.holders ?? null, tagline: t.tagline || null,
         peakPage: t.page ? 'https://www.peakbuybot.com' + t.page : null,
         chartUrl: p?.url || t.chartUrl || null,
