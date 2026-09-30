@@ -5,6 +5,7 @@ import { FundingWatcher } from './watcher.js';
 import { saveState } from './state.js';
 import { teardown, recover } from './teardown.js';
 import { collectSwapEvents, toCsv } from './fee-reader.js';
+import { TradeEngine } from './engine.js';
 
 const RPC = process.env.RPC_URL;
 const STORE = process.env.WALLET_DIR ?? './wallets';
@@ -34,6 +35,14 @@ const ctxFor = async (label, { withReceiver = false } = {}) => {
     statePath: `${STATE_DIR}/${label}.json`
   };
 };
+
+const engineFor = ({ withReceiver = false } = {}) => new TradeEngine({
+  connection,
+  storeDir: STORE,
+  passphrase: need('WALLET_PASSPHRASE', PASS),
+  logDir: process.env.LOG_DIR ?? './logs',
+  receiver: withReceiver ? receiver() : null
+});
 
 switch (cmd) {
   case 'wallet:new':
@@ -91,6 +100,24 @@ switch (cmd) {
     break;
   }
 
+  // trade <label> <buy|sell> <sol|pctSol|token|pctToken> <amount>
+  case 'trade': {
+    const [label, side, amountType, amount] = args;
+    console.log(await engineFor().trade(label, { side, amountType, amount: Number(amount) }));
+    break;
+  }
+
+  // estop <label|--all> [--sweep] [--burn]
+  case 'estop': {
+    const opts = { sweep: args.includes('--sweep'), burnUnsellable: args.includes('--burn') };
+    const eng = engineFor({ withReceiver: opts.sweep });
+    const out = args[0] === '--all'
+      ? await eng.emergencyStopAll(opts)
+      : await eng.emergencyStop(args[0], opts);
+    console.log(JSON.stringify(out, null, 2));
+    break;
+  }
+
   case 'fees': {
     const [pool, idlPath, limit, out] = args;
     const idl = JSON.parse(await fs.readFile(idlPath, 'utf8'));
@@ -110,6 +137,8 @@ switch (cmd) {
       'watch <label>',
       'recover <label>',
       'teardown <label>',
+      'trade <label> <buy|sell> <sol|pctSol|token|pctToken> <amount>',
+      'estop <label|--all> [--sweep] [--burn]',
       'fees <pool> <idl.json> <limit> <out.csv>'
     ].join('\n'));
 }

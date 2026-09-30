@@ -2,3 +2,4 @@ node_modules/
 wallets/
 state/
 *.csv
+logs/

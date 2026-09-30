@@ -21,13 +21,23 @@ function walletFile(storeDir, label) {
 }
 
 const intIn = (min, max) => (v) => Number.isInteger(v) && v >= min && v <= max;
+const isMint = (v) => {
+  if (v === null) return true;
+  try { return typeof v === 'string' && new PublicKey(v).toBase58() === v; }
+  catch { return false; }
+};
 const SETTINGS_SCHEMA = {
-  spendPct: intIn(1, 100),
-  sellPct: intIn(1, 100),
-  tradeCount: intIn(0, Number.MAX_SAFE_INTEGER),
+  mint: isMint,
   slippageBps: intIn(1, 5000),
-  useBundles: (v) => typeof v === 'boolean',
-  solFloorLamports: intIn(0, Number.MAX_SAFE_INTEGER)
+  solFloorLamports: intIn(0, Number.MAX_SAFE_INTEGER),
+  running: (v) => typeof v === 'boolean'
+};
+
+export const DEFAULT_SETTINGS = {
+  mint: null,
+  slippageBps: 100,
+  solFloorLamports: 10_000_000,
+  running: false
 };
 
 function validatePatch(patch) {
@@ -40,6 +50,15 @@ function validatePatch(patch) {
     if (!check(v)) throw new Error(`invalid value for ${k}: ${JSON.stringify(v)}`);
   }
   return patch;
+}
+
+// Fills defaults and drops keys this version no longer uses.
+export function normalizeSettings(settings = {}) {
+  const out = { ...DEFAULT_SETTINGS };
+  for (const k of Object.keys(SETTINGS_SCHEMA)) {
+    if (k in settings && SETTINGS_SCHEMA[k](settings[k])) out[k] = settings[k];
+  }
+  return out;
 }
 
 export async function createWallet({ label, passphrase, storeDir }) {
@@ -60,14 +79,8 @@ export async function createWallet({ label, passphrase, storeDir }) {
     iv: iv.toString('base64'),
     tag: tag.toString('base64'),
     ct: ct.toString('base64'),
-    settings: {
-      spendPct: 25,
-      sellPct: 100,
-      tradeCount: 0,
-      slippageBps: 100,
-      useBundles: false,
-      solFloorLamports: 1_000_000
-    }
+    settings: { ...DEFAULT_SETTINGS },
+    rules: []
   };
 
   // 'wx' refuses to overwrite an existing wallet (and its key) with the same label.
@@ -93,16 +106,37 @@ export async function loadWallet({ label, passphrase, storeDir }) {
   } catch {
     throw new Error(`bad passphrase or tampered record: ${label}`);
   }
-  return { keypair: Keypair.fromSecretKey(sk), settings: rec.settings };
+  return { keypair: Keypair.fromSecretKey(sk), settings: normalizeSettings(rec.settings) };
+}
+
+// Serializes read-modify-write on each wallet file, so the trade engine and the
+// API can't clobber each other's changes.
+const fileLocks = new Map();
+function withFileLock(file, fn) {
+  const prev = fileLocks.get(file) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  fileLocks.set(file, run.catch(() => {}));
+  return run;
+}
+
+export async function mutateRecord({ label, storeDir }, fn) {
+  const file = walletFile(storeDir, label);
+  return withFileLock(file, async () => {
+    const rec = JSON.parse(await fs.readFile(file, 'utf8'));
+    const result = await fn(rec);
+    const tmp = `${file}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(rec, null, 2), { mode: 0o600 });
+    await fs.rename(tmp, file);
+    return result;
+  });
 }
 
 export async function updateSettings({ label, storeDir, patch }) {
-  const file = walletFile(storeDir, label);
   validatePatch(patch);
-  const rec = JSON.parse(await fs.readFile(file, 'utf8'));
-  rec.settings = { ...rec.settings, ...patch };
-  await fs.writeFile(file, JSON.stringify(rec, null, 2), { mode: 0o600 });
-  return rec.settings;
+  return mutateRecord({ label, storeDir }, (rec) => {
+    rec.settings = { ...normalizeSettings(rec.settings), ...patch };
+    return rec.settings;
+  });
 }
 
 export async function deleteWallet({ label, storeDir, connection }) {

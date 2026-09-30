@@ -41,7 +41,7 @@ async function sendAll(connection, wallet, txs) {
   }
 }
 
-async function closeEmptyTokenAccounts({ connection, wallet, programId }) {
+export async function closeEmptyTokenAccounts({ connection, wallet, programId, failed }) {
   const { value: accounts } = await connection.getTokenAccountsByOwner(
     wallet.publicKey, { programId }
   );
@@ -61,8 +61,15 @@ async function closeEmptyTokenAccounts({ connection, wallet, programId }) {
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
       createCloseAccountInstruction(pubkey, wallet.publicKey, wallet.publicKey, [], programId)
     );
-    await sendAndConfirmTransaction(connection, tx, [wallet], { commitment: 'confirmed' });
-    closed.push(pubkey.toBase58());
+    try {
+      await sendAndConfirmTransaction(connection, tx, [wallet], { commitment: 'confirmed' });
+      closed.push(pubkey.toBase58());
+    } catch (e) {
+      // With a `failed` list the caller wants best effort; otherwise abort so
+      // teardown records the error and can resume from this step.
+      if (!failed) throw e;
+      failed.push({ account: pubkey.toBase58(), error: String(e?.message ?? e) });
+    }
   }
   return closed;
 }
@@ -70,7 +77,7 @@ async function closeEmptyTokenAccounts({ connection, wallet, programId }) {
 // Sends the entire balance minus the exact network fee, leaving the wallet at 0.
 // No priority fee here: it would be charged on top of the quoted fee and make the
 // transfer fail for insufficient funds.
-async function sweepAll({ connection, wallet, receiver }) {
+export async function sweepAll({ connection, wallet, receiver }) {
   const balance = BigInt(await connection.getBalance(wallet.publicKey, 'confirmed'));
   if (balance === 0n) return 0n;
 
