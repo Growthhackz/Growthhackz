@@ -123,8 +123,58 @@ a { color: inherit; }
 .summit.hot .tag { border-color: var(--glow-a); box-shadow: 0 0 18px rgba(143,224,75,.45); }
 
 /* ---------- momentum board ---------- */
-.mo-sec { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin-top: 16px; }
-.mo { position: relative; height: 430px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line);
+.pm { margin-top: 18px; border: 1px solid var(--line); border-radius: 22px; padding: 20px 20px 18px; min-width: 0;
+  background: linear-gradient(180deg, rgba(143,224,75,.05), rgba(143,224,75,0) 180px), var(--night-2); display: grid; gap: 16px; }
+.pm-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 32px; }
+.pm-head h2 { font-family: var(--brand); font-style: italic; font-weight: 900; font-size: clamp(24px, 3vw, 36px); line-height: 1; margin: 6px 0 0; text-wrap: balance; }
+.pm-head p { margin: 0; max-width: 62ch; color: var(--mist); font-size: 13px; }
+.pm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.tile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 14px; border-radius: 14px;
+  background: var(--night-3); border: 1px solid var(--line); cursor: pointer; min-width: 0; text-align: left; }
+.tile:hover { border-color: rgba(143,224,75,.5); }
+.tile .lbl { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
+.tile .coin { width: 30px; height: 30px; font-size: 13px; }
+.tile .nm { min-width: 0; font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .big { font-family: var(--display); font-weight: 900; font-size: 30px; line-height: 1; color: var(--c, var(--snow)); }
+.tile .sub { grid-column: 1 / -1; font-size: 12px; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--line); }
+.pm-table { border-collapse: collapse; width: 100%; min-width: 1060px; font-variant-numeric: tabular-nums; }
+.pm-table th { font-family: var(--mono); font-size: 9.5px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--fog); padding: 6px 4px; text-align: center; background: var(--night); white-space: nowrap; }
+.pm-table .grp th { color: var(--mist); padding-top: 9px; border-bottom: 0; }
+.pm-table .grp th[colspan="7"], .pm-table .grp th[colspan="5"]:not(:first-child), .pm-table .grp th[colspan="3"] { border-bottom: 1px solid var(--line); }
+.pm-table th:nth-child(2), .pm-table th.why { text-align: left; }
+.pm-table td { padding: 5px 3px; border-top: 1px solid rgba(31,42,27,.8); text-align: center; font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+.pm-table tbody tr { cursor: pointer; transition: background .2s; }
+.pm-table tbody tr:hover, .pm-table tbody tr.hot { background: rgba(143,224,75,.06); }
+.pm-table tbody tr.dim { opacity: .3; }
+.pm-table .n { color: var(--fog); width: 26px; }
+.pm-table .who { text-align: left; min-width: 150px; }
+.pm-table .who > span { display: flex; align-items: center; gap: 8px; }
+.pm-table .who b { font-family: var(--display); font-weight: 800; font-size: 16px; letter-spacing: .02em; color: var(--snow); }
+.pm-table .who small { display: block; font-size: 9.5px; color: var(--fog); }
+.pm-table .who .coin { width: 22px; height: 22px; font-size: 10px; }
+.sc { display: inline-flex; align-items: center; gap: 6px; }
+.sc b { display: inline-grid; place-items: center; min-width: 40px; padding: 4px 0; border-radius: 8px; font-family: var(--display); font-weight: 900; font-size: 20px; line-height: 1; color: #000; background: var(--c); box-shadow: 0 0 16px color-mix(in srgb, var(--c) 45%, transparent); }
+.sc b.na { background: var(--night-3); color: var(--fog); box-shadow: none; font-size: 14px; }
+.sc svg { width: 54px; height: 20px; }
+.dlt { font-weight: 700; }
+.ph { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 3px 7px; border-radius: 6px; color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); }
+.cell { display: inline-block; min-width: 46px; padding: 4px 3px; border-radius: 5px; color: var(--snow); background: var(--bgc, transparent); }
+.cell.na { color: var(--fog); }
+.cell.l { font-style: italic; }
+.pm-table td.why { text-align: left; white-space: normal; font-family: var(--body); font-size: 11.5px; padding: 0 3px 7px; border-top: 0; }
+.pm-table tbody tr.sub { cursor: pointer; }
+.chip { display: inline-block; margin: 1px 4px 1px 0; padding: 2px 6px; border-radius: 5px; background: rgba(143,224,75,.1); color: #d6f5b8; }
+.chip.bad { background: rgba(224,87,75,.12); color: #f5b8b0; }
+.chip.risk { background: rgba(240,180,76,.14); color: #f0c37a; }
+.pm-lower { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
+.pm-guide { background: var(--night-3); border: 1px solid var(--line); border-radius: 18px; padding: 16px; min-width: 0; }
+.pm-guide h3 { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: .02em; margin: 4px 0 10px; }
+.pm-guide dl { margin: 0; display: grid; gap: 8px; }
+.pm-guide dt { display: flex; align-items: center; gap: 8px; }
+.pm-guide dd { margin: 2px 0 0; font-size: 12px; color: var(--mist); line-height: 1.45; }
+.pm-note { margin: 12px 0 0; font-size: 11px; color: var(--fog); }
+.mo { position: relative; height: 470px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line);
   background: radial-gradient(600px 300px at 85% 10%, rgba(143,224,75,.07), transparent 70%), radial-gradient(600px 300px at 10% 95%, rgba(224,87,75,.06), transparent 70%), var(--night-2); }
 .mo canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .mo-head { position: absolute; left: 22px; top: 18px; z-index: 3; pointer-events: none; }
@@ -145,18 +195,7 @@ a { color: inherit; }
 .mo-dot b i { font-style: normal; color: var(--glow-a); margin-right: 4px; font-size: .8em; }
 .mo-dot[hidden] { display: none; }
 .mo-dot.dim { opacity: .2; } .mo-dot.hot b { color: var(--glow-a); }
-.mo-list { background: var(--night-2); border: 1px solid var(--line); border-radius: 22px; padding: 16px 16px 10px; min-width: 0; height: 430px; display: flex; flex-direction: column; }
-.mo-list h2 { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: .03em; margin: 4px 0 8px; }
-.mo-list ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
-.mo-list li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 5px 0; border-top: 1px solid rgba(31,42,27,.7); font-size: 12px; }
-.mo-list li:first-child { border-top: 0; }
-.mo-list .n { font-family: var(--mono); font-size: 10.5px; color: var(--fog); }
-.mo-list .t { display: flex; align-items: center; gap: 6px; min-width: 0; font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .03em; white-space: nowrap; overflow: hidden; }
-.mo-list .t small { font-family: var(--mono); font-weight: 400; font-size: 10px; color: var(--fog); letter-spacing: 0; }
-.mo-list .t img, .mo-list .t .coin { width: 18px; height: 18px; font-size: 9px; }
 .cat { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 5px; white-space: nowrap; color: var(--cat); background: color-mix(in srgb, var(--cat) 14%, transparent); }
-.mo-list .mbar { grid-column: 2 / 4; height: 3px; border-radius: 2px; background: rgba(31,42,27,.8); overflow: hidden; }
-.mo-list .mbar i { display: block; height: 100%; background: var(--cat); transition: width .8s; }
 
 .log { background: var(--night-2); border: 1px solid var(--line); border-radius: 22px; padding: 16px 16px 10px; display: flex; flex-direction: column; min-width: 0; height: 400px; }
 .log h2 { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: .03em; margin: 4px 0 10px; }
@@ -242,9 +281,9 @@ a { color: inherit; }
   .wall, .wall.even-mode { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 960px) {
-  .hero, .mo-sec { grid-template-columns: minmax(0, 1fr); }
-  .mo-list { height: auto; }
-  .log { height: auto; max-height: 240px; }
+  .hero, .pm-lower { grid-template-columns: minmax(0, 1fr); }
+  .pm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .log { height: auto; max-height: 240px; }
   .wall, .wall.even-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
@@ -255,7 +294,13 @@ a { color: inherit; }
   .ridge-head { display: none; }
   .summit .tag { font-size: calc(var(--fs) * .78) !important; }
   .mo-dot:not(.top5) b { display: none; }
-  .mo { height: 330px; }
+  .mo { height: 360px; }
+  .pm { padding: 14px; }
+  .tile .nm { font-size: 18px; } .tile .big { font-size: 24px; }
+  .pm-tiles { grid-template-columns: minmax(0, 1fr); }
+  .pm-table th:first-child, .pm-table td.n { display: none; }
+  .pm-table td.who, .pm-table thead tr:not(.grp) th:nth-child(2) { position: sticky; left: 0; z-index: 2; background: var(--night-2); }
+  .pm-table td.who { min-width: 132px; box-shadow: 6px 0 10px -6px rgba(0,0,0,.9); }
   .mo-q.tl { top: 76px; }
   .ridge-head { max-width: 88%; }
   .ridge-head h1 { display: none; }
@@ -342,20 +387,44 @@ a { color: inherit; }
     </aside>
   </section>
 
-  <section class="mo-sec">
-    <div class="mo" id="mo">
-      <canvas id="moCanvas" aria-hidden="true"></canvas>
-      <div class="mo-head"><div class="eyebrow">Momentum · live</div><h2>Who's climbing fastest</h2></div>
-      <span class="mo-q tr">Climbing fast</span><span class="mo-q br">Cooling off</span>
-      <span class="mo-q tl">Bouncing back</span><span class="mo-q bl">Sliding</span>
-      <span class="mo-ax x">1h trend →</span><span class="mo-ax y">5m speed →</span>
-      <div id="moDots"></div>
+  <section class="pm" id="pm">
+    <div class="pm-head">
+      <div>
+        <div class="eyebrow">Peak Momentum · live · updates every 10s</div>
+        <h2>Who's climbing now, and who keeps climbing</h2>
+      </div>
+      <p>One score from 0 to 100 per coin. It blends price moves from 1 minute to 6 hours, how cleanly the trend holds, volume against its normal pace, buys vs sells, and holder growth.</p>
     </div>
-    <aside class="mo-list">
-      <div class="eyebrow">Momentum ranking</div>
-      <h2>Hottest right now</h2>
-      <ol id="moList"></ol>
-    </aside>
+    <div class="pm-tiles" id="pmTiles"></div>
+    <div class="pm-wrap" role="region" aria-label="Momentum table" tabindex="0">
+      <table class="pm-table">
+        <thead>
+          <tr class="grp"><th colspan="5"></th><th colspan="7">Price move</th><th colspan="5">Volume vs normal</th><th colspan="3">Holders</th><th></th></tr>
+          <tr><th>#</th><th>Coin</th><th>Score</th><th>15m</th><th>Phase</th>
+            <th>1m</th><th>5m</th><th>15m</th><th>30m</th><th>1h</th><th>3h</th><th>6h</th>
+            <th>1m</th><th>5m</th><th>15m</th><th>30m</th><th>1h</th>
+            <th>5m</th><th>15m</th><th>1h</th>
+            <th>Buys</th></tr>
+        </thead>
+        <tbody id="pmBody"></tbody>
+      </table>
+    </div>
+    <div class="pm-lower">
+      <div class="mo" id="mo">
+        <canvas id="moCanvas" aria-hidden="true"></canvas>
+        <div class="mo-head"><div class="eyebrow">Momentum map</div><h2>Right now vs the long run</h2></div>
+        <span class="mo-q tr">Climbing</span><span class="mo-q br">Cooling off</span>
+        <span class="mo-q tl">Bouncing back</span><span class="mo-q bl">Bleeding</span>
+        <span class="mo-ax x">Trend over 1h–6h →</span><span class="mo-ax y">Last 1–15m →</span>
+        <div id="moDots"></div>
+      </div>
+      <aside class="pm-guide">
+        <div class="eyebrow">Playbook</div>
+        <h3>How to read the phases</h3>
+        <dl id="pmGuide"></dl>
+        <p class="pm-note">Score parts: price 30%, trend 25%, volume 20%, holders 15%, buys 10%. Not financial advice.</p>
+      </aside>
+    </div>
   </section>
 
   <div class="row">
@@ -394,6 +463,7 @@ a { color: inherit; }
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="momentum.js"></script>
 <script>
 (() => {
   const C = getComputedStyle(document.documentElement);
@@ -666,6 +736,7 @@ a { color: inherit; }
     const s = summitEls.get(key); if (s) s.classList.toggle('hot', on);
     const r = cards.get(key); if (r) r.el.classList.toggle('hot', on);
     const d = moDots.get(key); if (d) d.el.classList.toggle('hot', on);
+    pmBody.querySelectorAll('tr[data-key]').forEach(tr => tr.classList.toggle('hot', on && tr.dataset.key === key));
   }
 
   /* ---------- event log ---------- */
@@ -819,42 +890,40 @@ a { color: inherit; }
   }
 
   /* ---------- momentum board ---------- */
-  // x = 1h trend, y = 5m speed, both on a log-like scale so +8% and +800% both fit.
-  // Tails show where each coin has been over the last couple of minutes.
+  // Scores come from momentum.js: from the server in live mode, computed here in demo mode.
+  // Map: x = long-run trend (1h-6h), y = right now (1-15m). Tails show the last few minutes of movement.
   const moEl = document.getElementById('mo'), mcv = document.getElementById('moCanvas'), mctx = mcv.getContext('2d');
-  const moDotsBox = document.getElementById('moDots'), moListEl = document.getElementById('moList');
+  const moDotsBox = document.getElementById('moDots');
+  const pmBody = document.getElementById('pmBody'), pmTiles = document.getElementById('pmTiles');
   const moDots = new Map();   // key -> {el, x, y, tx, ty, trail: [[nx, ny]], sig}
   let MW = 0, MH = 0;
-  const CATS = {
-    rocket:  { label: 'Climbing fast', color: tok('--glow-b') },
-    steady:  { label: 'Always up',     color: tok('--glow-a') },
-    cooling: { label: 'Cooling off',   color: '#f0b44c' },
-    bounce:  { label: 'Bouncing back', color: '#6fa8ff' },
-    slide:   { label: 'Sliding',       color: tok('--down') },
-    hold:    { label: 'Holding gains', color: tok('--mist') },
-    flat:    { label: 'Flat',          color: tok('--fog') },
-    none:    { label: 'No trades yet', color: tok('--fog') },
+  const PHASES = {
+    ignition:  { label: 'Ignition',       color: '#ccff00', tip: 'Just woke up: a fresh move on a volume spike. Earliest entry and the highest risk. Size small and watch that it holds its 5m low.' },
+    breakout:  { label: 'Breakout',       color: '#ccff00', tip: 'Pushing through its 1h high on rising volume. A momentum entry; if it falls back under the high, the breakout failed.' },
+    climbing:  { label: 'Climbing',       color: '#8fe04b', tip: 'Up on both short and long timeframes. Trend-follow it and trail a stop under the last higher low.' },
+    steady:    { label: 'Steady climber', color: '#8fe04b', tip: 'Hours of clean higher lows without a blow-off. Usually the best risk/reward, especially on dips.' },
+    dip:       { label: 'Dip in uptrend', color: '#6fa8ff', tip: 'Pulling back inside a strong trend while buyers are still there. The classic buy-the-dip zone; the idea is wrong if the trend breaks.' },
+    parabolic: { label: 'Parabolic',      color: '#ff9f43', tip: 'Going vertical and stretched. Chasing here is how bags get made; this is where holders take profit.' },
+    cooling:   { label: 'Cooling off',    color: '#f0b44c', tip: 'Long trend still up, but short-term selling. Wait for it to base before getting interested again.' },
+    reversal:  { label: 'Reversal try',   color: '#6fa8ff', tip: 'Bouncing after a long drop. Speculative until it makes a higher low.' },
+    bleeding:  { label: 'Bleeding',       color: '#e0574b', tip: 'Falling on every timeframe. Avoid.' },
+    chop:      { label: 'Choppy',         color: '#8a9585', tip: 'No clear direction. Momentum says nothing yet.' },
+    none:      { label: 'No trades yet',  color: '#5d6759', tip: '' },
   };
-  const slog = (v, k, max) => { v = v || 0; const s = Math.sign(v) * Math.log1p(Math.abs(v) / k) / Math.log1p(max / k); return Math.max(-1, Math.min(1, s)); };
-  // share of green 1m candles over the last 30 minutes of trading
-  function consistency(c) {
-    const b = c.bars1; if (!b || b.length < 8) return null;
-    const since = b[b.length - 1].time - 30 * 60, recent = b.filter(x => x.time > since);
-    if (recent.length < 6) return null;
-    return recent.filter(x => x.close >= x.open).length / recent.length;
+  document.getElementById('pmGuide').innerHTML = Object.entries(PHASES).filter(([k]) => !['chop', 'none'].includes(k))
+    .map(([, p]) => `<div><dt><span class="ph" style="--c:${p.color}">${p.label}</span></dt><dd>${esc(p.tip)}</dd></div>`).join('');
+  const scoreColor = s => s == null ? '#5d6759' : s >= 80 ? '#ccff00' : s >= 65 ? '#8fe04b' : s >= 50 ? '#b8c4b2' : s >= 35 ? '#f0b44c' : '#e0574b';
+  const heatBg = (s, pos = '143,224,75', neg = '224,87,75') => s == null ? 'transparent' : `rgba(${s >= 0 ? pos : neg},${(0.12 + Math.min(1, Math.abs(s)) * 0.5).toFixed(2)})`;
+  const fmtX = x => x == null ? '–' : (x >= 10 ? x.toFixed(0) : x.toFixed(1)) + '×';
+  function spark(hist) {
+    if (!hist || hist.length < 2) return '';
+    const pts = hist.slice(-40), t0 = pts[0][0], t1 = pts[pts.length - 1][0] || t0 + 1;
+    const d = pts.map(([t, v], i) => `${i ? 'L' : 'M'}${(2 + (t - t0) / Math.max(1, t1 - t0) * 50).toFixed(1)} ${(18 - v / 100 * 16).toFixed(1)}`).join(' ');
+    const up = pts[pts.length - 1][1] >= pts[0][1];
+    return `<svg viewBox="0 0 54 20" aria-hidden="true"><path d="M2 10 H52" stroke="rgba(138,149,133,.25)" stroke-dasharray="2 3"/><path d="${d}" fill="none" stroke="${up ? '#8fe04b' : '#e0574b'}" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   }
-  function momentum(c) {
-    if (!(c.price > 0)) return { cat: 'none', score: -2, cons: null, nx: 0, ny: 0 };
-    const v5 = c.ch5 || 0, v1 = c.ch1h || 0, cons = consistency(c);
-    let cat = v1 > 0 ? 'hold' : 'flat';
-    if (v5 >= 5 && v1 >= 0) cat = 'rocket';
-    else if (v1 > 0 && cons != null && cons >= 0.55 && v5 > -3) cat = 'steady';
-    else if (v1 > 0 && v5 <= -3) cat = 'cooling';
-    else if (v1 <= 0 && v5 >= 3) cat = 'bounce';
-    else if (v1 < 0 && v5 < 0) cat = 'slide';
-    const score = 0.6 * slog(v5, 2, 500) + 0.4 * slog(v1, 5, 5000) + (cons == null ? 0 : (cons - 0.5) * 0.3);
-    return { cat, score, cons, nx: slog(v1, 5, 5000), ny: slog(v5, 2, 500) };
-  }
+  const mo = c => c.mo || { score: null, phase: 'none', cells: {}, reasons: [], risks: [], parts: {} };
+  const moCoord = m => ({ nx: Math.max(-1, Math.min(1, 0.55 * (m.long ?? 0) + 0.45 * (m.parts?.trend ?? m.long ?? 0))), ny: Math.max(-1, Math.min(1, m.short ?? 0)) });
   function moResize() {
     const b = moEl.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
     MW = b.width; MH = b.height; PADX = MW < 560 ? 42 : 60; mcv.width = MW * dpr; mcv.height = MH * dpr; mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -864,9 +933,11 @@ a { color: inherit; }
   const moX = nx => PADX + (nx + 1) / 2 * (MW - PADX * 2);
   const moY = ny => PADT + (1 - (ny + 1) / 2) * (MH - PADT - PADB);
   function updateMomentum() {
-    const rows = board.map(c => ({ c, m: momentum(c) }));
+    const rows = board.map(c => ({ c, m: mo(c) }));
+    // map dots
     for (const key of [...moDots.keys()]) if (!board.some(c => c.key === key)) { moDots.get(key).el.remove(); moDots.delete(key); }
     rows.forEach(({ c, m }) => {
+      const { nx, ny } = moCoord(m), none = m.score == null;
       let d = moDots.get(c.key);
       if (!d) {
         const el = document.createElement('div'); el.className = 'mo-dot';
@@ -874,34 +945,65 @@ a { color: inherit; }
         el.addEventListener('mouseenter', () => setHot(c.key, true));
         el.addEventListener('mouseleave', () => setHot(c.key, false));
         moDotsBox.appendChild(el);
-        d = { el, nx: m.nx, ny: m.ny, trail: [], sig: '' }; d.x = d.tx = moX(m.nx); d.y = d.ty = moY(m.ny);
+        d = { el, nx, ny, trail: [], sig: '' }; d.x = d.tx = moX(nx); d.y = d.ty = moY(ny);
         moDots.set(c.key, d);
       }
-      d.nx = m.nx; d.ny = m.ny; d.tx = moX(m.nx); d.ty = moY(m.ny); d.cat = m.cat;
+      d.nx = nx; d.ny = ny; d.tx = moX(nx); d.ty = moY(ny); d.color = PHASES[m.phase]?.color || '#8a9585';
       const last = d.trail[d.trail.length - 1];
-      if (!last || Math.abs(last[0] - m.nx) + Math.abs(last[1] - m.ny) > 0.004) { d.trail.push([m.nx, m.ny]); if (d.trail.length > 28) d.trail.shift(); }
-      const sig = [c.rank, c.tk, c.icon, m.cat].join('|');
+      if (!last || Math.abs(last[0] - nx) + Math.abs(last[1] - ny) > 0.004) { d.trail.push([nx, ny]); if (d.trail.length > 28) d.trail.shift(); }
+      const sig = [c.rank, c.tk, c.icon, m.phase, m.score].join('|');
       if (d.sig !== sig) {
         d.sig = sig;
         d.el.style.setProperty('--fs', rankFs(c.rank, 19, 10) + 'px');
-        d.el.style.setProperty('--cat', CATS[m.cat].color);
+        d.el.style.setProperty('--cat', d.color);
         d.el.style.zIndex = 20 - c.rank;
         d.el.classList.toggle('top5', c.rank < 5);
         d.el.classList.toggle('logo', c.rank < 3);
-        d.el.innerHTML = `${c.rank < 3 ? coinImg(c) : '<span class="pip"></span>'}<b><i>#${c.rank + 1}</i>$${esc(c.tk)}</b>`;
-        d.el.title = `$${c.tk}: ${CATS[m.cat].label}`;
+        d.el.innerHTML = `${c.rank < 3 ? coinImg(c) : '<span class="pip"></span>'}<b><i>#${c.rank + 1}</i>$${esc(c.tk)}${m.score != null ? ` <i style="color:${scoreColor(m.score)}">${m.score}</i>` : ''}</b>`;
+        d.el.title = `$${c.tk}: ${PHASES[m.phase]?.label || ''}`;
       }
       d.el.classList.toggle('dim', !(chainFilter === 'all' || c.chain === chainFilter));
-      d.el.hidden = m.cat === 'none'; d.none = m.cat === 'none';
+      d.el.hidden = none; d.none = none;
     });
     spreadDots(rows);
-    // ranking list, hottest first
-    rows.sort((a, b) => b.m.score - a.m.score);
-    moListEl.innerHTML = rows.map(({ c, m }, i) => {
-      const cat = CATS[m.cat];
-      return `<li style="--cat:${cat.color}"><span class="n">${i + 1}</span><span class="t">${c.rank < 3 ? coinImg(c) : ''}$${esc(c.tk)} <small>#${c.rank + 1} on Peak${m.cons != null ? ` · ${Math.round(m.cons * 100)}% green` : ''}</small></span><span class="cat">${cat.label}</span><span class="mbar"><i style="width:${Math.round((m.score + 1) / 2 * 100)}%"></i></span></li>`;
+
+    // table, highest score first
+    const sorted = [...rows].sort((a, b) => (b.m.score ?? -1) - (a.m.score ?? -1));
+    pmBody.innerHTML = sorted.map(({ c, m }, i) => {
+      const ph = PHASES[m.phase] || PHASES.chop, cl = m.cells || {};
+      const d15 = m.dScore15 ?? m.dScore5;
+      const pc = [1, 5, 15, 30, 60, 180, 360].map(h => { const x = cl.price?.[h]; return `<td><span class="cell${x ? '' : ' na'}${x?.launch ? ' l' : ''}" style="--bgc:${heatBg(x?.s)}" title="${x?.launch ? 'Since launch' : ''}">${x ? fmtPct(x.pct) : '–'}</span></td>`; }).join('');
+      const vc = [1, 5, 15, 30, 60].map(w => { const x = cl.volume?.[w]; const s = x ? Math.tanh(Math.log2(Math.max(x.x, 0.05)) / 1.5) : null; return `<td><span class="cell${x ? '' : ' na'}" style="--bgc:${heatBg(s, '204,255,0', '93,103,89')}" title="${x ? fmtUsd(x.usd) : ''}">${x ? fmtX(x.x) : '–'}</span></td>`; }).join('');
+      const hc = [5, 15, 60].map(w => { const x = cl.holders?.[w]; return `<td><span class="cell${x ? '' : ' na'}" style="--bgc:${heatBg(x ? Math.tanh(x.pct / 3) : null)}" title="${x ? x.pct.toFixed(1) + '%' : 'Collecting holder history'}">${x ? (x.abs > 0 ? '+' : '') + x.abs : '–'}</span></td>`; }).join('');
+      const b5 = cl.buys5;
+      const why = (m.reasons || []).map(r => `<span class="chip${r.good ? '' : ' bad'}">${esc(r.text)}</span>`).join('') + (m.risks || []).map(r => `<span class="chip risk">⚠ ${esc(r)}</span>`).join('');
+      const dim = !(chainFilter === 'all' || c.chain === chainFilter);
+      return `<tr data-key="${esc(c.key)}" class="${dim ? 'dim' : ''}">
+        <td class="n">${i + 1}</td>
+        <td class="who"><span>${coinImg(c)}<span><b>$${esc(c.tk)}</b><small>#${c.rank + 1} on Peak · ${CHAIN_LABEL[c.chain] || ''}</small></span></span></td>
+        <td><span class="sc"><b class="${m.score == null ? 'na' : ''}" style="--c:${scoreColor(m.score)}">${m.score ?? '–'}</b>${spark(m.history)}</span></td>
+        <td class="dlt ${d15 == null ? '' : d15 >= 0 ? 'up' : 'dn'}">${d15 == null ? '–' : (d15 >= 0 ? '▲' : '▼') + Math.abs(d15)}</td>
+        <td><span class="ph" style="--c:${ph.color}" title="${esc(ph.tip)}">${ph.label}</span></td>
+        ${pc}${vc}${hc}
+        <td><span class="cell${b5 == null ? ' na' : ''}" style="--bgc:${heatBg(b5 == null ? null : Math.tanh((b5 - 0.5) * 4))}">${b5 == null ? '–' : Math.round(b5 * 100) + '%'}</span></td>
+      </tr>${why ? `<tr class="sub${dim ? ' dim' : ''}" data-key="${esc(c.key)}"><td></td><td colspan="20" class="why">${why}</td></tr>` : ''}`;
     }).join('');
+
+    // tiles: the four things a trader wants first
+    const live = rows.filter(r => r.m.score != null);
+    const best = (fn) => live.filter(r => fn(r) != null).sort((a, b) => fn(b) - fn(a))[0];
+    const tiles = [
+      ['Strongest now', best(r => r.m.score), r => r.m.score, r => (PHASES[r.m.phase]?.label || '') + (r.m.reasons?.[0] ? ' · ' + r.m.reasons[0].text : '')],
+      ['Heating up fastest', best(r => r.m.dScore15 ?? r.m.dScore5), r => { const v = r.m.dScore15 ?? r.m.dScore5; return v == null ? '–' : (v >= 0 ? '+' : '') + v; }, r => `Score ${r.m.score} · ${PHASES[r.m.phase]?.label || ''}`],
+      ['Steadiest climb', best(r => r.m.parts?.trend), r => r.m.upHours != null && r.m.hoursSeen ? `${r.m.upHours}/${r.m.hoursSeen}h` : r.m.score, r => (r.m.reasons || []).find(x => /uptrend|hours/i.test(x.text))?.text || `Trend strength ${Math.round((r.m.parts.trend + 1) * 50)}`],
+      ['Most buyers (5m)', best(r => r.m.cells?.buys5), r => Math.round(r.m.cells.buys5 * 100) + '%', r => `Score ${r.m.score} · ${PHASES[r.m.phase]?.label || ''}`],
+    ];
+    pmTiles.innerHTML = tiles.map(([label, r, big, sub]) => r ? `<button type="button" class="tile" data-key="${esc(r.c.key)}" style="--c:${scoreColor(r.m.score)}"><span class="lbl">${label}</span>${coinImg(r.c)}<span class="nm">$${esc(r.c.tk)}</span><span class="big">${esc(String(big(r)))}</span><span class="sub">${esc(sub(r))}</span></button>` : `<div class="tile"><span class="lbl">${label}</span><span class="sub">${label.startsWith('Heating') ? 'Needs 5 minutes of score history' : 'Waiting for data'}</span></div>`).join('');
   }
+  pmBody.addEventListener('click', e => { const tr = e.target.closest('tr[data-key]'); if (tr) jumpTo(tr.dataset.key); });
+  pmTiles.addEventListener('click', e => { const t = e.target.closest('[data-key]'); if (t) jumpTo(t.dataset.key); });
+  pmBody.addEventListener('mouseover', e => { const tr = e.target.closest('tr[data-key]'); if (tr) setHot(tr.dataset.key, true); });
+  pmBody.addEventListener('mouseout', e => { const tr = e.target.closest('tr[data-key]'); if (tr) setHot(tr.dataset.key, false); });
   // nudge targets apart so labels never sit on top of each other (higher Peak rank keeps its spot)
   function spreadDots(rows) {
     const ds = rows.filter(r => !moDots.get(r.c.key).none).sort((a, b) => a.c.rank - b.c.rank).map(r => moDots.get(r.c.key));
@@ -928,15 +1030,15 @@ a { color: inherit; }
     // grid + ticks
     mctx.font = '9.5px "JetBrains Mono", ui-monospace, monospace'; mctx.fillStyle = 'rgba(138,149,133,.55)'; mctx.textAlign = 'center';
     mctx.strokeStyle = 'rgba(31,42,27,.55)'; mctx.lineWidth = 1;
-    for (const v of [-50, -10, 10, 100, 1000]) { const x = moX(slog(v, 5, 5000)); mctx.beginPath(); mctx.moveTo(x, T); mctx.lineTo(x, B); mctx.stroke(); mctx.fillText((v > 0 ? '+' : '') + v + '%', x, B + 14); }
+    for (const [v, t] of [[-0.5, 'falling'], [0.5, 'rising']]) { const x = moX(v); mctx.beginPath(); mctx.moveTo(x, T); mctx.lineTo(x, B); mctx.stroke(); mctx.fillText(t, x, B + 14); }
     mctx.textAlign = 'right';
-    for (const v of [-50, -10, 10, 100]) { const y = moY(slog(v, 2, 500)); mctx.beginPath(); mctx.moveTo(L, y); mctx.lineTo(R, y); mctx.stroke(); mctx.fillText((v > 0 ? '+' : '') + v + '%', L - 6, y + 3); }
+    for (const [v, t] of [[-0.5, 'selling'], [0.5, 'buying']]) { const y = moY(v); mctx.beginPath(); mctx.moveTo(L, y); mctx.lineTo(R, y); mctx.stroke(); mctx.fillText(t, L - 6, y + 3); }
     mctx.strokeStyle = 'rgba(255,255,255,.28)'; mctx.lineWidth = 1.2;
     mctx.beginPath(); mctx.moveTo(x0, T); mctx.lineTo(x0, B); mctx.moveTo(L, y0); mctx.lineTo(R, y0); mctx.stroke();
     // tails, then ease dots toward their targets
     moDots.forEach(d => {
       if (d.none) return;
-      const col = CATS[d.cat || 'hold'].color, pts = d.trail.map(([nx, ny]) => [moX(nx), moY(ny)]);
+      const col = d.color || '#8a9585', pts = d.trail.map(([nx, ny]) => [moX(nx), moY(ny)]);
       d.x += (d.tx - d.x) * (REDUCED ? 1 : 0.08); d.y += (d.ty - d.y) * (REDUCED ? 1 : 0.08);
       if (Math.abs(d.y - moY(d.ny)) > 3) { mctx.strokeStyle = 'rgba(255,255,255,.25)'; mctx.lineWidth = 1; mctx.beginPath(); mctx.moveTo(moX(d.nx), moY(d.ny)); mctx.lineTo(d.x, d.y); mctx.stroke(); mctx.fillStyle = col; mctx.beginPath(); mctx.arc(moX(d.nx), moY(d.ny), 2.5, 0, 7); mctx.fill(); }
       mctx.globalAlpha = d.el.classList.contains('dim') ? 0.15 : 1;
@@ -1053,6 +1155,7 @@ a { color: inherit; }
     if (t.pool && !c.pool) c.pool = t.pool;
     if (t.icon) c.icon = t.icon;
     c.telegram = t.telegram || null;
+    c.mo = t.momentum || null;
   }
 
   async function loadCandles(c) {
@@ -1137,7 +1240,7 @@ a { color: inherit; }
     const pctBack = (c, mins) => { const b = c.bars1; const ref = b[Math.max(0, b.length - 1 - mins)].open; return (c.price / ref - 1) * 100; };
     function makeCoin([tk, name, chain, p0]) {
       const c = { key: 'demo:' + tk, tk, name, chain, chainId: chain, slot: null, icon: null, chartUrl: null, telegram: 'https://t.me/PeakTrending', vol: 0.012 + R() * 0.02, drift: (R() - 0.35) * 0.0015,
-        score: 0, prevRank: null, rank: 0, isNew: false, bars1: [], buys: 0.5 };
+        score: 0, prevRank: null, rank: 0, isNew: false, bars1: [], buys: 0.5, holdersN: Math.round(400 + R() * 4000) };
       let p = p0 * (0.55 + R() * 0.3), t = simNow - 1560 * 60;
       for (let k = 0; k < 1560; k++, t += 60) {
         const o = p; const pump = R() < 0.002 ? (R() < 0.7 ? 1 : -1) * (0.08 + R() * 0.25) : 0;
@@ -1156,10 +1259,24 @@ a { color: inherit; }
       return c;
     }
     function refresh(c) { c.ch5 = pctBack(c, 5); c.ch1h = pctBack(c, 60); c.ch24 = (c.price / c.bars1[Math.max(0, c.bars1.length - 1440)].open - 1) * 100; c.mc = c.price * c.supply; }
+    const demoTracker = window.PeakMomentum ? PeakMomentum.createTracker() : null;
+    const sumVol = (c, mins) => c.bars1.filter(b => b.time > simNow - mins * 60).reduce((a, b) => a + b.value, 0);
+    function demoMomentum(c) {
+      if (!demoTracker) return;
+      demoTracker.recordHolders(c.key, c.holdersN, simNow);
+      const buys = Math.round(c.buys * 60), sells = 60 - buys;
+      c.mo = PeakMomentum.score({
+        price: c.price, bars: c.bars1, liquidity: c.liq, marketCap: c.mc,
+        dex: { priceChange: { m5: c.ch5, h1: c.ch1h, h6: pctBack(c, 360) }, volume: { m5: sumVol(c, 5), h1: sumVol(c, 60), h6: sumVol(c, 360) }, txns: { m5: { buys, sells }, h1: { buys: buys * 10, sells: sells * 11 } } },
+      }, demoTracker.history(c.key), simNow);
+      demoTracker.recordScore(c.key, c.mo.score, simNow);
+      c.mo.history = demoTracker.history(c.key).scores.slice(-60).map(p => [p.t, p.s]);
+    }
     const universe = ROSTER.map(makeCoin);
     board = universe.slice(0, 10);
     let bench = universe.slice(10);
     board.forEach((c, i) => { c.rank = i; c.prevRank = i; c.score = 100 - i * 6 + R() * 4; });
+    universe.forEach(demoMomentum);
     layoutWall();
     simNow -= 900;
     logEvent(`Board loaded · <b>10</b> coins across Solana, Robinhood, Arc`); simNow += 420;
@@ -1175,13 +1292,14 @@ a { color: inherit; }
         c.price *= Math.exp(step);
         pushPrice(c, c.price, simNow, v);
         c.vol24 += v; c.buys += ((step > 0 ? 0.68 : 0.32) - c.buys) * 0.08; c.liq *= Math.exp(step * 0.3);
+        c.holdersN = Math.max(50, c.holdersN + Math.round(step * 400 + (Math.random() - 0.4) * 2));
         c.score += step * 90 + (c.ch5 * 0.02) + (Math.random() - 0.5) * 1.2;
         refresh(c);
         if (burst > 0) logEvent(`<b>$${c.tk}</b> <span class="u">wick ${fmtPct(burst * 100)}</span> in one candle`);
         paintCard(c, true);
       }
       peaksTarget();
-      if (++demoTicks % 3 === 0) updateMomentum();
+      if (++demoTicks % 3 === 0) { board.forEach(demoMomentum); updateMomentum(); }
     }, TICK_MS);
 
     let untilRerank = 15, count = 0;

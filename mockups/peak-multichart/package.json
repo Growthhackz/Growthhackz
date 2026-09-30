@@ -1,0 +1,11 @@
+{
+  "name": "peak-ridge",
+  "private": true,
+  "description": "Peak Ridge: live multichart and momentum board for Peak's top 10 trending coins.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

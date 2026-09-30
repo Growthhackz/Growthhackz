@@ -1,7 +1,10 @@
-// Peak Ridge local server: serves the page and proxies the three free data sources it needs.
-//   /api/board    Peak's top 10 (peakbuybot.com mirrors the Telegram board), joined with
-//                 DexScreener live price, pair address, volume, liquidity and 5m buys/sells.
+// Peak Ridge server: serves the page and keeps a live picture of Peak's top 10.
+//   /api/board    Peak's top 10 (peakbuybot.com mirrors the Telegram board), joined with DexScreener live
+//                 price, volume, liquidity and buys/sells, plus each coin's Peak Momentum score (momentum.js).
 //   /api/candles  GeckoTerminal 1-minute candles for one pool (the page builds 5m/15m from them).
+//   /health       for the host's health check.
+// A background loop refreshes the board every 10s, keeps 1m candles fresh for every coin, and records holder
+// counts and scores over time so momentum can measure holder growth and whether a score is rising.
 // No dependencies. Run: node server.mjs  (PORT defaults to 8787)
 
 import http from 'node:http';
@@ -11,6 +14,9 @@ import path from 'node:path';
 
 const PORT = Number(process.env.PORT || 8787);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+await import('./momentum.js');
+const Momentum = globalThis.PeakMomentum;
+const tracker = Momentum.createTracker();
 const PEAK = 'https://www.peakbuybot.com/api/discovery?chain=all';
 const DEX = 'https://api.dexscreener.com/tokens/v1';
 const GECKO = 'https://api.geckoterminal.com/api/v2/networks';
@@ -132,6 +138,7 @@ async function board() {
         liquidity: p?.liquidity?.usd ?? t.liquidity ?? null,
         marketCap: p?.marketCap ?? p?.fdv ?? t.marketCap ?? null,
         txns5m: p?.txns?.m5 || null,
+        dex: p ? { priceChange: p.priceChange, volume: p.volume, txns: p.txns } : null,
         pairCreatedAt: p?.pairCreatedAt || null,
       };
     }),
@@ -144,6 +151,32 @@ async function candles(chain, pool) {
   const list = j?.data?.attributes?.ohlcv_list || [];
   return list.map(([time, open, high, low, close, value]) => ({ time, open, high, low, close, value })).sort((a, b) => a.time - b.time);
 }
+
+// ---- background loop: board every 10s, candles kept under ~90s old, momentum on every pass
+let state = null;
+const candleKey = t => t.pool ? `gecko:${t.chain}:${t.pool}` : null;
+async function refresh() {
+  const b = await board();
+  const now = Date.now() / 1000;
+  for (const t of b.tokens) {
+    const key = `${t.chain}:${t.mint}`;
+    if (t.pool) candles(t.chain, t.pool).catch(() => {});               // queued and rate-limited; result lands in the cache
+    tracker.recordHolders(key, t.holders, now);
+    const hit = cache.get(candleKey(t) || '');
+    const list = hit?.value?.data?.attributes?.ohlcv_list || [];
+    const bars = list.map(([time, open, high, low, close, value]) => ({ time, open, high, low, close, value })).sort((a, c) => a.time - c.time);
+    const m = Momentum.score({ price: t.priceUsd, bars, dex: t.dex || {}, liquidity: t.liquidity, marketCap: t.marketCap, pairCreatedAt: t.pairCreatedAt }, tracker.history(key), now);
+    tracker.recordScore(key, m.score, now);
+    t.momentum = { ...m, history: tracker.history(key).scores.slice(-90).map(p => [Math.round(p.t), p.s]) };
+    delete t.dex;
+  }
+  state = b;
+}
+async function loop() {
+  try { await refresh(); } catch (e) { console.error('refresh', e.message); }
+  setTimeout(loop, 10_000);
+}
+loop();
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
@@ -158,7 +191,9 @@ http.createServer(async (req, res) => {
     }
     const asset = url.pathname.match(/^\/assets\/([a-z0-9-]+\.png)$/);
     if (asset) return send(res, 200, await readFile(path.join(HERE, 'assets', asset[1])), 'image/png');
-    if (url.pathname === '/api/board') return send(res, 200, await board());
+    if (url.pathname === '/health') return send(res, 200, { ok: true, board: !!state });
+    if (url.pathname === '/momentum.js') return send(res, 200, await readFile(path.join(HERE, 'momentum.js')), 'text/javascript; charset=utf-8');
+    if (url.pathname === '/api/board') { if (!state) await refresh(); return send(res, 200, state); }
     if (url.pathname === '/api/candles') {
       const chain = url.searchParams.get('chain'), pool = url.searchParams.get('pool');
       if (!/^[a-z0-9-]+$/.test(chain || '') || !/^[A-Za-z0-9]+$/.test(pool || '')) return send(res, 400, { error: 'chain and pool are required' });
