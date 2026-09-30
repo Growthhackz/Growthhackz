@@ -19,6 +19,12 @@ const SUBMIT_PAGES: Record<string, string> = {
   coinsniper: 'https://coinsniper.net/submit',
   coinvote: 'https://coinvote.cc/en/add-coin/released',
 };
+/** What each subreddit asks of a post, shown on its card. */
+const SUBREDDIT_NOTES: Record<string, string> = {
+  Solana_Memes: 'Pick a flair before posting. One launch post per coin per week.',
+  SolCoins: 'One post per project per day.',
+  memecoins: 'At most two posts per coin per day.',
+};
 const TOKEN_TTL_MS = 7 * 24 * 3_600_000;
 const RESEND_MS = 5 * 60_000;
 const WAITING = 'Waiting on you: open the posting link in your Telegram DM, submit, and paste the link back.';
@@ -184,7 +190,8 @@ export function renderAssist(view: ReturnType<typeof assistView>): string {
       if (REDDIT_SUBREDDITS[it.kind]) {
         const t = it.target as { subreddit: string; title: string; text: string };
         const r = redditLinks(t.subreddit, t.title, t.text);
-        return `<section><h2>${esc(it.label)}</h2>${state}
+        const note = SUBREDDIT_NOTES[t.subreddit];
+        return `<section><h2>${esc(it.label)}</h2>${state}${note ? `<p class="hint">${esc(note)}</p>` : ''}
           <a class="go" href="${esc(r.open)}" target="_blank" rel="noreferrer">Open r/${esc(t.subreddit)} with the post filled in</a>
           <a class="alt" href="${esc(r.old)}" target="_blank" rel="noreferrer">Or open it on old Reddit</a>
           <details><summary>Title and text to copy</summary>${copyRow('Title', t.title)}${copyRow('Text', r.body, true)}</details>

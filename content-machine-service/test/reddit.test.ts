@@ -45,7 +45,7 @@ describe('Reddit via the companion worker', () => {
       expect(c.target.title).toBe(liveCopy.headline);
       expect(c.target.text).toContain(liveCopy.article.trim().split('\n')[0]);
       expect(c.target.text).toMatch(/^!\[Moon Frog\]\(https:\/\/content\.example\.test\/media\/[0-9a-f]{40}\)/);
-      expect(c.target.text).toContain('Telegram: https://t.me/moonfrog');
+      expect(c.target.text).toContain('Telegram: @moonfrog');
       // Wrong subreddit in the URL is not accepted as delivered.
       const url = `https://www.reddit.com/r/${c.target.subreddit}/comments/abc123/moon_frog/`;
       const r = await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url, verified: true });
