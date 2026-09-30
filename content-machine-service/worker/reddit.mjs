@@ -119,6 +119,29 @@ export async function postToReddit(target, {
   const browser = await chromium.launch({headless: true, executablePath, proxy: redditProxy()});
   try {
     const context = await browser.newContext(browserContext(existsSync(statePath) ? {storageState: statePath} : {}));
+    // Reddit now sends old.reddit's submit page to the new editor, so post through the endpoint old.reddit's form uses:
+    // same logged-in session and proxy; it answers with the post URL or Reddit's own error. No session: the form below.
+    const me = await context.request.get(`${base}/api/me.json`, {headers: {accept: 'application/json'}}).then(r => (r.ok() ? r.json() : null)).catch(() => null);
+    const modhash = me?.data?.modhash;
+    if (modhash) {
+      const res = await context.request.post(`${base}/api/submit`, {
+        form: {api_type: 'json', kind: 'self', sr: target.subreddit, title: target.title, text: target.text, uh: modhash, resubmit: 'true', sendreplies: 'true'},
+        headers: {'x-modhash': modhash, accept: 'application/json'},
+      });
+      let body = null;
+      try { body = await res.json(); } catch {}
+      const errors = body?.json?.errors ?? [];
+      if (errors.length) throw new NotPostedError(`Reddit rejected the post in r/${target.subreddit}: ${errors.map(e => [].concat(e).join(' ')).join('; ').slice(0, 250)}`);
+      const posted = body?.json?.data?.url;
+      if (posted) {
+        await context.storageState({path: statePath});
+        const url = posted.replace(/^https?:\/\/(old|www)\.reddit\.com/, 'https://www.reddit.com');
+        return {url, verified: await visibleLoggedOut(browser, url, target.title)};
+      }
+      // A clear refusal (4xx without a post) sent nothing; anything else may have posted.
+      if (res.status() >= 400 && res.status() < 500) throw new NotPostedError(`Reddit refused the submission (HTTP ${res.status()}).`);
+      return {url: null, verified: false};
+    }
     const page = await context.newPage();
     const submitUrl = `${base}/r/${encodeURIComponent(target.subreddit)}/submit?selftext=true`;
     const title = page.locator('textarea[name="title"]');

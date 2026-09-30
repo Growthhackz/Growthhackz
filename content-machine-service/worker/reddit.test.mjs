@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {postToReddit,publishReddit,NotPostedError,cookiesToState,installCookieSession} from './reddit.mjs';
 import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 
-const posts=[];let rateLimited=false;let challenge=false;
+const posts=[];let rateLimited=false;let challenge=false;let apiSession=false;
 const page=b=>`<!doctype html><html><body>${b}</body></html>`;
 const server=createServer(async(req,res)=>{const url=new URL(req.url,'http://x');const authed=/session=ok/.test(req.headers.cookie||'');let body='';for await(const c of req)body+=c;const form=new URLSearchParams(body);
  const send=(html,code=200,headers={})=>{res.writeHead(code,{'content-type':'text/html',...headers});res.end(page(html));};
@@ -15,6 +15,8 @@ const server=createServer(async(req,res)=>{const url=new URL(req.url,'http://x')
  if(url.pathname==='/login/')return form.get('password')==='pw'?send('',302,{location:'/','set-cookie':'session=ok; Path=/'}):send('<p>bad</p><form method="post"><input name="username"><input name="password"><button>Log In</button></form>');
  if(url.pathname==='/')return send('home');
  if(challenge&&!/solved=1/.test(req.headers.cookie||'')&&req.method==='GET'&&url.pathname.includes('/submit'))return send(`<script src="/challenge.js"></script><script>document.cookie='solved=1; path=/';setTimeout(()=>location.href=location.pathname+'?js_challenge=1&solution=x',300)</script>`);
+ if(url.pathname==='/api/me.json')return apiSession&&/session=ok/.test(req.headers.cookie||'')?(res.writeHead(200,{'content-type':'application/json'}),res.end(JSON.stringify({data:{name:'tester',modhash:'mh1'}}))):(res.writeHead(200,{'content-type':'application/json'}),res.end('{}'));
+ if(url.pathname==='/api/submit'&&req.method==='POST'){res.writeHead(200,{'content-type':'application/json'});if(form.get('uh')!=='mh1'||form.get('kind')!=='self')return res.end(JSON.stringify({json:{errors:[['USER_REQUIRED','please login']]}}));if(form.get('sr')==='linkonly')return res.end(JSON.stringify({json:{errors:[['NO_SELFS','that subreddit doesn\'t allow text posts','sr']]}}));const id='api'+posts.length;posts.push({id,sub:form.get('sr'),sr:form.get('sr'),title:form.get('title'),text:form.get('text')});return res.end(JSON.stringify({json:{errors:[],data:{url:`${base}/r/${form.get('sr')}/comments/${id}/x/`}}}));}
  const m=url.pathname.match(/^\/r\/(\w+)\/submit$/);
  if(m&&req.method==='GET')return authed?send('<form method="post"><textarea name="title"></textarea><textarea name="text"></textarea><button type="submit" name="submit">submit</button></form>'):send('<a href="/login/">log in</a>');
  if(m){if(rateLimited)return send('<span class="error">you are doing that too much. try again in 9 minutes.</span><form method="post"><textarea name="title"></textarea><textarea name="text"></textarea><button name="submit">submit</button></form>');const id=(posts.length+1).toString(36)+'abc';posts.push({sub:m[1],id,title:form.get('title'),text:form.get('text')});return send('',302,{location:`/r/${m[1]}/comments/${id}/slug/`});}
@@ -39,6 +41,11 @@ try{
  const r3=await postToReddit(target,sessionOnly);assert.match(r3.url,/\/comments\//);assert.equal(posts.length,3);
  // Reddit's JS challenge on a new network is waited out, not mistaken for a logged-out page.
  challenge=true;const r4=await postToReddit(target,sessionOnly);assert.match(r4.url,/\/comments\//);challenge=false;
+ // With a live session, posts go through old.reddit's submit endpoint (Reddit now redirects its submit page).
+ apiSession=true;const r5=await postToReddit({...target,subreddit:'solanamemecoins'},sessionOnly);
+ assert.match(r5.url,/\/r\/solanamemecoins\/comments\/api\d+\//);assert.equal(r5.verified,true);assert.equal(posts.at(-1).text.replace(/\r\n/g,"\n"),target.text);
+ // Reddit's own refusal (e.g. no text posts in that sub) is reported as not posted, with Reddit's reason.
+ const n=posts.length;await assert.rejects(()=>postToReddit({...target,subreddit:'linkonly'},sessionOnly),e=>e instanceof NotPostedError&&/NO_SELFS/.test(e.message));assert.equal(posts.length,n);apiSession=false;
  // Expired session and no password: reported as not posted, with what to do.
  writeFileSync(sessionOnly.statePath,JSON.stringify({cookies:[],origins:[]}));
  await assert.rejects(()=>postToReddit(target,sessionOnly),e=>e instanceof NotPostedError&&/REDDIT_COOKIES/.test(e.message));
