@@ -18,7 +18,8 @@ const walletUrl = (label, suffix = '') => `/api/wallets/${encodeURIComponent(lab
 let wallets = [];
 let balances = {};
 let receiver = null;
-let minInterval = 15;
+let minInterval = 1;
+const VENUE_LABEL = { raydium: 'Raydium', pumpswap: 'PumpSwap' };
 
 const short = (a) => a.slice(0, 4) + '…' + a.slice(-4);
 const fmt = (n, d = 6) => (n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -90,6 +91,7 @@ function render() {
     }
 
     const mintCell = el('td');
+    mintCell.append(el('span', { className: `venue ${s.venue}`, textContent: VENUE_LABEL[s.venue] }), ' ');
     if (s.mint) {
       const m = el('code', { textContent: short(s.mint), title: s.mint });
       m.onclick = () => { navigator.clipboard.writeText(s.mint); toast('mint copied'); };
@@ -290,11 +292,26 @@ function readRules() {
 
 $('#add-rule').onclick = () => rulesBox.append(ruleRow());
 
+function syncVenue() {
+  const pump = manageForm.venue.value === 'pumpswap';
+  manageForm.pool.placeholder = pump
+    ? "blank = the token's graduated PumpSwap pool"
+    : 'Raydium AMM v4, CPMM or CLMM pool address';
+  $('#venue-hint').textContent = pump
+    ? 'Trades go straight to the PumpSwap pool. Leave the pool blank to use the canonical pool for the mint.'
+    : 'Trades go straight to this Raydium pool. The pool type is detected automatically; it must be paired with SOL.';
+}
+manageForm.venue.onchange = syncVenue;
+
 function openManage(w) {
   managing = w;
   $('.dlg-label', manageDialog).textContent = w.label;
+  manageForm.venue.value = w.settings.venue;
+  manageForm.pool.value = w.settings.pool ?? '';
   manageForm.mint.value = w.settings.mint ?? '';
   manageForm.slippageBps.value = w.settings.slippageBps;
+  manageForm.priorityMicroLamports.value = w.settings.priorityMicroLamports;
+  syncVenue();
   manageForm.solFloor.value = (w.settings.solFloorLamports / LAMPORTS).toFixed(3);
   rulesBox.replaceChildren(...w.rules.map(ruleRow));
   manageDialog.showModal();
@@ -304,8 +321,11 @@ manageForm.onsubmit = async (e) => {
   e.preventDefault();
   if (!managing) return;
   const patch = {
+    venue: manageForm.venue.value,
+    pool: manageForm.pool.value.trim() || null,
     mint: manageForm.mint.value.trim() || null,
     slippageBps: Number(manageForm.slippageBps.value),
+    priorityMicroLamports: Number(manageForm.priorityMicroLamports.value),
     solFloorLamports: Math.round(Number(manageForm.solFloor.value) * LAMPORTS)
   };
   const rules = readRules();

@@ -6,18 +6,22 @@ import {
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadWallet, readRecord, mutateRecord, normalizeSettings } from './custody.js';
-import { SOL_MINT, swap } from './jupiter.js';
 import {
-  getDecimals, getTokenBalance, getTokenAccounts, getPriceInSol, toBaseUnits, toUi
+  SOL_MINT, getDecimals, getTokenBalance, getTokenAccounts, toBaseUnits, toUi
 } from './tokens.js';
-import { validateTrade, evaluateRule, afterRun } from './rules.js';
+import * as venues from './venues/index.js';
+import { validateTrade, evaluateRule, afterRun, conflictingMints } from './rules.js';
 import { closeEmptyTokenAccounts, sweepAll } from './teardown.js';
 
 const errMsg = (e) => String(e?.message ?? e);
 
 export class TradeEngine {
-  constructor({ connection, storeDir, passphrase, logDir, receiver = null, tickMs = 30_000 }) {
-    Object.assign(this, { connection, storeDir, passphrase, logDir, receiver, tickMs });
+  // `market` ({ buildSwap, sendSwap, getPrice }) defaults to the direct
+  // Raydium/PumpSwap venues; tests pass a fake.
+  constructor({
+    connection, storeDir, passphrase, logDir, receiver = null, tickMs = 30_000, market = venues
+  }) {
+    Object.assign(this, { connection, storeDir, passphrase, logDir, receiver, tickMs, market });
     this.keypairs = new Map();
     this.locks = new Map();
     this.timer = null;
@@ -73,6 +77,15 @@ export class TradeEngine {
 
   // ---- trading ------------------------------------------------------------
 
+  // Builds, signs and confirms one swap on the wallet's venue and pool.
+  async #swap(wallet, settings, side, amountIn) {
+    const built = await this.market.buildSwap({
+      connection: this.connection, owner: wallet.publicKey, settings, side, amountIn
+    });
+    const signature = await this.market.sendSwap(this.connection, wallet, built);
+    return { signature, expectedOut: built.expectedOut, pool: built.pool };
+  }
+
   async #execute(label, trade, reason) {
     const { side, amountType, amount } = validateTrade(trade);
     const rec = await readRecord({ label, storeDir: this.storeDir });
@@ -84,7 +97,7 @@ export class TradeEngine {
     const mint = settings.mint;
     const decimals = await getDecimals(connection, mint);
 
-    let inputMint, outputMint, raw;
+    let raw;
     if (side === 'buy') {
       const balance = BigInt(await connection.getBalance(wallet.publicKey, 'confirmed'));
       const floor = BigInt(settings.solFloorLamports);
@@ -99,8 +112,6 @@ export class TradeEngine {
           `(${toUi(available, 9)} SOL available)`
         );
       }
-      inputMint = SOL_MINT;
-      outputMint = mint;
     } else {
       const balance = await getTokenBalance(connection, wallet.publicKey, mint);
       raw = amountType === 'token'
@@ -110,19 +121,16 @@ export class TradeEngine {
       if (raw > balance) {
         throw new Error(`sell of ${toUi(raw, decimals)} exceeds balance ${toUi(balance, decimals)}`);
       }
-      inputMint = mint;
-      outputMint = SOL_MINT;
     }
 
-    const base = { type: 'trade', side, amountType, amount, reason, mint };
+    const base = { type: 'trade', side, amountType, amount, reason, mint, venue: settings.venue };
     try {
-      const res = await swap({
-        connection, wallet, inputMint, outputMint, amount: raw, slippageBps: settings.slippageBps
-      });
+      const res = await this.#swap(wallet, settings, side, raw);
       const [inDec, outDec] = side === 'buy' ? [9, decimals] : [decimals, 9];
+      // `out` is the quoted amount; the on-chain minimum is enforced by slippage.
       const entry = {
-        ...base, ok: true, signature: res.signature,
-        in: toUi(BigInt(res.inAmount), inDec), out: toUi(BigInt(res.outAmount), outDec)
+        ...base, ok: true, signature: res.signature, pool: res.pool,
+        in: toUi(raw, inDec), out: toUi(res.expectedOut, outDec)
       };
       await this.log(label, entry);
       return entry;
@@ -169,24 +177,37 @@ export class TradeEngine {
     this.ticking = true;
     try {
       const prices = new Map();
+      const records = [];
       for (const label of await this.labels()) {
-        let rec;
-        try { rec = await readRecord({ label, storeDir: this.storeDir }); }
-        catch { continue; }
+        try { records.push(await readRecord({ label, storeDir: this.storeDir })); }
+        catch { /* removed or unreadable */ }
+      }
+      // Same guard the API applies, in case a wallet file was edited by hand.
+      const blocked = conflictingMints(records.map((r) => ({
+        label: r.label, mint: normalizeSettings(r.settings).mint, rules: r.rules
+      })));
+
+      for (const rec of records) {
+        const { label } = rec;
         const settings = normalizeSettings(rec.settings);
         const rules = (rec.rules ?? []).filter((r) => r.enabled);
         if (!settings.running || !settings.mint || rules.length === 0) continue;
 
-        if (!prices.has(settings.mint)) {
+        // Each wallet prices off its own venue and pool.
+        const key = `${settings.venue}:${settings.pool ?? ''}:${settings.mint}`;
+        if (!prices.has(key)) {
           let p = null;
-          try { p = await getPriceInSol(this.connection, settings.mint); }
-          catch (e) { console.error(`price ${settings.mint}:`, errMsg(e)); }
-          prices.set(settings.mint, p);
-          if (p != null) this.lastPrices.set(settings.mint, { price: p, at: Date.now() });
+          try {
+            const decimals = await getDecimals(this.connection, settings.mint);
+            p = await this.market.getPrice(this.connection, settings, decimals);
+          } catch (e) { console.error(`price ${key}:`, errMsg(e)); }
+          prices.set(key, p);
+          if (p != null) this.lastPrices.set(label, { price: p, at: Date.now() });
         }
-        const price = prices.get(settings.mint);
+        const price = prices.get(key);
 
         for (const rule of rules) {
+          if (rule.trigger.type === 'interval' && blocked.has(settings.mint)) continue;
           const { fire, next } = evaluateRule(rule, { price, now: Date.now() });
           if (!fire) {
             if (next !== rule) await this.#saveRuleState(label, rule.id, next);
@@ -244,16 +265,16 @@ export class TradeEngine {
       }
 
       // Getting out matters more than price here, so allow at least 5% slippage.
-      const { settings } = await readRecord({ label, storeDir: this.storeDir });
-      const slippageBps = Math.max(500, normalizeSettings(settings).slippageBps);
+      const saved = normalizeSettings((await readRecord({ label, storeDir: this.storeDir })).settings);
+      const exitSettings = { ...saved, slippageBps: Math.max(500, saved.slippageBps) };
 
       const unsold = new Set();
       for (const [mint, amount] of byMint) {
         try {
-          const res = await swap({
-            connection, wallet, inputMint: mint, outputMint: SOL_MINT, amount, slippageBps
-          });
-          step('sell', { ok: true, mint, signature: res.signature, solOut: toUi(BigInt(res.outAmount), 9) });
+          // Only the wallet's configured token has a known pool to sell into.
+          if (mint !== saved.mint) throw new Error('no pool configured for this token');
+          const res = await this.#swap(wallet, exitSettings, 'sell', amount);
+          step('sell', { ok: true, mint, signature: res.signature, solOut: toUi(res.expectedOut, 9) });
         } catch (e) {
           unsold.add(mint);
           step('sell', { ok: false, mint, error: errMsg(e) });

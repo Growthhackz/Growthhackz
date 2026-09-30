@@ -54,10 +54,15 @@ export async function collectSwapEvents(connection, idl, {
       if (err) continue;
       if (until && blockTime && blockTime < until) return rows;
 
-      const tx = await connection.getTransaction(signature, {
-        maxSupportedTransactionVersion: 0,
-        commitment: 'confirmed'
-      });
+      let tx;
+      try {
+        tx = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed'
+        });
+      } catch {
+        continue; // transaction version this client can't decode
+      }
       if (!tx) continue;
 
       for (const ev of decodeEvents(tx, coder)) {

@@ -22,7 +22,7 @@
   <table id="wallets">
     <thead>
       <tr>
-        <th>Label</th><th>Address</th><th>Balance</th><th>Token</th>
+        <th>Label</th><th>Address</th><th>Balance</th><th>Venue · token</th>
         <th>Price</th><th>Automation</th><th></th>
       </tr>
     </thead>
@@ -64,12 +64,27 @@
 
     <fieldset>
       <legend>Settings</legend>
+      <div class="row">
+        <label>Venue
+          <select name="venue">
+            <option value="raydium">Raydium</option>
+            <option value="pumpswap">PumpSwap</option>
+          </select>
+        </label>
+        <label>Pool address
+          <input name="pool" spellcheck="false" autocomplete="off">
+        </label>
+      </div>
       <label>Token mint
-        <input name="mint" placeholder="token mint address" spellcheck="false" autocomplete="off">
+        <input name="mint" placeholder="filled in from the pool if left blank" spellcheck="false" autocomplete="off">
       </label>
+      <p class="muted small" id="venue-hint"></p>
       <div class="row">
         <label>Slippage (bps)
           <input type="number" name="slippageBps" min="1" max="5000" step="1" required>
+        </label>
+        <label>Priority fee (µlamports/CU)
+          <input type="number" name="priorityMicroLamports" min="0" step="1" required>
         </label>
         <label>SOL floor (buys never go below)
           <input type="number" name="solFloor" min="0" step="0.001" required>
@@ -80,9 +95,10 @@
     <fieldset>
       <legend>Rules</legend>
       <p class="muted small">
-        Buys and sells are independent. Each rule fires on a price level or a schedule.
-        Price rules fire once, or every time price crosses the level if “repeat” is on.
-        Prices are in SOL per token.
+        Buys and sells are independent. Each rule fires on a price level or a schedule
+        (1 minute and up). Price rules fire once, or every time price crosses the level if
+        “repeat” is on. Prices are in SOL per token, read from this wallet's pool.
+        A token can have scheduled buys or scheduled sells, not both at once.
       </p>
       <div id="rules"></div>
       <button type="button" id="add-rule">+ Add rule</button>

@@ -64,10 +64,18 @@ export class FundingWatcher {
       if (err || this.seen.has(signature)) continue;
       this.seen.add(signature);
 
-      const tx = await this.connection.getParsedTransaction(signature, {
-        maxSupportedTransactionVersion: 0,
-        commitment: 'confirmed'
-      });
+      let tx;
+      try {
+        tx = await this.connection.getParsedTransaction(signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed'
+        });
+      } catch (e) {
+        // A transaction version this client can't decode: log it and keep
+        // scanning rather than abort. Check skipped signatures by hand.
+        console.error(`watcher: skipping ${signature}: ${e.message}`);
+        continue;
+      }
       if (!tx?.meta) continue;
 
       const bal = balancesFor(tx, this.botPubkey);

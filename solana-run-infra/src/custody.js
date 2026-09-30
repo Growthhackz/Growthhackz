@@ -27,15 +27,21 @@ const isMint = (v) => {
   catch { return false; }
 };
 const SETTINGS_SCHEMA = {
+  venue: (v) => v === 'raydium' || v === 'pumpswap',
+  pool: isMint, // any base58 address, or null
   mint: isMint,
   slippageBps: intIn(1, 5000),
+  priorityMicroLamports: intIn(0, 50_000_000),
   solFloorLamports: intIn(0, Number.MAX_SAFE_INTEGER),
   running: (v) => typeof v === 'boolean'
 };
 
 export const DEFAULT_SETTINGS = {
+  venue: 'raydium',
+  pool: null,
   mint: null,
   slippageBps: 100,
+  priorityMicroLamports: 50_000,
   solFloorLamports: 10_000_000,
   running: false
 };

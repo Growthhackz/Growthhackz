@@ -1,6 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
-import { SOL_MINT, getQuote } from './jupiter.js';
+
+export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 const decimalsCache = new Map();
 
@@ -36,15 +37,6 @@ export async function getTokenAccounts(connection, owner) {
     }
   }
   return out;
-}
-
-// SOL per 1 whole token, from a Jupiter quote for selling exactly one token.
-export async function getPriceInSol(connection, mint) {
-  const decimals = await getDecimals(connection, mint);
-  const quote = await getQuote({
-    inputMint: mint, outputMint: SOL_MINT, amount: 10n ** BigInt(decimals), slippageBps: 50
-  });
-  return Number(quote.outAmount) / 1e9;
 }
 
 export const toBaseUnits = (uiAmount, decimals) =>

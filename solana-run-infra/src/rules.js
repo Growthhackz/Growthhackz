@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-// Interval rules fire on a schedule rather than a price move, so they carry a
-// floor: a buy rule and a sell rule both firing every minute would just be the
-// round-trip volume loop again. Price rules have no floor.
-export const MIN_INTERVAL_MINUTES = 15;
+export const MIN_INTERVAL_MINUTES = 1;
 
 const BUY_AMOUNT_TYPES = ['sol', 'pctSol'];
 const SELL_AMOUNT_TYPES = ['token', 'pctToken'];
@@ -105,4 +102,41 @@ export function afterRun(rule, { now, ok }) {
     lastRunAt: now,
     enabled: rule.enabled && !(ok && (oneShotPrice || exhausted))
   };
+}
+
+// Scheduled rules may buy on a token or sell it, not both: a scheduled buy
+// plus a scheduled sell on the same token, in one wallet or spread across
+// several, is a timed round-trip loop that only manufactures volume. Price
+// rules and manual trades are unaffected.
+// `wallets` is [{ label, mint, rules }] reflecting the state being saved.
+function scheduledSides(wallets) {
+  const byMint = new Map();
+  for (const w of wallets) {
+    if (!w.mint) continue;
+    for (const r of w.rules ?? []) {
+      if (!r.enabled || r.trigger?.type !== 'interval') continue;
+      const e = byMint.get(w.mint) ?? { buy: [], sell: [] };
+      e[r.side].push(w.label);
+      byMint.set(w.mint, e);
+    }
+  }
+  return byMint;
+}
+
+export function conflictingMints(wallets) {
+  const out = new Set();
+  for (const [mint, e] of scheduledSides(wallets)) if (e.buy.length && e.sell.length) out.add(mint);
+  return out;
+}
+
+export function scheduleConflict(wallets) {
+  for (const [mint, e] of scheduledSides(wallets)) {
+    if (e.buy.length && e.sell.length) {
+      const who = (l) => [...new Set(l)].join(', ');
+      return `token ${mint.slice(0, 4)}…${mint.slice(-4)} would have scheduled buys (${who(e.buy)}) ` +
+        `and scheduled sells (${who(e.sell)}) at the same time. Schedules can run one direction per ` +
+        'token; use a price trigger or a manual trade for the other side.';
+    }
+  }
+  return null;
 }

@@ -8,7 +8,8 @@ import {
   LABEL_RE, createWallet, readRecord, updateSettings, deleteWallet,
   mutateRecord, normalizeSettings
 } from './custody.js';
-import { normalizeRules, MIN_INTERVAL_MINUTES } from './rules.js';
+import { normalizeRules, scheduleConflict, MIN_INTERVAL_MINUTES } from './rules.js';
+import { inspectPool, VENUE_NAMES } from './venues/index.js';
 import { TradeEngine } from './engine.js';
 import { getTokenBalance, getDecimals, toUi } from './tokens.js';
 
@@ -62,6 +63,23 @@ engine.start();
 
 const notFound = (e) => e?.code === 'ENOENT';
 
+async function allWallets() {
+  const out = [];
+  for (const f of (await fs.readdir(STORE)).filter((x) => x.endsWith('.json'))) {
+    const rec = JSON.parse(await fs.readFile(path.join(STORE, f), 'utf8'));
+    out.push({ label: rec.label, mint: normalizeSettings(rec.settings).mint, rules: rec.rules ?? [] });
+  }
+  return out;
+}
+
+// Rejects a change if it would leave a token with both scheduled buys and
+// scheduled sells. `change` replaces one wallet's mint and/or rules.
+async function assertNoScheduleConflict(label, change) {
+  const wallets = (await allWallets()).map((w) => (w.label === label ? { ...w, ...change } : w));
+  const msg = scheduleConflict(wallets);
+  if (msg) throw new Error(msg);
+}
+
 app.get('/api/wallets', async (_req, res) => {
   try {
     const files = (await fs.readdir(STORE)).filter((f) => f.endsWith('.json'));
@@ -74,13 +92,14 @@ app.get('/api/wallets', async (_req, res) => {
         pubkey: rec.pubkey,
         settings,
         rules: rec.rules ?? [],
-        lastPrice: settings.mint ? engine.lastPrices.get(settings.mint) ?? null : null
+        lastPrice: engine.lastPrices.get(rec.label) ?? null
       });
     }
     res.json({
       wallets,
       receiver: RECEIVER?.toBase58() ?? null,
-      minIntervalMinutes: MIN_INTERVAL_MINUTES
+      minIntervalMinutes: MIN_INTERVAL_MINUTES,
+      venues: VENUE_NAMES
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -103,10 +122,22 @@ app.post('/api/wallets', async (req, res) => {
 
 app.patch('/api/wallets/:label', async (req, res) => {
   try {
-    const patch = req.body ?? {};
-    if (patch.running === true) {
-      const cur = normalizeSettings((await readRecord({ label: req.params.label, storeDir: STORE })).settings);
-      if (!(patch.mint ?? cur.mint)) throw new Error('set a token mint before starting automation');
+    const patch = { ...(req.body ?? {}) };
+    const cur = normalizeSettings((await readRecord({ label: req.params.label, storeDir: STORE })).settings);
+    const next = { ...cur, ...patch };
+
+    // Any change to where the wallet trades is checked against the chain first.
+    if (['venue', 'pool', 'mint'].some((k) => k in patch) && (next.pool || next.mint)) {
+      const info = await inspectPool(connection, next);
+      if (!next.mint) patch.mint = info.tokenMint;
+      if (!next.pool) patch.pool = info.pool;
+    }
+    if (next.running && !(patch.mint ?? next.mint)) {
+      throw new Error('set a pool or token mint before starting automation');
+    }
+    if ('mint' in patch && patch.mint !== cur.mint) {
+      const rec = await readRecord({ label: req.params.label, storeDir: STORE });
+      await assertNoScheduleConflict(req.params.label, { mint: patch.mint, rules: rec.rules ?? [] });
     }
     const settings = await updateSettings({ label: req.params.label, storeDir: STORE, patch });
     res.json(settings);
@@ -161,8 +192,12 @@ app.get('/api/wallets/:label/balance', async (req, res) => {
 
 app.put('/api/wallets/:label/rules', async (req, res) => {
   try {
-    const rules = await mutateRecord({ label: req.params.label, storeDir: STORE }, (rec) => {
-      rec.rules = normalizeRules(req.body?.rules, rec.rules ?? []);
+    const rules = await mutateRecord({ label: req.params.label, storeDir: STORE }, async (rec) => {
+      const next = normalizeRules(req.body?.rules, rec.rules ?? []);
+      await assertNoScheduleConflict(req.params.label, {
+        mint: normalizeSettings(rec.settings).mint, rules: next
+      });
+      rec.rules = next;
       return rec.rules;
     });
     res.json(rules);
