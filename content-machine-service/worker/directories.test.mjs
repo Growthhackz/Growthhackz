@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {submitListing,checkListing,inspect,directoryCycle,siteConfig} from './directories.mjs';
 import {NotPostedError} from './reddit.mjs';
 
-let extraRequired=false,formGone=false,subscribes=0,loginDisabled=false;const coins=[];
+let extraRequired=false,formGone=false,subscribes=0,loginDisabled=false,cfBlock=false;const coins=[];
 // Every page has a footer newsletter form (like Coinvote's), which must never be filled or submitted.
 const page=b=>`<!doctype html><html><body>${b}<footer><form method="post" action="/subscribe"><input type="email" name="email" placeholder="Email address" required><button type="submit" name="submit">Subscribe</button></form></footer></body></html>`;
 const form=()=>`<form method="post" enctype="multipart/form-data" action="/submit">
@@ -31,6 +31,7 @@ const server=createServer(async(req,res)=>{const url=new URL(req.url,'http://x')
  if(url.pathname==='/login'){const f=new URLSearchParams(raw);return f.get('password')==='pw'?send('',302,{location:'/','set-cookie':'sid=1; Path=/'}):send('bad login');}
  if(url.pathname==='/subscribe'){subscribes++;return send('subscribed');}
  if(url.pathname==='/submit'&&req.method==='GET')return authed?send(formGone?'<p>Maintenance</p>':form()):send('',302,{location:'/login'});
+ if(url.pathname==='/submit'&&cfBlock){res.writeHead(403,{'content-type':'text/html'});return res.end('<!doctype html><html><head><title>Just a moment...</title></head><body>Performing security verification<div class="cf-turnstile"></div></body></html>');}
  if(url.pathname==='/submit'){const get=n=>(raw.match(new RegExp(`name="${n}"\\r\\n\\r\\n([^\\r]*)`))||[])[1];const hasLogo=/name="logo"; filename="logo.png"/.test(raw);
    if(coins.some(c=>c.contract===get('contract')))return send('<div class="alert-danger">This coin is already listed</div>'+form());
    coins.push({id:coins.length+101,name:get('coin_name'),symbol:get('symbol'),chain:get('chain'),contract:get('contract'),date:get('launch_date'),desc:get('description'),tg:get('telegram'),discord:get('discord'),hasLogo,live:false});
@@ -61,6 +62,8 @@ try{
  // A cookie export logs in without the password form.
  const cookieCfg={...siteConfig('coinsniper',{...env,COINSNIPER_COOKIES:JSON.stringify([{name:'sid',value:'1',domain:'127.0.0.1',path:'/'}]),COINSNIPER_EMAIL:'',COINSNIPER_PASSWORD:''}),login:'/login',submit:'/submit',browse:['/new'],statePath:join(dir,'cookie.json')};
  assert.ok(await inspect('coinsniper',cookieCfg));
+ // Cloudflare holds the submission behind a check that doesn't clear: reported as not sent.
+ cfBlock=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'3'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/Cloudflare/.test(e.message));cfBlock=false;
  // Wrong password: nothing sent.
  await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,password:'nope',statePath:join(dir,'x.json')}),NotPostedError);
  // Review: not live yet, then live after approval, found via the new-coins page.

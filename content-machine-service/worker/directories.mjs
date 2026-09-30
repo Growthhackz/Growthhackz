@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
-import {installCookieSession, NotPostedError} from './reddit.mjs';
+import {installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
 
 /** Directory sites. Paths are relative to each site's origin so tests can point at a local fake. */
 export const SITES = {
@@ -107,7 +107,11 @@ async function applyField(page, f, plan, logoPath) {
   await el.fill(text); return true;
 }
 
-async function launch() { return chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined}); }
+/** DIRECTORY_PROXY (http://user:pass@host:port): listing sites block datacenter networks, so their traffic goes through it. */
+async function launch() { return chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(process.env.DIRECTORY_PROXY)}); }
+
+/** Cloudflare's "Performing security verification" interstitial (Turnstile). */
+const cloudflareChallenge = async page => (await page.locator('.cf-turnstile, iframe[src*="challenges.cloudflare.com"], #challenge-form').count()) > 0 || /performing security verification|just a moment/i.test(await page.title().catch(() => ''));
 
 /** Everything up to the filled form sends nothing, so any failure here is NotPostedError (safe to retry). */
 async function openSubmitForm(browser, cfg) {
@@ -181,6 +185,10 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
     await button.click({trial: true, timeout: 15000}).catch(async e => { await debugSnapshot(page, cfg, 'unclickable'); throw new NotPostedError(`${site}: submit button not clickable (${String(e.message).split('\n')[0].slice(0, 120)}); nothing was sent.`); });
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), button.click()]);
     await page.waitForTimeout(2500);
+    // Cloudflare may hold the submission behind its check. On a residential IP it usually clears by itself; it's never
+    // solved for it. While the check stands, the request hasn't reached the site, so nothing was sent.
+    for (let i = 0; i < 12 && (await cloudflareChallenge(page)); i++) await page.waitForTimeout(2500);
+    if (await cloudflareChallenge(page)) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${site}: Cloudflare's security check did not clear, so the listing was not sent.`); }
     const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
     const errors = (await page.locator('.error:visible, .alert-danger:visible, .invalid-feedback:visible, [role="alert"]:visible, .text-danger:visible').allInnerTexts().catch(() => [])).join(' ').trim();
     if (/already (been )?(listed|exists|submitted|added)/.test(text + ' ' + errors.toLowerCase())) return {submitted: true, url: null, note: 'already listed'};
