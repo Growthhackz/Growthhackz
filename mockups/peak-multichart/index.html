@@ -1339,6 +1339,16 @@ a { color: inherit; }
   new ResizeObserver(moResize).observe(moEl);
   requestAnimationFrame(frame);
   const canLive = location.protocol.startsWith('http') && !/claude|claudeusercontent/.test(location.hostname);
-  (canLive ? startLive() : Promise.reject(new Error('no server'))).catch(() => startDemo());
+  // on a real host, try live a few times; if it still fails, show the demo and switch to live as soon as data returns
+  async function tryLive() {
+    for (let i = 0; i < 3; i++) {
+      try { await startLive(); return; } catch (e) { await new Promise(r => setTimeout(r, 2000)); }
+    }
+    throw new Error('live data unavailable');
+  }
+  (canLive ? tryLive() : Promise.reject(new Error('no server'))).catch(() => {
+    startDemo();
+    if (canLive) setInterval(async () => { try { const r = await fetch('/api/board'); if (r.ok) location.reload(); } catch (e) {} }, 20000);
+  });
 })();
 </script>
