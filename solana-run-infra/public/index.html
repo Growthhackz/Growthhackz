@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wallet Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>Wallets</h1>
+  <div class="header-actions">
+    <form id="create-form">
+      <input name="label" placeholder="label" pattern="[a-zA-Z0-9_-]{1,32}" required>
+      <button type="submit">Add wallet</button>
+    </form>
+    <button id="stop-all" class="stop">Emergency stop all</button>
+  </div>
+</header>
+
+<main>
+  <table id="wallets">
+    <thead>
+      <tr>
+        <th>Label</th><th>Address</th><th>Balance</th><th>Token</th>
+        <th>Price</th><th>Automation</th><th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <p id="empty" hidden>No wallets yet. Add one above.</p>
+</main>
+
+<!-- Manual trade -->
+<dialog id="trade-dialog">
+  <form id="trade-form">
+    <h2>Trade — <span class="dlg-label"></span></h2>
+    <p class="muted small" id="trade-balances"></p>
+    <div class="seg" role="radiogroup">
+      <label><input type="radio" name="side" value="buy" checked> Buy</label>
+      <label><input type="radio" name="side" value="sell"> Sell</label>
+    </div>
+    <div class="row">
+      <input type="number" name="amount" min="0" step="any" placeholder="amount" required>
+      <select name="amountType"></select>
+    </div>
+    <div class="quick">
+      <button type="button" data-pct="10">10%</button>
+      <button type="button" data-pct="25">25%</button>
+      <button type="button" data-pct="50">50%</button>
+      <button type="button" data-pct="100">100%</button>
+    </div>
+    <menu>
+      <button type="button" data-close>Cancel</button>
+      <button type="submit" class="primary" id="trade-submit">Buy</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Settings + rules -->
+<dialog id="manage-dialog" class="wide">
+  <form id="manage-form">
+    <h2>Manage — <span class="dlg-label"></span></h2>
+
+    <fieldset>
+      <legend>Settings</legend>
+      <label>Token mint
+        <input name="mint" placeholder="token mint address" spellcheck="false" autocomplete="off">
+      </label>
+      <div class="row">
+        <label>Slippage (bps)
+          <input type="number" name="slippageBps" min="1" max="5000" step="1" required>
+        </label>
+        <label>SOL floor (buys never go below)
+          <input type="number" name="solFloor" min="0" step="0.001" required>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Rules</legend>
+      <p class="muted small">
+        Buys and sells are independent. Each rule fires on a price level or a schedule.
+        Price rules fire once, or every time price crosses the level if “repeat” is on.
+        Prices are in SOL per token.
+      </p>
+      <div id="rules"></div>
+      <button type="button" id="add-rule">+ Add rule</button>
+    </fieldset>
+
+    <menu>
+      <button type="button" data-close>Cancel</button>
+      <button type="submit" class="primary">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Log -->
+<dialog id="log-dialog" class="wide">
+  <div class="dlg-body">
+    <h2>Activity — <span class="dlg-label"></span></h2>
+    <ol id="log-list"></ol>
+    <menu><button type="button" data-close>Close</button></menu>
+  </div>
+</dialog>
+
+<!-- Emergency stop -->
+<dialog id="stop-dialog">
+  <form id="stop-form">
+    <h2 class="danger-text">Emergency stop — <span class="dlg-label"></span></h2>
+    <ul class="small">
+      <li>Turns automation off and disables every rule</li>
+      <li>Sells all tokens to SOL (at least 5% slippage)</li>
+      <li>Unwraps wSOL and closes token accounts to reclaim rent</li>
+    </ul>
+    <label class="check">
+      <input type="checkbox" name="burnUnsellable">
+      Burn tokens that can't be sold, so their accounts can close
+    </label>
+    <label class="check">
+      <input type="checkbox" name="sweep">
+      <span>Sweep SOL to receiver <code id="receiver-addr"></code></span>
+    </label>
+    <div id="stop-report"></div>
+    <menu>
+      <button type="button" data-close>Close</button>
+      <button type="submit" class="stop" id="stop-submit">Stop now</button>
+    </menu>
+  </form>
+</dialog>
+
+<template id="rule-tpl">
+  <div class="rule">
+    <label class="check" title="enabled"><input type="checkbox" data-f="enabled"></label>
+    <select data-f="side">
+      <option value="buy">Buy</option>
+      <option value="sell">Sell</option>
+    </select>
+    <input type="number" data-f="amount" min="0" step="any" placeholder="amount" required>
+    <select data-f="amountType"></select>
+    <select data-f="triggerType">
+      <option value="priceBelow">when price ≤</option>
+      <option value="priceAbove">when price ≥</option>
+      <option value="interval">every (min)</option>
+    </select>
+    <input type="number" data-f="triggerValue" min="0" step="any" required>
+    <label class="check small" title="price rules: fire again each time price re-crosses">
+      <input type="checkbox" data-f="repeat"> repeat
+    </label>
+    <input type="number" data-f="maxRuns" min="1" step="1" placeholder="max runs" title="optional limit">
+    <span class="muted small" data-f="runs"></span>
+    <button type="button" class="icon" data-remove title="remove">✕</button>
+  </div>
+</template>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>
