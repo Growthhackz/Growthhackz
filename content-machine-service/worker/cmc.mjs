@@ -3,7 +3,7 @@ import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {chromium} from 'playwright';
-import {installCookieSession, NotPostedError} from './reddit.mjs';
+import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
 
 /** A cookie export from a browser logged in to CoinMarketCap skips the login (and its human check). */
 export const CMC_COOKIES = {domain: /(^|\.)coinmarketcap\.com$/, isLogin: () => true, label: 'CoinMarketCap login cookies'};
@@ -17,10 +17,13 @@ export const cmcConfig = (env = process.env) => ({
   statePath: env.CMC_STATE_PATH || resolve(env.DIRECTORY_STATE_DIR || '.', 'cmc-session.json'),
   debugDir: env.DIRECTORY_DEBUG_DIR || null,
   cookies: env.CMC_COOKIES,
+  /** CMC_PROXY, else DIRECTORY_PROXY: a residential exit instead of the datacenter one. */
+  proxy: env.CMC_PROXY || env.DIRECTORY_PROXY,
 });
 
 const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-const humanCheck = page => page.locator('iframe[src*="captcha"], iframe[src*="geetest"], iframe[src*="challenges.cloudflare"], .geetest_panel, [class*="captcha" i]').count();
+/** Only a check that is actually on screen counts: CMC's pages carry hidden captcha containers all the time. */
+const humanCheck = page => page.locator('iframe[src*="captcha"]:visible, iframe[src*="geetest"]:visible, iframe[src*="challenges.cloudflare"]:visible, .geetest_panel:visible, [class*="captcha" i]:visible').count();
 
 /** Finds a post id in a CMC API payload: the created post, or the newest post matching our text. */
 export function findPostId(payload, text) {
@@ -86,9 +89,9 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
     try { installCookieSession(cfg.statePath, cfg.cookies, CMC_COOKIES); } catch (e) { throw new NotPostedError(`CMC_COOKIES: ${e.message}`); }
   }
   if (!existsSync(cfg.statePath) && (!cfg.email || !cfg.password)) throw new NotPostedError('Set CMC_COOKIES (or CMC_EMAIL and CMC_PASSWORD) on the worker.');
-  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined});
+  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(cfg.proxy)});
   try {
-    const context = await browser.newContext({...(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}), viewport: {width: 1300, height: 900}});
+    const context = await browser.newContext(browserContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}));
     const page = await context.newPage();
     const payloads = [];
     page.on('response', async r => {
@@ -119,7 +122,7 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
       const input = page.locator('input[type="file"][accept*="png" i]').first();
       if (await input.count()) { await input.setInputFiles(imagePath); await page.waitForTimeout(5000); }
     }
-    if (await humanCheck(page)) throw new NotPostedError('CMC showed a human check before posting.');
+    if (await humanCheck(page)) { await snapshot(page, cfg, 'check'); throw new NotPostedError('CMC showed a human check before posting.'); }
     // Exact name: the page also has a "Posts" tab.
     const post = page.getByRole('button', {name: 'Post', exact: true}).last();
     if (await post.isDisabled()) { await snapshot(page, cfg, 'disabled'); throw new NotPostedError('CMC Post button is disabled (empty post or image still uploading).'); }
