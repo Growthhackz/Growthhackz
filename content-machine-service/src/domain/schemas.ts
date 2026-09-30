@@ -81,6 +81,11 @@ export const orderInputSchema = z
     channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).default([]),
     budget_cents: z.number().int().min(10).max(500).default(100),
     demo: z.boolean().default(false),
+    /**
+     * Admin test order: runs only the requested channels plus the content they need (metadata, copy, campaign
+     * image), and never calls back. Publications are real.
+     */
+    test: z.boolean().default(false),
   })
   .strict()
   .superRefine((v, c) => {

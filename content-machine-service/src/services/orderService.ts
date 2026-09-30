@@ -161,6 +161,7 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
     for (const [kind, rank] of STAGES) {
       const skipped =
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
+        (input.test && channelOf(kind) === null && !['metadata', 'copy', 'campaign_image'].includes(kind)) ||
         (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!));
       run(
         ctx.db,

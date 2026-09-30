@@ -52,6 +52,7 @@ function sendAsset(reply: FastifyReply, req: FastifyRequest, a: { mime: string; 
 export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void {
   // ---- orders (service key or admin) ----
   app.post('/v1/orders', async (req, reply) => {
+    if ((req.body as { test?: unknown } | null)?.test === true) await requireAdmin(req);
     const { order, created } = createOrder(ctx, req.body);
     return reply.code(created ? 201 : 200).send(presentOrder(ctx, order));
   });

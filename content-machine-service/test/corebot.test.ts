@@ -160,3 +160,33 @@ describe('live-test readiness', () => {
     expect((await t.call(key, 'GET', '/v1/errors')).status).toBe(403);
   });
 });
+
+describe('admin test orders', () => {
+  it('run only the requested channels plus their content, and never call back', async () => {
+    const t = makeApp({ PUBLIC_HUB_ENABLED: 'false' });
+    const sent: string[] = [];
+    t.http
+      .on('bot.example.com/hooks/content', (_u, init) => { sent.push(String(init.body)); return json({ ok: true }); })
+      .on('api.dexscreener.com/', () => json([{ chainId: 'solana', baseToken: { address: SOL, name: 'Moon Frog', symbol: 'MFROG' }, liquidity: { usd: 1 } }]))
+      .on('generativelanguage.googleapis.com/', (_u, init) =>
+        JSON.parse(String(init.body)).generationConfig?.responseModalities
+          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
+          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+      );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    await t.setSetting('CALLBACK_URL', 'https://bot.example.com/hooks/content');
+    await t.setSetting('CALLBACK_SECRET', 's');
+    const input = { order_id: 'test:reddit-1', chain: 'solana', contract_address: SOL, telegram_url: 'https://t.me/moonfrog', channels: ['reddit', 'coinsniper'], test: true };
+    const svc = (await t.api('POST', '/v1/keys', { name: 'svc' })).body.key;
+    expect((await t.call(svc, 'POST', '/v1/orders', input)).status).toBe(403);
+    const o = (await t.api('POST', '/v1/orders', input)).body;
+    for (let i = 0; i < 20; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const jobs = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs;
+    const status = (k: string) => jobs.find((j: any) => j.kind === k).status;
+    for (const k of ['metadata', 'copy', 'campaign_image']) expect(status(k)).toBe('delivered');
+    for (const k of ['hub', 'sticker_art_0', 'stickers', 'sticker_publish', 'meme_plan', 'telegraph', 'call_channel']) expect(status(k)).toBe('skipped');
+    for (const k of ['reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper']) expect(status(k)).toBe('queued');
+    expect(sent).toEqual([]);
+    expect((await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.every((e: any) => e.delivered)).toBe(true);
+  });
+});
