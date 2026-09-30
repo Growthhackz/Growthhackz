@@ -98,4 +98,18 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'service';
     `,
   },
+  {
+    version: 4,
+    sql: `
+      -- Posts we hand to a person to finish (a tap on the site's own human check): one link per order, sent by DM.
+      CREATE TABLE assists (
+        order_id      TEXT PRIMARY KEY,
+        token         TEXT NOT NULL UNIQUE,
+        created_at    INTEGER NOT NULL,
+        sent_at       INTEGER,
+        attempted_at  INTEGER,
+        error         TEXT
+      );
+    `,
+  },
 ];

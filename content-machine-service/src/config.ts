@@ -37,6 +37,8 @@ const EnvSchema = z.object({
   CALL_CHANNEL_ID: z.string().optional(),
   /** Team member's numeric Telegram ID that owns every sticker pack (must have started the bot). */
   STICKER_OWNER_ID: z.string().optional(),
+  /** Who gets the DM for posts that need a person (ASSIST_KINDS); defaults to STICKER_OWNER_ID. Must have started the bot. */
+  ASSIST_CHAT_ID: z.string().optional(),
 
   /** social-activity-service (private network URL) for the social_boost item. */
   SOCIAL_ACTIVITY_URL: z.string().url().optional(),
@@ -51,6 +53,12 @@ const EnvSchema = z.object({
   X_GQL_USER_TWEETS: z.string().regex(/^[A-Za-z0-9_-]+$/).default('E3opETHurmVJflFsUBVuUQ'),
   /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
   TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,social_boost,bitcointalk,meme_pack'),
+
+  /**
+   * Posts handed to a person instead of the worker: the order's operator gets one Telegram DM with a page where each
+   * post opens pre-filled on the site, and they pass its human check and submit. Comma list of item kinds.
+   */
+  ASSIST_KINDS: z.string().default(''),
 
   WORKERS_ENABLED: bool.default('true'),
   /** How often the background loop advances queued jobs and sends callbacks. */

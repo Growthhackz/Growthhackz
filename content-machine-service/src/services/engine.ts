@@ -31,6 +31,7 @@ import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
 import { getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
+import { assistKinds, sendAssists } from './assistService.js';
 
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
@@ -355,6 +356,7 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     if (!progressed) break;
   }
   await pollSocialBoosts(ctx);
+  await sendAssists(ctx);
   settleOrders(ctx);
   const callbacks = await deliverCallbacks(ctx);
   return { paused: false, processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
@@ -517,7 +519,7 @@ export function projectLinks(p: Order['project']): PageLink[] {
 }
 
 /** What the worker should post; built here so the worker stays a thin publisher. */
-function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
+export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
   if (kind === 'binance') return { title: copy.headline, text: [binanceArticle(copy.article), binanceHandles(o.project)].filter(Boolean).join('\n\n') };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
@@ -595,7 +597,9 @@ function pressRelease(o: Order) {
 export function publishClaim(ctx: ServiceContext, kinds: unknown = ['binance']) {
   if (isPaused(ctx)) return null;
   expireLeases(ctx);
-  const wanted = (Array.isArray(kinds) ? kinds : ['binance']).filter((k): k is string => WORKER_PUBLICATIONS.includes(k));
+  // Posts handed to a person (ASSIST_KINDS) are never the worker's.
+  const handed = assistKinds(ctx);
+  const wanted = (Array.isArray(kinds) ? kinds : ['binance']).filter((k): k is string => WORKER_PUBLICATIONS.includes(k) && !handed.includes(k));
   if (!wanted.length) return null;
   const rows = all<JobRow>(
     ctx.db,
