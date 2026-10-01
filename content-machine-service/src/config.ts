@@ -67,6 +67,13 @@ const EnvSchema = z.object({
    * post opens pre-filled on the site, and they pass its human check and submit. Comma list of item kinds.
    */
   ASSIST_KINDS: z.string().default(''),
+  /** Channels switched off for every order, even when the buybot asks for them. The call channel is paused. */
+  PAUSED_CHANNELS: z.string().default('call_channel'),
+  /**
+   * A second, third… trending purchase for the same token gets only these (new posts and a new social boost), plus
+   * five new stickers and five new memes added to its existing sticker pack.
+   */
+  REPEAT_CHANNELS: z.string().default('cmc_community,binance,social_boost,meme_pack'),
   /** Subreddits each order posts to when it has the `reddit` channel (names from SUBREDDITS, or `all`). */
   REDDIT_TARGETS: z.string().default('moonshots,SolanaMemeCoins'),
 

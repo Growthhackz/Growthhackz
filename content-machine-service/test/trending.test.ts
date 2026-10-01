@@ -36,9 +36,19 @@ async function drain(t: ReturnType<typeof makeApp>) {
   for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) return;
 }
 
+describe('paused channels', () => {
+  it('leaves the call channel off by default, even when the buybot asks for it', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph,call_channel' });
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, channels: ['call_channel'] })).body;
+    expect(o.project.channels).toEqual(['telegraph']);
+    expect(o.jobs.find((j: any) => j.kind === 'call_channel').status).toBe('skipped');
+  });
+});
+
+// The call channel is paused by default (PAUSED_CHANNELS); these run with it on.
 describe('trending purchase → call channel', () => {
   it('posts the X-sized post with the campaign image and the project Telegram link', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', PAUSED_CHANNELS: '' });
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'CALL');
@@ -73,7 +83,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('adds extra channels and rejects bad input', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', PAUSED_CHANNELS: '' });
     const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
     expect(r.body.project.channels).toEqual(['call_channel', 'telegraph']);
     const withOwner = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x3', telegram_owner_id: 42 });
@@ -84,7 +94,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('blocks without the call bot, and never reposts after an ambiguous failure', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', PAUSED_CHANNELS: '' });
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');

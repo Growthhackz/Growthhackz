@@ -175,10 +175,9 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
   });
 }
 
-/** Channels every trending order gets (TRENDING_CHANNELS), plus whatever the buybot asks for. */
+/** Channels every trending order gets (TRENDING_CHANNELS), plus whatever the buybot asks for, minus PAUSED_CHANNELS. */
 export function trendingChannels(ctx: ServiceContext, extra: string[] = []): string[] {
-  const defaults = ctx.config.TRENDING_CHANNELS.split(',').map((c) => c.trim()).filter((c) => (CHANNELS as readonly string[]).includes(c));
-  return [...new Set([...defaults, ...extra, 'call_channel'])];
+  return [...new Set(listed(ctx, [ctx.config.TRENDING_CHANNELS, ...extra, 'call_channel'].join(',')))];
 }
 
 /** Maps a trending purchase to an order with the default trending channels. */
@@ -193,8 +192,38 @@ export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   // A purchase is one order: a retried webhook gets the existing order even if TRENDING_CHANNELS changed since.
   const existing = get<{ id: string }>(ctx.db, 'SELECT id FROM orders WHERE order_id = :o', { o: `trending:${purchase_id}` });
   if (existing) return { order: loadOrder(ctx, existing.id), created: false };
+  // Earlier trending purchases of the same token make this a repeat: new posts, boost and stickers only.
+  const prior = earlierTrendingOrders(ctx, rest.chain, rest.contract_address).length;
+  const purchase_number = prior + 1;
   // Trending orders include the campaign art, stickers and the five-meme pack: about $1.40 of generation at list rates.
-  return createOrder(ctx, { budget_cents: 250, ...rest, order_id: `trending:${purchase_id}`, channels: trendingChannels(ctx, channels) });
+  return createOrder(ctx, {
+    budget_cents: 250,
+    ...rest,
+    order_id: `trending:${purchase_id}`,
+    channels: purchase_number > 1 ? repeatChannels(ctx) : trendingChannels(ctx, channels),
+    purchase_number,
+  });
+}
+
+/** Trending orders already placed for this token, oldest first (only purchases numbered below `before`, when given). */
+export function earlierTrendingOrders(ctx: ServiceContext, chain: string, contract: string, before?: number): Order[] {
+  const ca = chain === 'solana' ? contract : contract.toLowerCase();
+  // Orders from before purchase numbers existed count as first purchases.
+  return all<{ id: string }>(
+    ctx.db,
+    `SELECT id FROM orders WHERE order_id LIKE 'trending:%' AND json_extract(project, '$.chain') = :chain
+       AND json_extract(project, '$.contract_address') = :ca AND COALESCE(json_extract(project, '$.purchase_number'), 1) < :before
+     ORDER BY COALESCE(json_extract(project, '$.purchase_number'), 1), created_at`,
+    { chain, ca, before: before ?? Number.MAX_SAFE_INTEGER },
+  ).map((r) => loadOrder(ctx, r.id));
+}
+
+const paused = (ctx: ServiceContext) => ctx.config.PAUSED_CHANNELS.split(',').map((c) => c.trim()).filter(Boolean);
+const listed = (ctx: ServiceContext, csv: string) => csv.split(',').map((c) => c.trim()).filter((c) => (CHANNELS as readonly string[]).includes(c) && !paused(ctx).includes(c));
+
+/** What a repeat purchase gets (REPEAT_CHANNELS, minus paused channels). */
+export function repeatChannels(ctx: ServiceContext): string[] {
+  return [...new Set(listed(ctx, ctx.config.REPEAT_CHANNELS))];
 }
 
 /** REDDIT_TARGETS as item kinds. */

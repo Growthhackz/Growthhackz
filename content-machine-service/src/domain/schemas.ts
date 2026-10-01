@@ -101,6 +101,8 @@ export const orderInputSchema = z
     approved_facts: z.array(approvedFactSchema).max(12).default([]),
     telegram_owner_id: z.number().int().positive().optional(),
     channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).default([]),
+    /** Which trending purchase of this token this is (1 = first). Set by the trending intake. */
+    purchase_number: z.number().int().min(1).max(10_000).default(1),
     budget_cents: z.number().int().min(10).max(500).default(100),
     demo: z.boolean().default(false),
     /**

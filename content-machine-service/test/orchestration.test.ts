@@ -64,7 +64,6 @@ describe('trending orchestration', () => {
     expect(o.project.channels).toEqual([
       'binance',
       'bitcointalk',
-      'call_channel',
       'cmc_community',
       'coinscope',
       'freshcoins',
