@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {chromium} from 'playwright';
 import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {withLock} from './lock.mjs';
 
 /**
  * Listing sites with their own step-by-step flows (each mapped from the live form): Top100Token (no login, 3 steps,
@@ -310,16 +311,17 @@ async function pageIsLive(url, listing) {
     const page = await (await browser.newContext(browserContext())).newPage();
     const r = await page.goto(url, {waitUntil: 'domcontentloaded', timeout: 60000}).catch(() => null);
     await page.waitForTimeout(3000);
-    const html = (await page.content()).toLowerCase();
-    const ours = html.includes(listing.contract_address.toLowerCase()) || html.includes(listing.name.toLowerCase());
-    return {live: !!r?.ok() && ours && !/under review|pending approval|not found/.test(html), url};
+    // Visible text only: page code and scripts contain words like "not found" that are not on the page.
+    const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
+    const ours = text.includes(listing.contract_address.toLowerCase()) || text.includes(listing.name.toLowerCase());
+    return {live: !!r?.ok() && ours && !/under review|pending approval|page not found|coin not found|404/.test(text), url};
   } catch { return {live: false}; } finally { await browser.close(); }
 }
 
 export const LISTING_SITES = {
   top100token: {enabled: () => true, submit: top100Submit, check: pageIsLive},
-  gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: gemfinderSubmit, check: pageIsLive},
-  freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: freshcoinsSubmit, check: pageIsLive},
+  gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
+  freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
 };
 
@@ -353,3 +355,69 @@ export async function listingSitesCycle(client, {sites = LISTING_SITES, env = pr
     await client.request(`listings/${due.job.id}/checked`, r);
   }
 }
+
+// ---------------------------------------------------------------- health (read-only: nothing is submitted)
+
+const health = async (fn) => { try { return await fn(); } catch (e) { return {ok: false, detail: String(e?.message || e).split('\n')[0].slice(0, 200)}; } };
+
+/** Top100Token needs no login: its submit form must load (it sits behind Cloudflare). */
+export const top100Health = () => health(async () => {
+  const browser = await launch();
+  try {
+    const page = await (await browser.newContext(browserContext())).newPage();
+    await page.goto('https://top100token.com/submit', {waitUntil: 'domcontentloaded', timeout: 60000});
+    await page.waitForTimeout(4000);
+    return (await page.locator('select').count()) ? {ok: true, detail: 'submit form loads'} : {ok: false, detail: `submit form did not load (${(await page.title()).slice(0, 80)})`};
+  } finally { await browser.close(); }
+});
+
+/** GemFinder: the add-coin form opens with the saved session, else after an email login (which is then saved). */
+export const gemfinderHealth = (env = process.env) => withLock('gemfinder', () => health(async () => {
+  if (!env.GEMFINDER_EMAIL || !env.GEMFINDER_PASSWORD) return {ok: false, detail: 'set GEMFINDER_EMAIL and GEMFINDER_PASSWORD'};
+  const statePath = join(stateDir(env), 'gemfinder-session.json');
+  const browser = await launch();
+  try {
+    const context = await browser.newContext(browserContext(existsSync(statePath) ? {storageState: statePath} : {}));
+    const page = await context.newPage();
+    await page.goto('https://gemfinder.cc/addcoin', {waitUntil: 'domcontentloaded', timeout: 60000});
+    if (!page.url().includes('/addcoin')) {
+      await page.goto('https://gemfinder.cc/login', {waitUntil: 'domcontentloaded', timeout: 60000});
+      await page.locator('input[type=email], input[name=email]').first().fill(env.GEMFINDER_EMAIL);
+      await page.locator('input[type=password]').first().fill(env.GEMFINDER_PASSWORD);
+      await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), page.locator('button[type=submit]').first().click()]);
+      await page.waitForTimeout(4000);
+      await page.goto('https://gemfinder.cc/addcoin', {waitUntil: 'domcontentloaded', timeout: 60000});
+      if (!page.url().includes('/addcoin')) return {ok: false, detail: 'login failed (check GEMFINDER_EMAIL / GEMFINDER_PASSWORD)'};
+    }
+    await page.locator('#name').waitFor({timeout: 15000}).catch(() => {});
+    if (!(await page.locator('#name').count())) return {ok: false, detail: 'add-coin form did not load'};
+    await context.storageState({path: statePath});
+    return {ok: true, detail: 'logged in, form loads'};
+  } finally { await browser.close(); }
+}));
+
+/** FreshCoins (Google-only account): the saved Clerk session must still open the add-coin page. */
+export const freshcoinsHealth = (env = process.env) => withLock('freshcoins', () => health(async () => {
+  const statePath = join(stateDir(env), 'freshcoins-session.json');
+  try { installCookieSession(statePath, env.FRESHCOINS_COOKIES, FRESHCOINS_COOKIES); } catch (e) { return {ok: false, detail: `FRESHCOINS_COOKIES: ${e.message}`}; }
+  if (!existsSync(statePath)) return {ok: false, detail: 'set FRESHCOINS_COOKIES'};
+  const browser = await launch();
+  try {
+    const context = await browser.newContext(browserContext({storageState: statePath}));
+    const page = await context.newPage();
+    await page.goto('https://www.freshcoins.io/add-coin', {waitUntil: 'domcontentloaded', timeout: 60000});
+    await page.getByPlaceholder('Enter coin name').waitFor({timeout: 20000}).catch(() => {});
+    if (!page.url().includes('/add-coin') || !(await page.getByPlaceholder('Enter coin name').count()))
+      return {ok: false, detail: 'session expired: export fresh FRESHCOINS_COOKIES from a logged-in browser'};
+    await context.storageState({path: statePath});
+    return {ok: true, detail: 'logged in, form loads'};
+  } finally { await browser.close(); }
+}));
+
+/** Coinscope (Google-only account): the saved Firebase refresh token must still mint a login. */
+export const coinscopeHealth = (env = process.env) => health(async () => {
+  if (!env.COINSCOPE_REFRESH_TOKEN) return {ok: false, detail: 'set COINSCOPE_REFRESH_TOKEN'};
+  const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${COINSCOPE_FIREBASE_KEY}`, {method: 'POST', headers: {'content-type': 'application/x-www-form-urlencoded', referer: 'https://www.coinscope.co/'}, body: new URLSearchParams({grant_type: 'refresh_token', refresh_token: env.COINSCOPE_REFRESH_TOKEN}), signal: AbortSignal.timeout(20000)});
+  const t = await r.json().catch(() => ({}));
+  return t.id_token ? {ok: true, detail: 'login token works'} : {ok: false, detail: `login token rejected (${String(t?.error?.message ?? r.status)}); refresh COINSCOPE_REFRESH_TOKEN`};
+});

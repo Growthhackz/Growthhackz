@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {chromium} from 'playwright';
 import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {withLock} from './lock.mjs';
 
 /** A cookie export from a browser logged in to CoinMarketCap skips the login (and its human check). */
 export const CMC_COOKIES = {domain: /(^|\.)coinmarketcap\.com$/, isLogin: () => true, label: 'CoinMarketCap login cookies'};
@@ -105,7 +106,38 @@ async function clearCookieBanner(page) {
   await page.evaluate(() => document.getElementById('onetrust-consent-sdk')?.remove()).catch(() => {});
 }
 
-export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
+export const postToCmc = (target, imagePath, cfg = cmcConfig()) => withLock('cmc', () => postUnlocked(target, imagePath, cfg));
+
+/**
+ * Health check that also keeps the login alive: opens our profile, logs in again if the session lapsed (saving the
+ * fresh cookies, including CMC's security token), and reports whether we could post right now.
+ */
+export const cmcHealth = (cfg = cmcConfig()) => withLock('cmc', async () => {
+  if (cfg.cookies) { try { installCookieSession(cfg.statePath, cfg.cookies, CMC_COOKIES); } catch (e) { return {ok: false, detail: `CMC_COOKIES: ${e.message}`}; } }
+  if (!existsSync(cfg.statePath) && (!cfg.email || !cfg.password)) return {ok: false, detail: 'no CMC_COOKIES or CMC_EMAIL / CMC_PASSWORD on the worker'};
+  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(cfg.proxy)});
+  try {
+    const context = await browser.newContext(browserContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}));
+    const page = await context.newPage();
+    const profile = `${cfg.origin}/community/profile/${cfg.handle}/`;
+    await page.goto(profile, {waitUntil: 'domcontentloaded', timeout: 60000});
+    let state = await profileState(page);
+    if (!state && await humanCheck(page)) return {ok: false, detail: 'CMC shows a human check on our profile (log in by hand once from a browser and refresh CMC_COOKIES)'};
+    if (state === 'out') {
+      await clearCookieBanner(page);
+      try { await login(page, cfg); } catch (e) { return {ok: false, detail: `login failed: ${String(e?.message || e).split('\n')[0].slice(0, 160)}`}; }
+      await page.goto(profile, {waitUntil: 'domcontentloaded', timeout: 60000});
+      state = await profileState(page);
+    }
+    if (state !== 'in') return {ok: false, detail: state === 'out' ? 'logged out and the login did not stick' : 'profile page did not load'};
+    await context.storageState({path: cfg.statePath});
+    return {ok: true, detail: 'logged in'};
+  } catch (e) {
+    return {ok: false, detail: String(e?.message || e).split('\n')[0].slice(0, 200)};
+  } finally { await browser.close(); }
+});
+
+async function postUnlocked(target, imagePath, cfg) {
   if (cfg.cookies) {
     try { installCookieSession(cfg.statePath, cfg.cookies, CMC_COOKIES); } catch (e) { throw new NotPostedError(`CMC_COOKIES: ${e.message}`); }
   }
@@ -153,6 +185,8 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
       const input = page.locator('input[type="file"][accept*="png" i]').first();
       if (await input.count()) { await input.setInputFiles(imagePath); await page.waitForTimeout(5000); }
     }
+    // CMC's security check is often an automatic one that clears by itself within seconds: give it the chance.
+    for (let t = 0; t < 25000 && (await humanCheck(page)); t += 1000) await page.waitForTimeout(1000);
     if (await humanCheck(page)) { await snapshot(page, cfg, 'check'); throw new NotPostedError('CMC showed a human check before posting.'); }
     await clearCookieBanner(page);
     // Exact name: the page also has a "Posts" tab.

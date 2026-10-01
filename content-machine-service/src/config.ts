@@ -69,6 +69,10 @@ const EnvSchema = z.object({
   ASSIST_KINDS: z.string().default(''),
   /** Channels switched off for every order, even when the buybot asks for them. The call channel is paused. */
   PAUSED_CHANNELS: z.string().default('call_channel'),
+  /** Source health checks every 30 min (logins, keys, bots, WURK wallet); changes are DMed to ASSIST_CHAT_ID. */
+  HEALTH_CHECKS_ENABLED: bool.default('true'),
+  /** Alert when the WURK wallet holds less than this (USDC). */
+  WURK_LOW_BALANCE_USDC: z.coerce.number().min(0).default(20),
   /**
    * A second, third… trending purchase for the same token gets only these (new posts and a new social boost), plus
    * five new stickers and five new memes added to its existing sticker pack.

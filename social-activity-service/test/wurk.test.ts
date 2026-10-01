@@ -16,7 +16,7 @@ const PRICES: Record<string, string> = {
   '/solana/xraid/small': '1000000',
 };
 
-type PaidBehaviour = 'ok' | 'timeout' | '409' | '500' | 'no-json';
+type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '500' | 'no-json';
 
 /** A fake WURK: 402 with a v2 challenge when unpaid; job JSON when PAYMENT-SIGNATURE is present. */
 function fakeWurk() {
@@ -51,6 +51,10 @@ function fakeWurk() {
     const b = state.paid[route] ?? 'ok';
     if (b === 'timeout') throw new Error('The operation was aborted due to timeout');
     if (b === '409') return new Response(JSON.stringify({ message: 'job already active for this group' }), { status: 409 });
+    if (b === '409-stale') {
+      state.paid[route] = 'ok'; // the next, freshly quoted payment goes through
+      return new Response(JSON.stringify({ message: 'The requested payment differs from its sealed component manifest.', errorCode: 'X402_REWARD_SOURCE_INVALID' }), { status: 409 });
+    }
     if (b === '500') return new Response('upstream', { status: 500 });
     if (b === 'no-json') return new Response('ok', { status: 200 });
     state.jobs++;
@@ -449,6 +453,23 @@ describe('WURK fulfillment', () => {
     const after = (await api('GET', `/v1/wurk/packages/${noTg.id}`)).body;
     expect(after.components.find((c: any) => c.kind === 'x_followers').status).toBe('needs_attention');
     expect(signed).toHaveLength(4);
+  });
+
+  it('a stale-quote refusal (409, nothing paid) is retried with a fresh quote instead of waiting for a person', async () => {
+    const { ctx, api, clock, signed, wurk } = setup();
+    wurk.state.paid['/solana/xraid/small'] = '409-stale';
+    const p = (await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: 'https://x.com/a/status/5' })).body;
+    await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: 'stale' });
+    await processWurk(ctx);
+    let detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.components[0]).toMatchObject({ status: 'queued', lastError: expect.stringContaining('stale quote') });
+    expect(detail.components[0].payments[0].status).toBe('failed');
+    clock.advance(10 * 60_000);
+    await processWurk(ctx);
+    detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('in_progress');
+    expect(detail.components[0].payments.map((x: any) => x.status)).toEqual(['failed', 'settled']);
+    expect(signed).toHaveLength(2);
   });
 
   it('small_raid refuses a quote above $1; the full preset drops Telegram members when there is no Telegram', async () => {

@@ -23,6 +23,7 @@ import {
 import { publicHub, renderHub } from '../services/hubService.js';
 import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, loadOrder, presentOrder, readAsset, recentProblems, retryJob } from '../services/orderService.js';
 import { saveSetting, settingsSummary } from '../services/settingsService.js';
+import { apiHealthChecks, recordChecks, sourceHealth } from '../services/healthService.js';
 import { assistDone, assistView, renderAssist } from '../services/assistService.js';
 
 type Params = { id: string };
@@ -123,6 +124,13 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted, b.note);
   });
   /** Directory listings waiting on the site's review: the worker checks whether the coin page is live yet. */
+  /** The worker's source checks (logins and forms); the API adds its own and alerts admins on changes. */
+  app.post('/v1/health/report', async (req) => ({ sources: await recordChecks(ctx, (req.body as { checks?: unknown } | null)?.checks, 'worker') }));
+  app.get('/v1/health/sources', admin, async () => ({ sources: sourceHealth(ctx) }));
+  app.post('/v1/health/run', admin, async () => {
+    await apiHealthChecks(ctx, true);
+    return { sources: sourceHealth(ctx) };
+  });
   app.post('/v1/listings/check-claim', async (req) => listingCheckClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
   app.post<{ Params: Params }>('/v1/listings/:id/checked', async (req) => {
     const b = (req.body ?? {}) as { url?: unknown; live?: unknown };
