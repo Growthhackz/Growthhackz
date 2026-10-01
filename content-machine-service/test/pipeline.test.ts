@@ -144,7 +144,7 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
     o = (await t.api('GET', `/v1/orders/${order.id}`)).body;
     expect(o.jobs.filter((j: any) => !['delivered', 'skipped'].includes(j.status))).toEqual([]);
     expect(o.status).toBe('delivered');
-    expect(o.jobs.find((j: any) => j.kind === 'sticker_publish').result.url).toMatch(/^https:\/\/t\.me\/addstickers\/p.+_by_sticker_bot$/);
+    expect(o.jobs.find((j: any) => j.kind === 'sticker_publish').result.url).toBe('https://t.me/addstickers/MFROG_by_sticker_bot');
     // 5 text + 6 images * 12
     expect(o.reserved_cents).toBe(77);
     expect(t.http.count('api.telegram.org/botTG/uploadStickerFile')).toBe(5);

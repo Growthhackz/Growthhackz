@@ -147,9 +147,10 @@ export type TrendingPurchase = z.infer<typeof trendingPurchaseSchema>;
 
 /**
  * Three pieces of content, published with the same campaign image:
- * - article (+ headline): Binance Square, Telegraph, Reddit
+ * - article (+ headline): Telegraph, Reddit
  * - social_post: a Telegram-sized post; the Full Send Trenches channel caption
  * - short_post: one X-sized post; the hub summary
+ * - spotlight_post / spotlight_alt: Peak's Community Spotlight on CoinMarketCap / Binance Square
  * meme_captions and trailer_lines are renderer inputs, not posts.
  */
 export const SHORT_POST_MAX = 280;
@@ -171,6 +172,12 @@ export const copySchema = z.object({
   short_post: z.string().min(10).max(SHORT_POST_MAX),
   meme_captions: z.array(z.string().max(100)).length(8),
   trailer_lines: z.array(z.string().max(70)).min(3).max(5),
+  /**
+   * Peak's "Community Spotlight" (CoinMarketCap) and its reworded twin (Binance Square). Optional so older/demo copy
+   * still validates; those fall back to social_post and the article.
+   */
+  spotlight_post: z.string().min(80).max(1200).optional(),
+  spotlight_alt: z.string().min(80).max(1200).optional(),
   /** Bitcointalk thread (optional so older/demo copy still validates; falls back to headline/article). */
   forum_title: z.string().min(5).max(80).optional(),
   forum_post: z.string().min(100).max(3000).optional(),
@@ -211,7 +218,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
-  // Peak Meme Creation Kit: plan all five jokes together, render each, then one gallery page.
+  // Peak Meme Creation Kit: plan all five jokes together and render each; they go out in the sticker pack.
   ['meme_plan', 90],
   ['meme_0', 91],
   ['meme_1', 92],
@@ -240,6 +247,10 @@ export type JobStatus = 'queued' | 'running' | 'submitted' | 'delivered' | 'skip
 export const EXPECTED_RENDER_FILES: Record<string, string[]> = {
   media: ['meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_5', 'meme_6', 'meme_7', 'trailer_square', 'trailer_vertical'],
   stickers: ['sticker_png_0', 'sticker_png_1', 'sticker_png_2', 'sticker_png_3', 'sticker_png_4'],
+};
+/** Sent when they exist: the meme pack's rendered memes, as a second set of stickers in the same pack. */
+export const OPTIONAL_RENDER_FILES: Record<string, string[]> = {
+  stickers: ['sticker_meme_png_0', 'sticker_meme_png_1', 'sticker_meme_png_2', 'sticker_meme_png_3', 'sticker_meme_png_4'],
 };
 
 const HOUR = 60 * 60_000;
@@ -316,7 +327,6 @@ export const SOURCE_LABELS: Record<string, string> = {
   bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',
   sticker_publish: 'Telegram sticker pack',
-  meme_pack: 'Meme pack',
 };
 
 /** Internal steps, named when they fail in the report. */
@@ -337,4 +347,5 @@ export const STEP_LABELS: Record<string, string> = {
   meme_2: 'Meme artwork',
   meme_3: 'Meme artwork',
   meme_4: 'Meme artwork',
+  meme_pack: 'Meme stickers',
 };
