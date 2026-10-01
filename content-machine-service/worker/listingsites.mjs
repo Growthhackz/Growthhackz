@@ -99,17 +99,18 @@ async function gemfinderSubmit(listing, logoPath, env = process.env) {
       if (await editor.count()) { await editor.click(); await page.keyboard.insertText(listing.description); }
       await page.locator('input[type=checkbox][required]').first().check({force: true});
     } catch (e) { throw e instanceof NotPostedError ? e : notSent('gemfinder', 'could not fill the form', e); }
-    await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), page.locator('button:has-text("ADD COIN")').last().click()]);
-    await page.waitForTimeout(6000);
+    await page.locator('button:has-text("ADD COIN")').last().click();
+    // Success redirects to My coins; through the proxy that can take a while.
+    await page.waitForURL(/\/mycoin/, {timeout: 45000}).catch(() => {});
     if (!page.url().includes('/mycoin')) {
       const errors = (await page.locator('.alert-danger:visible, .invalid-feedback:visible, .text-danger:visible').allInnerTexts().catch(() => [])).join(' ').trim();
-      if (errors) throw new NotPostedError(`gemfinder rejected the listing: ${errors.slice(0, 200)}`);
-      return {submitted: false};
+      if (errors && page.url().includes('/addcoin')) throw new NotPostedError(`gemfinder rejected the listing: ${errors.slice(0, 200)}`);
+      await page.goto('https://gemfinder.cc/mycoin', {waitUntil: 'domcontentloaded', timeout: 60000}).catch(() => {});
     }
     await context.storageState({path: statePath}).catch(() => {});
     // My coins lists ours newest first; the card links to /gem/<id>.
     const url = await page.evaluate(name => [...document.querySelectorAll('a[href*="/gem/"]')].find(a => a.textContent.includes(name))?.href ?? null, listing.name);
-    return {submitted: true, url};
+    return url ? {submitted: true, url} : {submitted: false};
   } finally { await browser.close(); }
 }
 
