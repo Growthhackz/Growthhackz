@@ -587,6 +587,8 @@ export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
         website_url: p.website_url ?? null,
         telegram_url: p.telegram_url,
         x_url: p.x_url ?? null,
+        // The DEX Screener chart: the link of last resort for sites that require one (no website, X or Telegram).
+        chart_url: typeof p.market?.pair_url === 'string' ? p.market.pair_url : `https://dexscreener.com/${p.chain}/${p.contract_address}`,
         launch_date: p.launch_date ?? new Date(created || nowMs(ctx)).toISOString().slice(0, 10),
         // The worker uploads the project logo when there is one, else the campaign image.
         logo_url: p.logo_url ?? null,

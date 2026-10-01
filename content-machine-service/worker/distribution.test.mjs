@@ -15,14 +15,15 @@ const body = async req => { const c = []; for await (const x of req) c.push(x); 
 const listen = async server => { await new Promise(r => server.listen(0, '127.0.0.1', r)); return `http://127.0.0.1:${server.address().port}`; };
 
 // ---------------------------------------------------------------- fake CMC
-const cmc = {posts: [], createReturnsId: true, nextId: 9001};
+// overlay: a full-page layer that appears once the composer opens ('onetrust' = CMC's late cookie banner; 'other' = anything else).
+const cmc = {posts: [], createReturnsId: true, nextId: 9001, overlay: null};
 const profileHtml = authed => page(authed ? `
 <button>Edit</button>
 <div><h2>All Posts</h2><div id="search" style="display:inline-block;width:32px"><svg width="16" height="16"></svg></div><div id="compose" style="display:inline-block;width:32px"><svg width="16" height="16"></svg></div></div>
 <div id="composer" style="display:none"><div contenteditable="true" id="ed"></div><input type="file" accept=".jpeg,.jpg,.png,.gif" multiple><button id="post">Post</button></div>
 <script>
 fetch('/gravity/v3/gravity/user/query').then(r=>r.json());
-document.getElementById('compose').onclick=()=>{document.getElementById('composer').style.display='block'};
+document.getElementById('compose').onclick=()=>{document.getElementById('composer').style.display='block';const o=${JSON.stringify(cmc.overlay)};if(o){const d=document.createElement('div');if(o==='onetrust')d.id='onetrust-consent-sdk';d.style.cssText='position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.4)';document.body.appendChild(d)}};
 document.getElementById('post').onclick=()=>fetch('/gravity/v4/gravity/post/create',{method:'POST',body:document.getElementById('ed').innerText});
 </script>` : `
 <button id="open">Log In</button>
@@ -57,6 +58,16 @@ cmc.createReturnsId = false;
 r = await postToCmc({text: 'Second post about Moon Frog'}, null, cmcCfg({password: 'wrong'}));
 assert.equal(r.url, `${cmcOrigin}/community/post/9002/`);
 await assert.rejects(postToCmc(target, null, cmcCfg({statePath: join(dir, 'none.json'), password: 'wrong'})), NotPostedError);
+// CMC's cookie banner showing up over the Post button is cleared and the post goes out.
+cmc.overlay = 'onetrust'; cmc.createReturnsId = true;
+r = await postToCmc({text: 'Third post about Moon Frog'}, null, cmcCfg());
+assert.equal(r.url, `${cmcOrigin}/community/post/9003/`);
+// Anything else covering it: the click never lands, so nothing was sent (safe to retry), not "maybe posted".
+cmc.overlay = 'other';
+const count = cmc.posts.length;
+await assert.rejects(postToCmc({text: 'Fourth post'}, null, cmcCfg()), e => e instanceof NotPostedError && /could not be clicked; nothing was sent|could not be clicked \(/.test(e.message));
+assert.equal(cmc.posts.length, count);
+cmc.overlay = null;
 await assert.rejects(postToCmc(target, null, {...cmcCfg(), email: undefined, statePath: join(dir, 'none3.json')}), NotPostedError);
 assert.equal(findPostId({data: {tweetDTOList: [{gravityId: '1', textContent: 'other'}, {gravityId: '2', textContent: 'Second post about'}]}}, 'Second post about Moon'), '2');
 
