@@ -259,6 +259,16 @@ With `PUBLIC_HUB_ENABLED=true`, `GET /projects/:id` serves the project page as H
 Gemini, Telegraph, Telegram and Binance have not been exercised with real credentials. The first paid order should be a low-cost acceptance test with connected accounts.
 
 
+## Self-healing
+
+Problems are fixed automatically where that is safe; admins get one Telegram line per step (`ASSIST_CHAT_ID`, else `STICKER_OWNER_ID`): 🟡 caught and being fixed, ✅ fixed, 🔴 needs a person (with what to do).
+
+- **Sources:** a failed health check is rechecked every 5 minutes instead of 30; the CMC and GemFinder checks log in again and save the session. After 3 failed attempts in a row the source is escalated (🔴).
+- **Content steps** (copy, images, memes, sticker art, renders): a step that failed its attempts gets one more run after 10 minutes, with everything that failed only because of it. If retries used up the order's generation allowance it gets a one-time top-up (`HEAL_BUDGET_CENTS`, default 150). A second failure is escalated.
+- **Uncertain publications** (CMC post, GemFinder listing): 10 minutes later the worker looks on our account. Found: the link is recorded. Our list loaded and it isn't there: it is posted again. The account page didn't load 3 times: escalated.
+- **Ops agent:** a scheduled Claude Code session reads `/v1/health/sources` and `/v1/errors` every hour; for a problem the automatic fixes don't cover it changes the code, runs the tests, merges, deploys, checks the result and reports through `POST /v1/ops/notify`.
+- `SELF_HEAL_ENABLED=false` turns the automatic fixes off.
+
 ## Keeping sources up (health checks)
 
 Every 30 minutes the worker checks each site it posts to and the API checks its own keys, bots and the WURK wallet (`GET /v1/health/sources`, `POST /v1/health/run`). A failed check is retried once before it counts. Each change between working and broken is sent to `ASSIST_CHAT_ID` (else `STICKER_OWNER_ID`) on Telegram: 🔴 with what to fix, 🟢 when it works again. The CMC and GemFinder checks also log in again when their session lapsed, which keeps those logins fresh between orders.

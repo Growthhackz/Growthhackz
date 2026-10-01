@@ -421,3 +421,25 @@ export const coinscopeHealth = (env = process.env) => health(async () => {
   const t = await r.json().catch(() => ({}));
   return t.id_token ? {ok: true, detail: 'login token works'} : {ok: false, detail: `login token rejected (${String(t?.error?.message ?? r.status)}); refresh COINSCOPE_REFRESH_TOKEN`};
 });
+
+/**
+ * Self-healing: is this coin on our GemFinder "My coins"? {url} when found; {absent: true} only when the page loaded
+ * with our other coins and this one isn't there; otherwise {note}.
+ */
+export const gemfinderFind = (listing, env = process.env) => withLock('gemfinder', () => health(async () => {
+  const statePath = join(stateDir(env), 'gemfinder-session.json');
+  if (!existsSync(statePath)) return {note: 'no saved GemFinder session'};
+  const browser = await launch();
+  try {
+    const page = await (await browser.newContext(browserContext({storageState: statePath}))).newPage();
+    await page.goto('https://gemfinder.cc/mycoin', {waitUntil: 'domcontentloaded', timeout: 60000});
+    await page.waitForTimeout(3000);
+    const r = await page.evaluate(({name, symbol}) => {
+      const links = [...document.querySelectorAll('a[href*="/gem/"]')];
+      const has = t => [name, symbol].filter(Boolean).some(w => t.toLowerCase().includes(String(w).toLowerCase()));
+      return {count: links.length, url: links.find(a => has(a.textContent || ''))?.href ?? null};
+    }, {name: listing.name, symbol: listing.symbol});
+    if (r.url) return {url: r.url};
+    return r.count ? {absent: true} : {note: 'My coins did not load'};
+  } finally { await browser.close(); }
+}));

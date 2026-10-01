@@ -71,6 +71,10 @@ const EnvSchema = z.object({
   PAUSED_CHANNELS: z.string().default('call_channel'),
   /** Source health checks every 30 min (logins, keys, bots, WURK wallet); changes are DMed to ASSIST_CHAT_ID. */
   HEALTH_CHECKS_ENABLED: bool.default('true'),
+  /** Failed content steps get one automatic retry; uncertain posts are checked on the account and re-posted if absent. */
+  SELF_HEAL_ENABLED: bool.default('true'),
+  /** One-time extra generation allowance (cents) for an order whose retries used up its budget. */
+  HEAL_BUDGET_CENTS: z.coerce.number().int().min(0).max(1000).default(150),
   /** Alert when the WURK wallet holds less than this (USDC). */
   WURK_LOW_BALANCE_USDC: z.coerce.number().min(0).default(20),
   /**
