@@ -75,6 +75,8 @@ const EnvSchema = z.object({
   TICK_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),
   /** Upper bound on jobs processed per tick so one tick can't run unbounded. */
   JOBS_PER_TICK: z.coerce.number().int().positive().default(10),
+  /** Ready in-process jobs run at once per order (independent ones, e.g. the five memes and five sticker images). */
+  PARALLEL_JOBS_PER_ORDER: z.coerce.number().int().min(1).max(10).default(4),
   /** Renderer is reported offline when it hasn't claimed work for this long. */
   RENDERER_STALE_MS: z.coerce.number().int().positive().default(120_000),
 });

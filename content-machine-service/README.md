@@ -76,7 +76,7 @@ A trending purchase (`POST /v1/trending`) becomes one order. Its items run on th
 2a  telegraph · binance · call_channel · coinsniper · coinvote ·           each needs the campaign image
     cmc_community · press_1888 (· reddit, on hold)
 3a  sticker art → stickers → sticker pack                                 needs only the copy
-4   order.completed callback + GET /v1/orders/:id/report                  once every item is final
+4   order.completed callback + GET /v1/orders/:id/report                  once every item is final (listings: once submitted with their URL)
 ```
 
 - **Channels:** every trending order gets `TRENDING_CHANNELS` (default: `telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack`; CoinSniper and Coinvote are off because their submissions don't go through, Reddit is on hold) plus any the buybot sends.
@@ -94,7 +94,7 @@ A trending purchase (`POST /v1/trending`) becomes one order. Its items run on th
   | social boost | 24h |
 
   A running item is never cut off mid-run, and `uncertain` items (possibly published) are left for reconciliation. When an item fails, everything that depends on it fails straight away with `Not started: <item> failed` instead of waiting out its own deadline.
-- **Report:** `GET /v1/orders/:id/report` (or `/v1/orders/by-external-id/trending:<purchase_id>/report`) returns three lists: `successes` (source, label, public URL), `failures` (source, label, reason; `unconfirmed` for possibly-published items) and `pending` (status, deadline, current problem). When every item is final, the same report goes to `CALLBACK_URL` as a signed `order.completed` event. An admin retry reopens the order, and it reports again when it finishes.
+- **Report:** `GET /v1/orders/:id/report` (or `/v1/orders/by-external-id/trending:<purchase_id>/report`) returns three lists: `successes` (source, label, public URL), `failures` (source, label, reason; `unconfirmed` for possibly-published items) and `pending` (status, deadline, current problem). When every item is final, the same report goes to `CALLBACK_URL` as a signed `order.completed` event. A listing that was submitted with its coin page URL counts as final for this (the site's review can take days): it is in `successes` labelled "(in review)". An admin retry reopens the order, and it reports again when it finishes.
 
 ## Orders
 
