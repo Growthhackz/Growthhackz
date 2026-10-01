@@ -199,6 +199,90 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
   } finally { await browser.close(); }
 }
 
+/**
+ * Coinscope: Google-only account; the worker signs in with COINSCOPE_REFRESH_TOKEN (the Firebase refresh token from a
+ * logged-in browser), writing the app's own auth record before loading the form. One page, Grommet dropdowns.
+ */
+const COINSCOPE_FIREBASE_KEY = 'AIzaSyAzzY1dDhCu5ekBTMwRe5pPBJAoDpZoOl8';
+
+async function coinscopeLogin(page, refreshToken) {
+  const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${COINSCOPE_FIREBASE_KEY}`, {method: 'POST', headers: {'content-type': 'application/x-www-form-urlencoded', referer: 'https://www.coinscope.co/'}, body: new URLSearchParams({grant_type: 'refresh_token', refresh_token: refreshToken}), signal: AbortSignal.timeout(20000)});
+  const t = await r.json().catch(() => ({}));
+  if (!t.id_token) throw notSent('coinscope', `login refresh failed (${JSON.stringify(t).slice(0, 120)}); refresh COINSCOPE_REFRESH_TOKEN`);
+  await page.goto('https://www.coinscope.co/robots.txt', {waitUntil: 'domcontentloaded', timeout: 60000});
+  await page.evaluate(async ({t, key}) => {
+    const db = await new Promise((res, rej) => { const q = indexedDB.open('firebaseLocalStorageDb', 1); q.onupgradeneeded = () => q.result.createObjectStore('firebaseLocalStorage', {keyPath: 'fbase_key'}); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+    const value = {uid: t.user_id, emailVerified: true, isAnonymous: false, providerData: [], stsTokenManager: {refreshToken: t.refresh_token, accessToken: t.id_token, expirationTime: Date.now() + Number(t.expires_in) * 1000}, createdAt: String(Date.now()), lastLoginAt: String(Date.now()), apiKey: key, appName: '[DEFAULT]'};
+    await new Promise((res, rej) => { const tx = db.transaction('firebaseLocalStorage', 'readwrite'); tx.objectStore('firebaseLocalStorage').put({fbase_key: `firebase:authUser:${key}:[DEFAULT]`, value}); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+  }, {t, key: COINSCOPE_FIREBASE_KEY});
+}
+
+async function coinscopeSubmit(listing, logoPath, env = process.env) {
+  const browser = await launch();
+  try {
+    const page = await (await browser.newContext(browserContext())).newPage();
+    const pick = async (name, rx) => {
+      const el = page.locator(`input[name=${name}]`);
+      for (let a = 0; a < 4; a++) {
+        await el.evaluate(e => e.scrollIntoView({block: 'center'}));
+        await el.click({force: true});
+        const layer = page.locator('body > div').last();
+        const opt = layer.locator('button, [role=option]').filter({hasText: rx});
+        await opt.first().waitFor({timeout: 4000}).catch(() => {});
+        // Long lists (days) render lazily: scroll the layer to reveal the rest.
+        if (!(await opt.count())) { await layer.evaluate(l => l.querySelectorAll('*').forEach(e => { if (e.scrollHeight > e.clientHeight + 5) e.scrollTop = e.scrollHeight; })).catch(() => {}); await page.waitForTimeout(600); }
+        if (await opt.count()) { await opt.first().click(); await page.waitForTimeout(400); return; }
+        await page.keyboard.press('Escape'); await page.waitForTimeout(800);
+      }
+      throw notSent('coinscope', `${name}: no option ${rx}`);
+    };
+    try {
+      await coinscopeLogin(page, env.COINSCOPE_REFRESH_TOKEN);
+      await page.goto('https://www.coinscope.co/addcoin', {waitUntil: 'domcontentloaded', timeout: 60000});
+      await page.locator('input[name=name]').waitFor({timeout: 30000}).catch(() => {});
+      if (!(await page.locator('input[name=name]').count())) throw notSent('coinscope', 'not logged in; refresh COINSCOPE_REFRESH_TOKEN');
+      await page.waitForTimeout(2000);
+      await page.fill('input[name=name]', listing.name);
+      await page.fill('input[name=symbol]', listing.symbol || listing.name);
+      if (logoPath) await page.locator('input[type=file]').first().setInputFiles(logoPath);
+      const chainLabel = {solana: /\(SOL\)\s*Solana/, ethereum: /\(ETH\)\s*Ethereum/, bsc: /\(BSC\)/, base: /\bBase\b/};
+      await pick('network', chainLabel[listing.chain] ?? new RegExp(listing.chain, 'i'));
+      await page.fill('input[name=address]', listing.contract_address);
+      await page.fill('textarea[name=description]', listing.description);
+      if (listing.launch_date) {
+        const [y, m, d] = listing.launch_date.split('-');
+        await pick('deployedAtDay', new RegExp(`^\\s*${d}\\s*$`));
+        await pick('deployedAtMonth', new RegExp(`^\\s*${m}\\s*$`));
+        await pick('deployedAtYear', new RegExp(`^\\s*${y}\\s*$`)).catch(() => {});
+      }
+      if (listing.website_url) await page.fill('input[name=website]', listing.website_url);
+      if (listing.x_url) await page.fill('input[name=twitter]', listing.x_url);
+      if (listing.telegram_url) await page.fill('input[name=telegram]', listing.telegram_url);
+      const terms = page.locator('input[name=terms]');
+      const label = page.locator('label:has(input[name=terms])').first();
+      await label.evaluate(e => e.scrollIntoView({block: 'center'}));
+      const bb = await label.boundingBox();
+      if (bb) await page.mouse.click(bb.x + 10, bb.y + bb.height / 2);
+      await page.waitForTimeout(400);
+      if (!(await terms.isChecked())) await label.click();
+      if (!(await terms.isChecked())) throw notSent('coinscope', 'could not accept the terms');
+    } catch (e) { throw e instanceof NotPostedError ? e : notSent('coinscope', 'could not fill the form', e); }
+    const created = page.waitForResponse(r => /coinscope\.co\/api\/coins$/.test(r.url()) && r.request().method() === 'POST', {timeout: 45000}).catch(() => null);
+    const submit = page.locator('button:has-text("Submit")').first();
+    await submit.evaluate(e => e.scrollIntoView({block: 'center'}));
+    await submit.click();
+    const r = await created;
+    if (!r) {
+      const msg = (await page.locator('text=/should|required|invalid/i').allInnerTexts().catch(() => [])).join(' ').trim();
+      if (msg) throw new NotPostedError(`coinscope rejected the listing: ${msg.slice(0, 200)}`);
+      return {submitted: false};
+    }
+    const body = await r.json().catch(() => ({}));
+    if (r.status() >= 300 || !body.slug) throw new NotPostedError(`coinscope rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
+    return {submitted: true, url: `https://www.coinscope.co/coin/${body.slug}`};
+  } finally { await browser.close(); }
+}
+
 /** Logged-out: is the coin page public and about this coin? */
 async function pageIsLive(url, listing) {
   if (!url) return {live: false};
@@ -217,6 +301,7 @@ export const LISTING_SITES = {
   top100token: {enabled: () => true, submit: top100Submit, check: pageIsLive},
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: gemfinderSubmit, check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: freshcoinsSubmit, check: pageIsLive},
+  coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
 };
 
 async function logoFile(client, listing) {
