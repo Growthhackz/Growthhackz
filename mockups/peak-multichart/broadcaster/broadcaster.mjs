@@ -18,6 +18,7 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
+import fs from 'node:fs';
 
 const W = 1280, H = 720;
 const FPS = Number(process.env.FPS || 30);
@@ -39,6 +40,9 @@ let lastShot = null;
 
 // ---------- virtual screen ----------
 function startXvfb() {
+  // a restarted container keeps the old display's lock file, which stops Xvfb from starting
+  const n = DISPLAY.slice(1);
+  for (const f of [`/tmp/.X${n}-lock`, `/tmp/.X11-unix/X${n}`]) { try { fs.rmSync(f, { force: true }); } catch {} }
   const x = spawn('Xvfb', [DISPLAY, '-screen', '0', `${W}x${H}x24`, '-nolisten', 'tcp', '-ac'], { stdio: 'ignore' });
   x.on('exit', code => { log('Xvfb exited', code); process.exit(1); });
   return x;
