@@ -62,7 +62,7 @@ const STICKER_KINDS = ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'stick
 
 /** No logo (supplied or from the DEX): the whole sticker pack is skipped rather than blocking the order. */
 function skipStickerPack(ctx: ServiceContext, j: Leased, o: Order) {
-  const result = { reason: 'The project has no logo, so no sticker pack was made.' };
+  const result = { reason: 'The project has no logo and its campaign image failed, so no sticker pack was made.' };
   finish(ctx, j, result, 'skipped');
   for (const other of o.jobs)
     if (STICKER_KINDS.includes(other.kind) && other.id !== j.id && ['queued', 'blocked'].includes(other.status)) {
@@ -205,7 +205,8 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   }
   if (j.kind === 'campaign_image' || j.kind.startsWith('sticker_art_')) {
     if (o.demo) return finish(ctx, j, { demo: true, note: 'Demo uses supplied artwork; no generation charged.' }, 'skipped');
-    if (j.kind.startsWith('sticker_art_') && !p.logo_url) return skipStickerPack(ctx, j, o);
+    // No logo: the stickers copy the mascot the campaign image invented; with neither there is nothing to copy.
+    if (j.kind.startsWith('sticker_art_') && !p.logo_url && !o.assets.some((a) => a.kind === 'campaign_image')) return skipStickerPack(ctx, j, o);
     const m = await generateImage(ctx, o, j.kind);
     const ext = m.mime === 'image/jpeg' ? 'jpg' : m.mime.split('/')[1];
     return finish(ctx, j, await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, m.mime, m.bytes));
