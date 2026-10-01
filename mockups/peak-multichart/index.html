@@ -329,7 +329,7 @@ a { color: inherit; }
   background: linear-gradient(180deg, var(--snow), #b8c2dd); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .card:first-child .rank { background: linear-gradient(180deg, var(--glow-a), var(--glow-b)); -webkit-background-clip: text; background-clip: text; }
 .who { min-width: 0; }
-.who .tk { display: flex; align-items: center; gap: 7px; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: .03em; line-height: 1; }
+.who .tk { display: flex; flex-wrap: wrap; row-gap: 4px; min-width: 0; align-items: center; gap: 7px; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: .03em; line-height: 1; }
 .who .nm { color: var(--mist); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 .chain { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--mist); }
 .chain.sol { color: #b98cff; border-color: rgba(153,69,255,.45); }
@@ -378,19 +378,28 @@ a { color: inherit; }
 }
 @media (max-width: 960px) {
   .hero { grid-template-columns: minmax(0, 1fr); }
+  /* below desktop only the top 3 summits carry a ticker, the rest show their rank, so labels don't collide */
+  .summit:not(.top3) .tk { display: none; }
+  .summit:not(.top3) .tag i { margin-right: 0; }
   .trend { height: auto; max-height: 420px; }
   .wall, .wall.even-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
   .wrap { padding-inline: 16px; }
-  .summit:not(.top3) .tk { display: none; }
-  .summit:not(.top3) .tag i { margin-right: 0; }
+  /* phones: the header scrolls away instead of covering a third of the screen */
+  .bar { position: static; gap: 10px 12px; padding-block: 10px 6px; background: none; }
+  .brand .mark { width: 38px; height: 38px; }
+  .brand b { font-size: 22px; }
+  #chainSeg { order: 3; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  #chainSeg button { flex: 1 0 auto; }
   .ridge { height: 340px; }
   .ridge-head { display: none; }
   .summit .tag { font-size: calc(var(--fs) * .78) !important; }
   .pm, .para { padding: 14px; }
   .para-cards { grid-template-columns: minmax(0, 1fr); }
-  .toasts { max-width: 92%; right: 10px; }
+  /* phones: one pop-up at a time, low in the ridge where it can't cover the summit labels */
+  .toasts { max-width: none; left: 10px; right: 10px; top: auto; bottom: 28px; align-items: center; }
+  .toast:nth-child(n+2) { display: none; }
   .ridge-head { max-width: 88%; }
   .ridge-head h1 { display: none; }
   .ridge-head .eyebrow { font-size: 9.5px; }

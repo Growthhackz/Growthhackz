@@ -412,7 +412,10 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (url.pathname === '/' || url.pathname === '/index.html') {
-      return send(res, 200, await readFile(path.join(HERE, 'index.html')), 'text/html; charset=utf-8');
+      // index.html is a page fragment (it is also published as an artifact); give browsers a doctype and a mobile viewport
+      const html = String(await readFile(path.join(HERE, 'index.html')));
+      const head = /^\s*<!doctype/i.test(html) ? '' : '<!doctype html>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<meta name="theme-color" content="#000000">\n';
+      return send(res, 200, head + html, 'text/html; charset=utf-8');
     }
     const asset = url.pathname.match(/^\/assets\/([a-z0-9-]+\.png)$/);
     if (asset) return send(res, 200, await readFile(path.join(HERE, 'assets', asset[1])), 'image/png');
