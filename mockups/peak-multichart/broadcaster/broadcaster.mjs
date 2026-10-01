@@ -92,7 +92,7 @@ function ffmpegArgs() {
 }
 function startStream() {
   if (!STREAM_URLS.length) return;
-  const redact = s => s.replace(/(rtmps?:\/\/[^|\]]+\/)[^|\]\s]+/g, '$1***');
+  const redact = s => s.replace(/(rtmps?:\/\/[^\s'"|\]]*\/)[^\s'"|\]\/]+/g, '$1***');   // hide the stream key (the last path segment)
   log('streaming to', STREAM_URLS.map(redact).join(' | '));
   const ff = spawn('ffmpeg', ffmpegArgs(), { stdio: ['ignore', 'inherit', 'pipe'] });
   status.stream = 'live';
