@@ -1487,7 +1487,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       c.chartState = null;
       if (cards.has(c.key)) loadSeries(c);
     } catch (e) {
-      c.candlesAt = Date.now() - CANDLE_MS + 15000;   // retry in 15s
+      c.candlesAt = Date.now() - CANDLE_MS + 6000;    // retry in 6s
       if (!c.bars1.length) { c.chartState = 'Chart data busy, retrying'; loadSeries(c); }
     }
   }
