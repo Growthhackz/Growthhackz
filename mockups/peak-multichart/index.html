@@ -200,7 +200,9 @@ a { color: inherit; }
 
 /* ---------- Parabolic + Momentum side by side ---------- */
 .duo { display: grid; grid-template-columns: minmax(0, 1fr) 470px; gap: 16px; margin-top: 16px; align-items: start; }
-.duo > .para, .duo > .pm { margin-top: 0; }
+.duo > .pm, .duo-left > .para { margin-top: 0; }
+.duo-left { display: grid; gap: 16px; min-width: 0; }
+.duo-left > .btb { margin-top: 0; }
 
 /* ---------- Peak Momentum (compact leaderboard) ---------- */
 .pm { border: 1px solid var(--line); border-radius: 22px; padding: 16px; min-width: 0; background: linear-gradient(180deg, rgba(143,224,75,.05), rgba(143,224,75,0) 160px), var(--night-2); display: grid; gap: 12px; }
@@ -255,7 +257,7 @@ a { color: inherit; }
 
 /* ---------- Best time to buy ---------- */
 .btb { margin-top: 16px; border-radius: 22px; padding: 16px 18px; display: grid; gap: 14px 22px; align-items: center;
-  grid-template-columns: minmax(230px, 1.1fr) minmax(260px, 1.2fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(260px, 1.3fr) minmax(200px, 1fr) minmax(200px, 1fr);
   background: radial-gradient(500px 200px at 0% 50%, rgba(204,255,0,.12), transparent 70%), var(--night-2); border: 1px solid rgba(204,255,0,.4); box-shadow: 0 0 40px -18px rgba(204,255,0,.5); }
 .btb.none { border-color: var(--line); box-shadow: none; background: var(--night-2); }
 .btb .eyebrow { color: var(--glow-b); }
@@ -264,7 +266,7 @@ a { color: inherit; }
 .btb-who .coin { width: 48px; height: 48px; font-size: 18px; box-shadow: 0 0 0 2px var(--glow-b), 0 0 18px rgba(204,255,0,.45); }
 .btb-who .tk { font-family: var(--display); font-weight: 900; font-size: 30px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .btb-who .tk small { display: block; font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--mist); margin-top: 4px; }
-.btb-who .pct { text-align: right; font-family: var(--display); font-weight: 900; font-size: 46px; line-height: .85; color: var(--glow-b); }
+.btb-who .pct { text-align: right; font-family: var(--display); font-weight: 900; font-size: 40px; line-height: .85; color: var(--glow-b); }
 .btb-who .pct small { display: block; font-family: var(--mono); font-weight: 400; font-size: 9.5px; letter-spacing: .08em; color: var(--mist); text-transform: uppercase; margin-top: 5px; }
 .ladder { display: grid; gap: 6px; }
 .ladder .bar { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(224,87,75,.7) 0 var(--now), rgba(143,224,75,.7) var(--now) 100%); }
@@ -444,7 +446,7 @@ html.broadcast .wrap { max-width: none; width: 1280px; height: 720px; padding: 1
 html.broadcast .bar { grid-area: bar; position: static; padding: 0; background: none; }
 html.broadcast #chainSeg, html.broadcast .wrap > .row, html.broadcast .foot, html.broadcast .card .join, html.broadcast .trend, html.broadcast .para,
 html.broadcast .btb, html.broadcast .nut, html.broadcast .pm-guide { display: none; }
-html.broadcast .duo { display: contents; }
+html.broadcast .duo, html.broadcast .duo-left { display: contents; }
 html.broadcast .hero { grid-area: ridge; display: block; margin: 0; }
 html.broadcast .ridge { height: 300px; }
 html.broadcast .ridge-head { max-width: none; }
@@ -508,9 +510,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     </aside>
   </section>
 
-  <section class="btb none" id="btb" aria-live="polite"></section>
-
   <div class="duo">
+    <div class="duo-left">
     <section class="para cold" id="para">
       <div class="para-head">
         <div>
@@ -521,6 +522,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       </div>
       <div class="para-cards" id="paraCards"></div>
     </section>
+    <section class="btb none" id="btb" aria-live="polite"></section>
+    </div>
 
     <section class="pm" id="pm">
       <div class="pm-head">
@@ -604,7 +607,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const safeUrl = u => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch { return null; } };
 
-  const coinImg = (c, cls = 'coin') => { const u = safeUrl(c.icon); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=&quot;${cls}&quot;>${esc(c.tk.slice(0, 1))}</span>'">` : `<span class="${cls}">${esc(c.tk.slice(0, 1))}</span>`; };
+  const coinImg = (c, cls = 'coin') => { const u = safeUrl(c.icon); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="if(this.parentNode)this.outerHTML='<span class=&quot;${cls}&quot;>${esc(c.tk.slice(0, 1))}</span>'">` : `<span class="${cls}">${esc(c.tk.slice(0, 1))}</span>`; };
   const tgUrl = c => { const u = safeUrl(c.telegram); return u && /^https:\/\/t\.me\//.test(u) ? u : null; };
   const rankFs = (rank, top, bottom) => top - (top - bottom) * Math.min(rank, 9) / 9;   // #1 biggest, #10 smallest
 
@@ -749,7 +752,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
 
   function paintCard(c, flash) {
     const r = cards.get(c.key); if (!r) return;
-    r.rankEl.textContent = pos(c) + 1;
+    r.rankEl.textContent = (c.wallPos ?? pos(c)) + 1;
     r.rankEl.title = `Momentum #${pos(c) + 1} · Peak #${prk(c)}`;
     const d = c.prevRank == null ? null : c.prevRank - c.rank;
     if (c.isNew) { r.moveEl.className = 'move n'; r.moveEl.textContent = 'NEW'; }
@@ -784,7 +787,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   // FLIP reorder so cards glide to their new rank
   function layoutWall(ranked) {
     if (!ranked) rankByMomentum();
-    wallSig = mOrder.map(c => c.key).join();
+    wallSig = mOrder.map(c => c.key).join(); wallAt = Date.now();
+    (mOrder.length ? mOrder : board).forEach((c, i) => { c.wallPos = i; });
     const before = new Map();
     cards.forEach((r, key) => before.set(key, r.el.getBoundingClientRect()));
     for (const key of [...cards.keys()]) if (!board.some(c => c.key === key)) removeCard(key);
@@ -900,7 +904,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const n = Math.max(2, board.length);
     board.forEach(c => {
       const tx = W * (n === 10 ? SLOT_X[pos(c)] : 0.07 + 0.86 * pos(c) / (n - 1));
-      const sc = c.mo?.score;
+      const sc = c.mo?.shown ?? c.mo?.score;
       const th = H * (sc != null ? 0.05 + 0.42 * Math.pow(sc / 100, 1.15) : 0.07);
       let p = peaks.get(c.key);
       if (!p) { p = { x: tx, h: snap ? th : 0, tx, th, kick: 0 }; peaks.set(c.key, p); }
@@ -937,7 +941,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       el.style.setProperty('--fs', (BROADCAST ? rankFs(pr, 17, 10) : rankFs(pr, 22, 11)) + 'px');
       el.innerHTML = `<span class="row"><button type="button" class="tag">${pr < 3 ? coinImg(c) : ''}<span><i>#${pr + 1}</i><span class="tk">$${esc(c.tk)}</span></span></button>${tg ? `<a class="join" href="${esc(tg)}" target="_blank" rel="noopener" title="Join $${esc(c.tk)} on Telegram">JOIN</a>` : ''}</span><span class="chg"></span>`;
     }
-    const ch = el.querySelector('.chg'), sc = c.mo?.score, v = c.ch1h;
+    const ch = el.querySelector('.chg'), sc = c.mo?.shown ?? c.mo?.score, v = c.ch1h;
     const txt = sc != null ? `<b style="color:${scoreColor(sc)}">${sc}</b>` : '';
     if (ch._t !== txt) { ch._t = txt; ch.innerHTML = txt; ch.className = 'chg'; }
   }
@@ -1126,7 +1130,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   }
 
   // ---- momentum order: the ridge, the leaderboard and the wall all follow it.
-  // Scores are smoothed and a coin only overtakes the one above it by 2+ points, so the order doesn't flicker.
+  // Scores are smoothed (each update moves 40% of the way), so the order and the numbers don't flicker.
   let mOrder = [];
   let leader = { key: null, since: 0, shown: null, at: 0 };
   function rankByMomentum() {
@@ -1138,11 +1142,11 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       let moved = false;
       for (let i = 1; i < mOrder.length; i++) {
         const a = mOrder[i - 1], b = mOrder[i];
-        if (val(b) > val(a) + (val(a) < 0 ? 0 : 2)) { mOrder[i - 1] = b; mOrder[i] = a; moved = true; }
+        if (val(b) > val(a)) { mOrder[i - 1] = b; mOrder[i] = a; moved = true; }
       }
       if (!moved) break;
     }
-    mOrder.forEach((c, i) => { c.pos = i; });
+    mOrder.forEach((c, i) => { c.pos = i; if (c.mo && c.msm != null) c.mo.shown = Math.round(c.msm); });
     // a new leader gets the eruption once it has held #1 for 30s (at most every 3 minutes)
     const top = mOrder[0], now = Date.now();
     if (top) {
@@ -1161,7 +1165,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const live = rows.filter(r => r.m.score != null);
     const lines = [];
     const top = mOrder[0] && mo(mOrder[0]).score != null ? mOrder[0] : null;
-    if (top) lines.push(['👑', `<b>$${esc(top.tk)}</b> leads at <b style="color:${scoreColor(top.mo.score)}">${top.mo.score}</b> · ${PHASES[top.mo.phase]?.label || ''}`]);
+    if (top) lines.push(['👑', `<b>$${esc(top.tk)}</b> leads at <b style="color:${scoreColor(top.mo.score)}">${top.mo.shown ?? top.mo.score}</b> · ${PHASES[top.mo.phase]?.label || ''}`]);
     const para = live.filter(r => r.m.parabolic?.state === 'parabolic').sort((a, b) => b.m.parabolic.r60 - a.m.parabolic.r60);
     lines.push(para.length ? ['🔥', `${para.length} parabolic: ${para.slice(0, 3).map(r => `<b>$${esc(r.c.tk)}</b> <span class="up">${fmtPct(r.m.parabolic.r60 * 100)}</span>`).join(', ')}`] : ['🧊', 'Nothing parabolic right now']);
     const up = rows.filter(r => (r.c.ch1h ?? 0) > 0).length;
@@ -1203,8 +1207,9 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       const head = `${coinImg(c)}<span class="t"><b>$${esc(c.tk)}</b><small>${esc(sub)}</small></span>`;
       if (q('.coin-c')._h !== head) { q('.coin-c')._h = head; q('.coin-c').innerHTML = head; }
       const sc = q('.score'); sc.style.setProperty('--c', scoreColor(m.score));
-      const v = q('.v'); v.textContent = m.score ?? '–'; v.classList.toggle('na', m.score == null);
-      q('.meter i').style.width = (m.score ?? 0) + '%';
+      const shown = m.shown ?? m.score;
+      const v = q('.v'); v.textContent = shown ?? '–'; v.classList.toggle('na', shown == null);
+      q('.meter i').style.width = (shown ?? 0) + '%';
       const dd = m.dScore15 ?? m.dScore5, u = q('.meter u');
       u.style.display = dd != null && m.score != null ? '' : 'none';
       if (dd != null && m.score != null) u.style.left = Math.max(0, Math.min(100, m.score - dd)) + '%';
@@ -1340,7 +1345,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   }
 
   // every momentum view; a change in the momentum order also re-lays the ridge and the chart wall
-  let wallSig = '';
+  let wallSig = '', wallAt = 0;
   function renderViews() {
     const rows = board.map(c => ({ c, m: mo(c) }));
     renderNut(rows); renderLeaderboard(); renderParabolic(rows); renderTrending(); renderBuy(buyState);
@@ -1348,7 +1353,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   }
   function updateMomentum() {
     rankByMomentum();
-    if (mOrder.map(c => c.key).join() !== wallSig) layoutWall(true);
+    // the big chart wall re-orders at most every 30s; ridge and leaderboard follow every update
+    if (mOrder.map(c => c.key).join() !== wallSig && Date.now() - wallAt > 30000) layoutWall(true);
     else { renderViews(); peaksTarget(); }
   }
   function renderTicker() {
