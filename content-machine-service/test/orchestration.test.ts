@@ -54,19 +54,38 @@ const drain = async (t: ReturnType<typeof makeApp>) => {
 const jobOf = (o: any, kind: string) => o.jobs.find((j: any) => j.kind === kind);
 
 describe('trending orchestration', () => {
-  it('gives trending orders the default channels and starts the $1 WURK raid independently', async () => {
+  it('gives trending orders the default channels and starts the WURK trending package (raid, followers, Telegram members) independently', async () => {
     const t = makeApp(SOCIAL);
     contentFakes(t);
     const state = { status: 'queued' };
     const seen = socialFake(t, state);
     await t.setSetting('GEMINI_API_KEY', 'G');
     const o = (await t.api('POST', '/v1/trending', purchase)).body;
-    expect(o.project.channels).toEqual(['binance', 'bitcointalk', 'call_channel', 'cmc_community', 'coinsniper', 'coinvote', 'meme_pack', 'social_boost', 'telegraph']);
+    expect(o.project.channels).toEqual([
+      'binance',
+      'bitcointalk',
+      'call_channel',
+      'cmc_community',
+      'coinscope',
+      'freshcoins',
+      'gemfinder',
+      'meme_pack',
+      'social_boost',
+      'telegraph',
+      'top100token',
+    ]);
     expect(jobOf(o, 'reddit_moonshots').status).toBe('skipped');
 
     await drain(t);
     const create = seen.find((s) => s.url.endsWith('/v1/wurk/packages'))!;
-    expect(create.body).toEqual({ preset: 'small_raid', bundled: true, xPost: purchase.x_post_url, customerRef: 'trending:orch-1' });
+    expect(create.body).toEqual({
+      preset: 'trending',
+      bundled: true,
+      xPost: purchase.x_post_url,
+      customerRef: 'trending:orch-1',
+      xProfile: purchase.x_url,
+      telegram: purchase.telegram_url,
+    });
     expect(create.headers.get('idempotency-key')).toBe(`cm-${o.id}`);
     expect(create.headers.get('authorization')).toBe(`Bearer ${SOCIAL.SOCIAL_ACTIVITY_TOKEN}`);
     expect(seen.find((s) => s.url.endsWith('/payment-received'))!.body).toEqual({ paymentRef: 'trending:orch-1', actor: 'content-machine' });
@@ -86,7 +105,7 @@ describe('trending orchestration', () => {
     expect(jobOf(now, 'social_boost').status).toBe('delivered');
     expect(jobOf(now, 'social_boost').result).toMatchObject({ package_id: 'wpk_1', url: 'https://wurk.fun/custom/job9', cost_usdc: 1 });
     const report = (await t.api('GET', `/v1/orders/by-external-id/trending:orch-1/report`)).body;
-    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X raid (WURK)', url: 'https://wurk.fun/custom/job9' });
+    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X raid, followers and Telegram members (WURK)', url: 'https://wurk.fun/custom/job9' });
   });
 
   it('keeps content, publications and stickers moving when the social service is down', async () => {

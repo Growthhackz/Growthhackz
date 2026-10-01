@@ -43,16 +43,24 @@ const EnvSchema = z.object({
   /** social-activity-service (private network URL) for the social_boost item. */
   SOCIAL_ACTIVITY_URL: z.string().url().optional(),
   SOCIAL_ACTIVITY_TOKEN: z.string().optional(),
-  /** WURK preset for trending orders: the $1 small raid now; `full` is the saved four-purchase package. */
-  SOCIAL_BOOST_PRESET: z.enum(['small_raid', 'full']).default('small_raid'),
+  /**
+   * WURK preset for trending orders: `trending` is the $1 small raid plus 50 X followers and 50 Telegram members
+   * ($4.00); `small_raid` is the raid alone; `full` is the saved four-purchase package.
+   */
+  SOCIAL_BOOST_PRESET: z.enum(['trending', 'small_raid', 'full']).default('trending'),
   /** Logged-out x.com web client credentials, used to find the post to raid when the order has none. */
   X_WEB_BEARER: z
     .string()
     .default('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'),
   X_GQL_USER_BY_SCREEN_NAME: z.string().regex(/^[A-Za-z0-9_-]+$/).default('xmU6X_CKVnQ5lSrCbAmJsg'),
   X_GQL_USER_TWEETS: z.string().regex(/^[A-Za-z0-9_-]+$/).default('E3opETHurmVJflFsUBVuUQ'),
-  /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
-  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,social_boost,bitcointalk,meme_pack'),
+  /**
+   * Channels every trending order gets on top of what the buybot sends. Listing sites: the four the worker submits
+   * automatically. Off: Reddit (on hold), CoinSniper and Coinvote (their submissions don't go through).
+   */
+  TRENDING_CHANNELS: z
+    .string()
+    .default('telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack'),
 
   /**
    * Posts handed to a person instead of the worker: the order's operator gets one Telegram DM with a page where each

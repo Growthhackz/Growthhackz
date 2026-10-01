@@ -41,7 +41,7 @@ describe('meme kit', () => {
 });
 
 describe('meme pack', () => {
-  it('plans, reviews a duplicate, renders five memes from template + logo, and delivers one Telegraph gallery', async () => {
+  it('plans, reviews a duplicate, renders five memes from template + logo, and hands them to the sticker pack (no Telegraph gallery)', async () => {
     const t = makeApp({ TRENDING_CHANNELS: 'meme_pack', PUBLIC_BASE_URL: 'https://content.example.test' });
     const renders: any[] = [];
     let planCalls = 0;
@@ -62,14 +62,9 @@ describe('meme pack', () => {
         const memes = ids.map((id: string, i: number) => meme(id, i, planCalls === 1 && i === 4 ? 'joke 0 about the frog' : undefined));
         return json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ memes, self_review: {}, approved_for_render: true }) }] } }] });
       })
-      .on('api.telegra.ph/createPage', (_u, init) => {
-        const b = JSON.parse(String(init.body));
-        expect(b.title).toBe('Moon Frog ($MFROG) Meme Pack');
-        expect(b.content.filter((n: any) => n.tag === 'figure')).toHaveLength(5);
-        expect(b.content[1].children[0].attrs.src).toMatch(/^https:\/\/content\.example\.test\/media\/[0-9a-f]{40}$/);
-        return json({ ok: true, result: { url: 'https://telegra.ph/Moon-Frog-MFROG-Meme-Pack-09-29', path: 'Moon-Frog-MFROG-Meme-Pack-09-29' } });
-      })
-      .on('telegra.ph/Moon-Frog-MFROG-Meme-Pack-09-29', () => new Response(`<html><body><h1>Moon Frog ($MFROG) Meme Pack</h1>${'<p>x</p>'.repeat(40)}</body></html>`));
+      .on('telegra.ph', () => {
+        throw new Error('The meme pack must not publish a Telegraph page');
+      });
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('TELEGRAPH_TOKEN', 'TP');
     const o = (await t.api('POST', '/v1/trending', purchase)).body;
@@ -86,10 +81,9 @@ describe('meme pack', () => {
     const memeRenders = renders.filter((p) => p.length === 3); // campaign image and stickers send logo + prompt only
     expect(memeRenders).toHaveLength(5);
     expect(memeRenders.every((p) => p[0].inlineData && p[1].inlineData && p[2].text.includes('joke ') && !/composited/.test(p[2].text))).toBe(true);
-    expect(job('meme_pack')).toMatchObject({ status: 'delivered', result: { url: 'https://telegra.ph/Moon-Frog-MFROG-Meme-Pack-09-29', count: 5 } });
+    expect(job('meme_pack')).toMatchObject({ status: 'delivered', result: { count: 5, delivered_in: 'sticker_pack' } });
+    // Not a link of its own: the memes reach the buyer inside the sticker pack.
     const links = (await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.filter((e: any) => e.type === 'link.published');
-    expect(links.map((e: any) => e.data.source)).toContain('meme_pack');
-    // The images are public for the gallery; nothing else about the order is.
-    expect((await t.call(null, 'GET', `/media/${done.assets.find((a: any) => a.kind === 'meme_0').id}`)).status).toBe(200);
+    expect(links.map((e: any) => e.data.source)).not.toContain('meme_pack');
   });
 });
