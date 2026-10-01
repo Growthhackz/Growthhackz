@@ -16,6 +16,7 @@ import path from 'node:path';
 
 const PORT = Number(process.env.PORT || 8787);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+import { createSources } from './sources.mjs';
 await import('./momentum.js');
 const Momentum = globalThis.PeakMomentum;
 const tracker = Momentum.createTracker();
@@ -83,6 +84,37 @@ async function pumpGecko() {
     }
   } finally { geckoBusy = false; }
 }
+
+// ---- other platforms' trending lists (sources.mjs) and the data we add to every coin on them
+const sources = createSources({ getJson, geckoLimited });
+const jupCache = new Map();   // mint -> { at, data }: Jupiter's token record (holders, holder change, organic score)
+async function jupInfo(mints) {
+  const need = [...new Set(mints)].filter(m => !jupCache.has(m) || Date.now() - jupCache.get(m).at > 30_000);
+  for (let i = 0; i < need.length; i += 100) {
+    try {
+      const j = await getJson('https://lite-api.jup.ag/tokens/v2/search?query=' + need.slice(i, i + 100).join(','));
+      for (const t of Array.isArray(j) ? j : []) if (t?.id) jupCache.set(t.id, { at: Date.now(), data: t });
+    } catch (e) { /* keep what we had */ }
+  }
+  return m => jupCache.get(m)?.data || null;
+}
+// DexScreener market data for any list of coins, 30 addresses per call, cached 15s per batch
+async function dexInfo(coins) {
+  const out = {}, byChain = {};
+  for (const c of coins) (byChain[c.chain] ||= new Set()).add(c.address);
+  await Promise.all(Object.entries(byChain).flatMap(([chain, set]) => {
+    const list = [...set];
+    return Array.from({ length: Math.ceil(list.length / 30) }, (_, i) => list.slice(i * 30, i * 30 + 30)).map(async batch => {
+      const pairs = await cached(`dexb:${chain}:${batch.join(',')}`, 15_000, () => getJson(`${DEX}/${chain}/${batch.join(',')}`)).catch(() => []);
+      for (const a of batch) {
+        const best = (pairs || []).filter(p => sameAddr(chain, p.baseToken?.address || '', a)).sort((x, y) => (y.liquidity?.usd || 0) - (x.liquidity?.usd || 0))[0];
+        if (best) out[`${chain}:${a}`] = best;
+      }
+    });
+  }));
+  return out;
+}
+const holderChangeOf = j => j ? { h1: j.stats1h?.holderChange ?? null, h6: j.stats6h?.holderChange ?? null } : null;
 
 async function loadPeak() {
   const j = await getJson(PEAK);
@@ -183,6 +215,8 @@ const dropState = new Map();   // chain:mint -> { bleedSince, okSince, dropped }
 async function refresh() {
   const b = await board();
   const now = Date.now() / 1000;
+  const boardCoins = Object.values(sources.boards).flatMap(x => x.items);
+  const jup = await jupInfo([...b.tokens.filter(t => t.chain === 'solana').map(t => t.mint), ...boardCoins.filter(x => x.chain === 'solana').map(x => x.address)]);
   for (const t of b.tokens) {
     const key = `${t.chain}:${t.mint}`;
     const lp = livePrices.get(key);
@@ -191,13 +225,18 @@ async function refresh() {
       t.priceUsd = lp.price;
     }
     if (t.pool) refreshCandles(t.chain, t.pool, t.peakRank <= (b.tokens[BOARD_SIZE + 2]?.peakRank ?? 99));   // queued; lands in the cache
-    holderCount(t.chain, t.mint).then(n => { if (n > 0) tracker.recordHolders(key, n); }).catch(() => {});
-    const hn = cache.get(`holders:${t.chain}:${t.mint}`)?.value?.data?.attributes?.holders?.count;
-    if (hn > 0) t.holders = hn;
+    const jt = t.chain === 'solana' ? jup(t.mint) : null;
+    if (jt?.holderCount > 0) { t.holders = jt.holderCount; tracker.recordHolders(key, jt.holderCount); }
+    else {
+      holderCount(t.chain, t.mint).then(n => { if (n > 0) tracker.recordHolders(key, n); }).catch(() => {});
+      const hn = cache.get(`holders:${t.chain}:${t.mint}`)?.value?.data?.attributes?.holders?.count;
+      if (hn > 0) t.holders = hn;
+    }
     const hit = cache.get(candleKey(t) || '');
     const list = hit?.value?.data?.attributes?.ohlcv_list || [];
     const bars = list.map(([time, open, high, low, close, value]) => ({ time, open, high, low, close, value })).sort((a, c) => a.time - c.time);
-    const m = Momentum.score({ price: t.priceUsd, bars, dex: t.dex || {}, liquidity: t.liquidity, marketCap: t.marketCap, pairCreatedAt: t.pairCreatedAt }, tracker.history(key), now);
+    const m = Momentum.score({ price: t.priceUsd, bars, dex: t.dex || {}, liquidity: t.liquidity, marketCap: t.marketCap, pairCreatedAt: t.pairCreatedAt, holders: t.holders, holderChange: holderChangeOf(jt) }, tracker.history(key), now);
+    t.organic = jt?.organicScore ?? null; t.dexRaw = t.dex;
     tracker.recordScore(key, m.score, now);
     t.momentum = { ...m, history: tracker.history(key).scores.slice(-90).map(p => [Math.round(p.t), p.s]) };
     delete t.dex;
@@ -214,8 +253,74 @@ async function refresh() {
   const dropped = b.tokens.filter(t => t.dropped && t.peakRank <= (shown[shown.length - 1]?.peakRank ?? 99))
     .map(t => ({ symbol: t.symbol, name: t.name, chain: t.chain, mint: t.mint, peakRank: t.peakRank, icon: t.icon, chartUrl: t.chartUrl, score: t.momentum?.score ?? null, reason: 'Bleeding' }));
   updatePick(shown, b.tokens, now);
-  state = { updatedAt: b.updatedAt, serverTime: b.serverTime, tokens: shown, dropped, tracked: b.tokens.length, buy: buyState(shown, b.tokens) };
+  const blendOut = await blendBoards(shown, jup, now);
+  for (const t of b.tokens) delete t.dexRaw;
+  state = { updatedAt: b.updatedAt, serverTime: b.serverTime, tokens: shown, dropped, tracked: b.tokens.length, buy: buyState(shown, b.tokens), ...blendOut };
   push('board', state);
+}
+
+// ---- every board's top 10, scored the same way, and the blended top 10 across them all
+async function blendBoards(shown, jup, now) {
+  const uni = new Map();   // chain:address -> entry
+  const add = (chain, address, src, rank, extra = {}) => {
+    const key = `${chain}:${address}`;
+    const e = uni.get(key) || { key, chain, address, sources: {} };
+    e.sources[src] = Math.min(e.sources[src] ?? 99, rank);
+    for (const [k, v] of Object.entries(extra)) if (v != null && e[k] == null) e[k] = v;
+    uni.set(key, e);
+  };
+  shown.forEach((t, i) => add(t.chain, t.mint, 'peak', i + 1, { symbol: t.symbol, name: t.name, icon: t.icon, peak: t }));
+  for (const bd of Object.values(sources.boards)) for (const it of bd.items) add(it.chain, it.address, bd.id, it.rank, { symbol: it.symbol, name: it.name, icon: it.icon });
+  const others = [...uni.values()].filter(e => !e.peak);
+  const dex = await dexInfo(others);
+  const entries = [];
+  for (const e of uni.values()) {
+    const jt = e.chain === 'solana' ? jup(e.address) : null;
+    if (e.peak) {
+      const t = e.peak, d = t.dexRaw || {};
+      Object.assign(e, { m: t.momentum, price: t.priceUsd, mcap: t.marketCap, liq: t.liquidity, ch1h: t.change?.h1 ?? null, ch6h: t.change?.h6 ?? null,
+        volAccel: d.volume?.m5 != null && d.volume?.h1 > 0 ? (d.volume.m5 / 5) / (d.volume.h1 / 60) : null, chartUrl: t.chartUrl, peakRank: t.peakRank,
+        ageMin: t.pairCreatedAt ? (Date.now() - t.pairCreatedAt) / 60000 : null });
+      delete e.peak;
+    } else {
+      const p = dex[e.key];
+      if (!p && !jt) continue;
+      if (p?.pairAddress) refreshCandles(e.chain, p.pairAddress, false);
+      const bars = p?.pairAddress ? toBars(cache.get(`gecko:${e.chain}:${p.pairAddress}`)?.value) : [];
+      const price = p ? Number(p.priceUsd) : jt?.usdPrice;
+      const holders = jt?.holderCount ?? null;
+      if (holders > 0) tracker.recordHolders(e.key, holders, now);
+      const m = Momentum.score({ price, bars, dex: p ? { priceChange: p.priceChange, volume: p.volume, txns: p.txns } : {}, liquidity: p?.liquidity?.usd ?? jt?.liquidity, marketCap: p?.marketCap ?? p?.fdv ?? jt?.mcap, pairCreatedAt: p?.pairCreatedAt, holders, holderChange: holderChangeOf(jt) }, tracker.history(e.key), now);
+      tracker.recordScore(e.key, m.score, now);
+      Object.assign(e, { m: { score: m.score, phase: m.phase, phaseLabel: m.phaseLabel, reasons: m.reasons, risks: m.risks, cells: { price: m.cells.price } },
+        symbol: e.symbol || p?.baseToken?.symbol || jt?.symbol, name: e.name || p?.baseToken?.name || jt?.name,
+        icon: e.icon || p?.info?.imageUrl || jt?.icon || null, price, mcap: p?.marketCap ?? p?.fdv ?? jt?.mcap ?? null, liq: p?.liquidity?.usd ?? jt?.liquidity ?? null,
+        ch1h: p?.priceChange?.h1 ?? jt?.stats1h?.priceChange ?? null, ch6h: p?.priceChange?.h6 ?? jt?.stats6h?.priceChange ?? null,
+        volAccel: p?.volume?.m5 != null && p?.volume?.h1 > 0 ? (p.volume.m5 / 5) / (p.volume.h1 / 60) : null, chartUrl: p?.url || null,
+        ageMin: p?.pairCreatedAt ? (Date.now() - p.pairCreatedAt) / 60000 : null });
+    }
+    e.holders = jt?.holderCount ?? null;
+    e.holderCh1h = jt?.stats1h?.holderChange ?? null;
+    e.organic = jt?.organicScore ?? null;
+    entries.push(e);
+  }
+  const ranked = Momentum.blend(entries);
+  const top = ranked.slice(0, 10);
+  const blendRank = new Map(top.map((e, i) => [e.key, i + 1]));
+  const byKey = new Map(entries.map(e => [e.key, e]));
+  const item = (chain, address, rank) => {
+    const e = byKey.get(`${chain}:${address}`) || {};
+    return { rank, key: `${chain}:${address}`, chain, symbol: e.symbol || '?', icon: e.icon || null, ch1h: e.ch1h ?? null, score: e.m?.score ?? null, mcap: e.mcap ?? null, chartUrl: e.chartUrl || null, blendRank: blendRank.get(`${chain}:${address}`) || null };
+  };
+  const boards = [
+    { id: 'peak', name: 'Peak', label: 'Trending', link: 'https://t.me/PeakTrending', status: 'live', updatedAt: Date.now(), items: shown.map((t, i) => item(t.chain, t.mint, i + 1)) },
+    ...Object.values(sources.boards).map(bd => ({ id: bd.id, name: bd.name, label: bd.label, link: bd.link, status: bd.status, note: bd.note, updatedAt: bd.updatedAt, items: bd.items.map(it => item(it.chain, it.address, it.rank)) })),
+    ...Object.values(sources.blocked).map(bd => ({ id: bd.id, name: bd.name, label: bd.label, link: bd.link, status: bd.status, note: bd.note, updatedAt: bd.updatedAt, items: [] })),
+  ];
+  const blend = top.map((e, i) => ({ rank: i + 1, key: e.key, chain: e.chain, address: e.address, symbol: e.symbol, name: e.name, icon: e.icon, price: e.price, mcap: e.mcap, liq: e.liq,
+    ch1h: e.ch1h, holders: e.holders, holderCh1h: e.holderCh1h, score: e.m?.score ?? null, phase: e.m?.phase, phaseLabel: e.m?.phaseLabel, chartUrl: e.chartUrl,
+    sources: e.sources, blend: e.blend, parts: e.parts, why: e.why, flags: e.flags }));
+  return { boards, blend, universe: entries.length };
 }
 
 // ---- best time to buy: one pick that stays put, and a record of how past picks did an hour later

@@ -437,6 +437,62 @@ a { color: inherit; }
 .preview-btn:hover { border-color: var(--glow-a); }
 
 /* ---------- broadcast: one fixed 1280×720 frame for the live stream and Telegram cards (?broadcast=1) ---------- */
+/* ---- every board's top 10, then the blended board */
+.xb { margin-top: 16px; border-radius: 22px; padding: 18px 20px; background: var(--night-2); border: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.xb-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 30px; }
+.xb-head h2 { margin: 6px 0 0; font-family: var(--brand); font-style: italic; font-weight: 900; font-size: clamp(26px, 3.2vw, 40px); line-height: .95; }
+.xb-head .rule { font-size: 10.5px; color: var(--mist); border-color: var(--line); letter-spacing: .04em; white-space: normal; }
+.xb-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+.xr { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: stretch; padding: 8px 0; border-top: 1px solid rgba(31,42,27,.7); }
+.xr:first-child { border-top: 0; }
+.xr-src { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+.xr-src a { font-family: var(--display); font-weight: 800; font-size: 17px; letter-spacing: .02em; color: var(--snow); text-decoration: none; display: flex; align-items: center; gap: 6px; }
+.xr-src a:hover { color: var(--glow-a); }
+.xr-src small { font-family: var(--mono); font-size: 9.5px; color: var(--mist); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fog); flex: none; }
+.dot.live { background: var(--glow-a); box-shadow: 0 0 8px var(--glow-a); }
+.dot.stale { background: #f0b44c; } .dot.blocked, .dot.error { background: var(--down); }
+.xr-tiles { display: grid; grid-template-columns: repeat(10, minmax(84px, 1fr)); gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.xt { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; gap: 1px 6px; align-items: center; padding: 6px 7px; border-radius: 10px;
+  background: var(--night-3); border: 1px solid transparent; text-decoration: none; color: var(--snow); min-width: 0; transition: border-color .3s, background .3s; }
+.xt:hover { background: #1a2318; }
+.xt .coin { grid-row: span 2; width: 24px; height: 24px; }
+.xt b { font-family: var(--display); font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xt small { font-family: var(--mono); font-size: 9.5px; display: flex; gap: 5px; white-space: nowrap; }
+.xt small i { font-style: normal; font-weight: 700; padding: 0 3px; border-radius: 3px; color: #000; background: var(--c); }
+.xt small i.na { color: var(--fog); background: none; padding: 0; }
+.xt .rk { position: absolute; top: -5px; left: -4px; font-family: var(--display); font-weight: 900; font-size: 11px; color: var(--mist); background: var(--night-2); border-radius: 4px; padding: 0 3px; }
+.xt.in { border-color: rgba(143,224,75,.55); background: rgba(143,224,75,.07); }
+.xt.in .rk { color: #000; background: var(--glow-a); }
+.xt.empty { opacity: .25; min-height: 42px; }
+.xr-off { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px dashed var(--line); font-family: var(--mono); font-size: 11px; color: var(--mist); }
+.xr-off b { color: var(--down); font-weight: 700; }
+.xr-off a { margin-left: auto; color: var(--glow-a); text-decoration: none; white-space: nowrap; }
+.bl { border-radius: 18px; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0;
+  background: radial-gradient(600px 220px at 0% 0%, rgba(204,255,0,.10), transparent 70%), #0b0f0a; border: 1px solid rgba(143,224,75,.4); }
+.bl-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 24px; }
+.bl-head h3 { margin: 4px 0 0; font-family: var(--brand); font-style: italic; font-weight: 900; font-size: clamp(24px, 2.8vw, 34px); line-height: .95; color: var(--glow-b); }
+.bl-head p { margin: 0; max-width: 60ch; font-size: 12.5px; color: var(--mist); }
+.bl-head p b { color: var(--snow); font-weight: 600; }
+.bl-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+.br { display: grid; grid-template-columns: 26px 30px minmax(0, 1fr) 52px; grid-template-areas: "n img coin sc" "n img why sc"; gap: 2px 8px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--night-2); border: 1px solid var(--line); min-width: 0; }
+.br:first-child { grid-column: 1 / -1; border-color: rgba(204,255,0,.5); background: linear-gradient(90deg, rgba(204,255,0,.08), transparent 60%), var(--night-2); }
+.br .n { grid-area: n; font-family: var(--display); font-weight: 900; font-size: 20px; color: var(--glow-a); text-align: center; }
+.br .coin { grid-area: img; width: 30px; height: 30px; }
+.br .who { grid-area: coin; display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.br .who b { font-family: var(--display); font-weight: 800; font-size: 17px; }
+.br .who .st { font-family: var(--mono); font-size: 10px; color: var(--mist); white-space: nowrap; }
+.br .who a { font-family: var(--mono); font-size: 9.5px; font-weight: 700; color: var(--glow-a); text-decoration: none; border: 1px solid rgba(143,224,75,.35); border-radius: 5px; padding: 1px 5px; }
+.br .why { grid-area: why; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.br .sc { grid-area: sc; text-align: center; font-family: var(--display); font-weight: 900; font-size: 24px; line-height: 1; color: var(--c); }
+.br .sc small { display: block; font-family: var(--mono); font-size: 8.5px; font-weight: 500; letter-spacing: .1em; color: var(--fog); text-transform: uppercase; margin-top: 2px; }
+.sb { font-family: var(--mono); font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; color: #000; background: var(--glow-a); white-space: nowrap; }
+.sb.pump { background: #6fe3a1; } .sb.jupiter { background: #c7f284; } .sb.gecko { background: #6fa8ff; } .sb.dexboost { background: #f0b44c; }
+.br .chip { font-family: var(--mono); font-size: 9.5px; padding: 1px 6px; border-radius: 5px; background: rgba(143,224,75,.1); color: var(--glow-a); white-space: nowrap; }
+.br .chip.bad { background: rgba(224,87,75,.1); color: var(--down); }
+.br .chip.flag { background: rgba(240,180,76,.12); color: #f0b44c; }
+@media (max-width: 960px) { .bl-list { grid-template-columns: minmax(0, 1fr); } .xr { grid-template-columns: minmax(0, 1fr); gap: 6px; } .xr-src { flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 10px; } }
+@media (max-width: 620px) { .xb { padding: 14px 12px; } .bl { padding: 12px 10px; } .br .why .chip:nth-child(n+5) { display: none; } .br .who .st { white-space: normal; min-width: 0; } .br .who { gap: 2px 8px; } .xr-off { flex-wrap: wrap; } .br { grid-template-columns: 22px 26px minmax(0, 1fr) 44px; padding: 8px; } .br .coin { width: 26px; height: 26px; } }
 .ticker { display: none; }
 html.broadcast, html.broadcast body { overflow: hidden; cursor: none; }
 html.broadcast body { width: 1280px; height: 720px; }
@@ -445,7 +501,7 @@ html.broadcast .wrap { max-width: none; width: 1280px; height: 720px; padding: 1
   grid-template-areas: "bar bar" "ridge pm" "wall pm" "tick tick"; }
 html.broadcast .bar { grid-area: bar; position: static; padding: 0; background: none; }
 html.broadcast #chainSeg, html.broadcast .wrap > .row, html.broadcast .foot, html.broadcast .card .join, html.broadcast .trend, html.broadcast .para,
-html.broadcast .btb, html.broadcast .nut, html.broadcast .pm-guide { display: none; }
+html.broadcast .btb, html.broadcast .nut, html.broadcast .pm-guide, html.broadcast .xb { display: none; }
 html.broadcast .duo, html.broadcast .duo-left { display: contents; }
 html.broadcast .hero { grid-area: ridge; display: block; margin: 0; }
 html.broadcast .ridge { height: 300px; }
@@ -541,6 +597,24 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       </details>
     </section>
   </div>
+
+  <section class="xb" id="xb">
+    <div class="xb-head">
+      <div>
+        <div class="eyebrow">Every trending board · live</div>
+        <h2>Trending everywhere</h2>
+      </div>
+      <span class="rule">Each board's top 10 · green = made the Blended top 10</span>
+    </div>
+    <div class="xb-rows" id="xbRows"></div>
+    <div class="bl" id="bl">
+      <div class="bl-head">
+        <div><div class="eyebrow">The best of everyone's trending</div><h3>Blended Trending Board</h3></div>
+        <p>Ranked on <b>momentum</b>, <b>growth</b> (price, volume pace, holders rising) and <b>how many boards agree</b>, plus room to grow. Big volume or a big market cap alone doesn't rank.</p>
+      </div>
+      <div class="bl-list" id="blList"></div>
+    </div>
+  </section>
 
   <div class="row">
     <h2>The wall <span id="wallCount">10 charts</span></h2>
@@ -1269,6 +1343,46 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   btbEl.addEventListener('click', e => { if (e.target.closest('a')) return; const k = e.target.closest('[data-key]'); if (k) jumpTo(k.dataset.key); });
   let buyState = null;
 
+  // ---- every board's top 10, then the blended top 10
+  const xbRows = document.getElementById('xbRows'), blList = document.getElementById('blList');
+  const SRC = { peak: 'Peak', pump: 'Pump', jupiter: 'Jup', gecko: 'Gecko', dexboost: 'Boost' };
+  const agoS = t => { if (!t) return ''; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago'; };
+  const tkOf = x => x.tk || (x.symbol || '?').replace(/^\$/, '');
+  function renderBoards(boards, blend) {
+    if (!Array.isArray(boards) || !boards.length) return;
+    const rows = boards.map(bd => {
+      const link = safeUrl(bd.link);
+      const src = `<div class="xr-src"><a ${link ? `href="${esc(link)}" target="_blank" rel="noopener"` : ''}><span class="dot ${esc(bd.status)}"></span>${esc(bd.name)}</a>
+        <small>${esc(bd.label)}${bd.status === 'live' || bd.status === 'stale' ? ` · <span class="ago" data-at="${bd.updatedAt || ''}">${agoS(bd.updatedAt)}</span>` : ''}</small></div>`;
+      if (!bd.items?.length) {
+        const why = bd.status === 'blocked' ? `<b>Locked</b> ${esc(bd.note || 'Not reachable')}` : bd.status === 'loading' || bd.status === 'checking' ? 'Connecting…' : `<b>Down</b> ${esc(bd.note || '')}`;
+        return `<div class="xr">${src}<div class="xr-off">${why}${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(bd.name)} ↗</a>` : ''}</div></div>`;
+      }
+      const tiles = bd.items.slice(0, 10).map(it => {
+        const u = safeUrl(it.chartUrl), x = { icon: it.icon, tk: tkOf(it) };
+        return `<a class="xt${it.blendRank ? ' in' : ''}" ${u ? `href="${esc(u)}" target="_blank" rel="noopener"` : ''} title="$${esc(x.tk)}${it.mcap ? ' · MC ' + fmtUsd(it.mcap) : ''}${it.blendRank ? ' · Blended #' + it.blendRank : ''}">
+          <span class="rk">${it.rank}</span>${coinImg(x)}<b>$${esc(x.tk)}</b>
+          <small><span class="${(it.ch1h ?? 0) >= 0 ? 'up' : 'dn'}">${it.ch1h == null ? '–' : shortPct(it.ch1h) + '%'}</span><i class="${it.score == null ? 'na' : ''}" style="--c:${scoreColor(it.score)}">${it.score ?? '–'}</i></small></a>`;
+      });
+      for (let i = tiles.length; i < 10; i++) tiles.push('<span class="xt empty"></span>');
+      return `<div class="xr">${src}<div class="xr-tiles">${tiles.join('')}</div></div>`;
+    }).join('');
+    if (xbRows._h !== rows) { xbRows._h = rows; xbRows.innerHTML = rows; }
+    if (!Array.isArray(blend)) return;
+    const list = blend.map(e => {
+      const x = { icon: e.icon, tk: tkOf(e) }, u = safeUrl(e.chartUrl);
+      const badges = Object.entries(e.sources || {}).sort((a, b) => a[1] - b[1]).map(([s, r]) => `<span class="sb ${esc(s)}" title="#${r} on ${esc(SRC[s] || s)}">${esc(SRC[s] || s)} #${r}</span>`).join('');
+      const stats = [e.score != null ? `Mom ${e.score}` : null, e.holderCh1h != null ? `Holders ${e.holderCh1h >= 300 ? '×' + (1 + e.holderCh1h / 100).toFixed(0) : (e.holderCh1h >= 0 ? '+' : '') + e.holderCh1h.toFixed(1) + '%'}` : null, `MC ${fmtUsd(e.mcap)}`].filter(Boolean).join(' · ');
+      const chips = (e.why || []).map(w => `<span class="chip${w.good ? '' : ' bad'}">${esc(w.text)}</span>`).join('') + (e.flags || []).slice(0, 1).map(f => `<span class="chip flag">⚠ ${esc(f)}</span>`).join('');
+      return `<div class="br"><span class="n">${e.rank}</span>${coinImg(x)}
+        <div class="who"><b>$${esc(x.tk)}</b><span class="st">${esc(stats)}</span>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">DEX ↗</a>` : ''}</div>
+        <div class="why">${badges}${chips}</div>
+        <div class="sc" style="--c:${scoreColor(e.blend)}">${e.blend}<small>Blend</small></div></div>`;
+    }).join('') || '<p style="color:var(--mist);margin:0">Gathering boards…</p>';
+    if (blList._h !== list) { blList._h = list; blList.innerHTML = list; }
+  }
+  setInterval(() => document.querySelectorAll('.xr .ago').forEach(el => { el.textContent = agoS(Number(el.dataset.at)); }), 1000);
+
   // ---- Parabolic: the coins going vertical, with the evidence
   const paraEl = document.getElementById('para'), paraCards = document.getElementById('paraCards');
   function paraCard(c, m, near) {
@@ -1527,6 +1641,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     buyState = j.buy || null;
     renderBuy(buyState);
     renderTrending();
+    renderBoards(j.boards, j.blend);
     boardEvents();
 
     // stagger candle loads so GeckoTerminal's free limit is respected
@@ -1639,12 +1754,36 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
         buyState = { pick: null, closest: near ? { key: near.key, symbol: near.tk, passes: pb(near).passes, waiting: pb(near).stages.filter(x => !x.pass).map(x => x.label) } : null, record };
       }
     }
+    // demo version of the other platforms' boards and the blended board
+    function demoBoards() {
+      if (!window.PeakMomentum) return;
+      const pick = (seed, n) => { const a = [...universe]; for (let i = a.length - 1; i > 0; i--) { const j = (i * 7 + seed * 13) % (i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a.slice(0, n); };
+      const defs = [['peak', 'Peak', 'Trending', mOrder.length ? mOrder : board], ['pump', 'Pump.fun', 'Now trending', pick(1, 5)], ['jupiter', 'Jupiter', 'Top trending 1h', pick(2, 10)],
+        ['gecko', 'GeckoTerminal', 'Trending · Solana', pick(3, 10)], ['dexboost', 'DexScreener', 'Most boosted', pick(4, 10)]];
+      const ent = new Map();
+      for (const [id, , , list] of defs) list.forEach((c, i) => {
+        const e = ent.get(c.key) || { key: c.key, chain: c.chain, symbol: c.tk, icon: c.icon, sources: {}, m: c.mo, mcap: c.mc, liq: c.liq, ch1h: c.ch1h, ch6h: pctBack(c, 360), holderCh1h: (c.drift || 0) * 400, chartUrl: c.chartUrl };
+        e.sources[id] = i + 1; ent.set(c.key, e);
+      });
+      const top = PeakMomentum.blend([...ent.values()]).slice(0, 10), br = new Map(top.map((e, i) => [e.key, i + 1]));
+      const now = Date.now();
+      demoState = {
+        boards: [...defs.map(([id, name, label, list]) => ({ id, name, label, status: 'live', updatedAt: now - 4000, items: list.slice(0, 10).map((c, i) => ({ rank: i + 1, key: c.key, symbol: c.tk, icon: c.icon, ch1h: c.ch1h, score: c.mo?.score ?? null, mcap: c.mc, chartUrl: c.chartUrl, blendRank: br.get(c.key) || null })) })),
+          { id: 'gmgn', name: 'GMGN', label: 'Trending', link: 'https://gmgn.ai/?chain=sol', status: 'blocked', note: 'Behind a Cloudflare bot check', items: [] },
+          { id: 'dextools', name: 'DEXTools', label: 'Hot pairs', link: 'https://www.dextools.io', status: 'blocked', note: 'Behind a Cloudflare bot check', items: [] },
+          { id: 'axiom', name: 'Axiom', label: 'Trending', link: 'https://axiom.trade', status: 'blocked', note: 'Needs a logged-in wallet session', items: [] }],
+        blend: top.map((e, i) => ({ ...e, rank: i + 1, score: e.m?.score ?? null })),
+      };
+      renderBoards(demoState.boards, demoState.blend);
+    }
+    let demoState = null;
     const universe = ROSTER.map(makeCoin);
     board = universe.slice(0, 10);
     let bench = universe.slice(10);
     board.forEach((c, i) => { c.rank = i; c.prevRank = i; c.score = 100 - i * 6 + R() * 4; });
     universe.forEach(demoMomentum);
     demoBuy();
+    demoBoards();
     layoutWall();
     simNow -= 900;
     logEvent(`Board loaded · <b>10</b> coins across Solana, Robinhood, Arc`); simNow += 420;
@@ -1667,7 +1806,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
         paintCard(c, true);
       }
       peaksTarget();
-      if (++demoTicks % 3 === 0) { board.forEach(demoMomentum); demoBuy(); updateMomentum(); boardEvents(); }
+      if (++demoTicks % 3 === 0) { board.forEach(demoMomentum); demoBuy(); updateMomentum(); boardEvents(); if (demoTicks % 15 === 0) demoBoards(); }
     }, TICK_MS);
 
     let untilRerank = 15, count = 0;

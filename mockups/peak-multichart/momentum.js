@@ -33,6 +33,7 @@
   const tanh = Math.tanh;
   const pct = v => (v >= 0 ? '+' : '') + (Math.abs(v) >= 100 ? Math.round(v).toLocaleString('en-US') : Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1)) + '%';
   const mult = v => (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + '×';
+  const holdPct = v => v >= 300 ? '×' + (1 + v / 100).toFixed(0) : pct(v);   // +11,000% reads better as ×111
 
   // last close at or before t (bars are minute-start stamped and sorted)
   function closeAt(bars, t) {
@@ -168,10 +169,16 @@
       if (buyPace != null) flow = 0.7 * flow + 0.3 * tanh(Math.log2(Math.max(buyPace, 0.1)) / 1.5);
     }
 
-    // ---- holder growth from tracked snapshots
+    // ---- holder growth: live % change from Jupiter when we have it, otherwise from tracked snapshots
     const hs = (hist.holders || []).filter(x => x.n > 0);
     let holders = null; const holderDelta = {};
-    if (hs.length >= 2) {
+    const hc = coin.holderChange;
+    if (hc && coin.holders > 0 && (hc.h1 != null || hc.h6 != null)) {
+      if (hc.h1 != null) holderDelta[60] = { abs: Math.round(coin.holders * hc.h1 / (100 + hc.h1)), pct: hc.h1, mins: 60 };
+      if (hc.h6 != null) holderDelta[360] = { abs: Math.round(coin.holders * hc.h6 / (100 + hc.h6)), pct: hc.h6, mins: 360 };
+      const g60 = hc.h1 ?? hc.h6, g360 = hc.h6 ?? g60;
+      holders = 0.6 * tanh(g60 / 5) + 0.4 * tanh(g360 / 15);
+    } else if (hs.length >= 2) {
       const cur = hs[hs.length - 1];
       for (const w of [60, 360]) {
         const then = [...hs].reverse().find(x => x.t <= cur.t - w * 60) || (cur.t - hs[0].t >= w * 60 * 0.4 ? hs[0] : null);
@@ -265,7 +272,7 @@
       price: Object.fromEntries(H_PRICE.map(h => [h, ret[h] != null ? { pct: rp(h), s: retPart[h], launch: !!sinceLaunch[h] } : null])),
       volume: Object.fromEntries(H_VOL.map(w => [w, volRatio[w] != null ? { x: volRatio[w], usd: volUsd[w] } : null])),
       holders: Object.fromEntries([60, 360].map(w => [w, holderDelta[w] || null])),
-      holdersNow: hs.length ? hs[hs.length - 1].n : null,
+      holdersNow: coin.holders > 0 && hc ? coin.holders : hs.length ? hs[hs.length - 1].n : null,
       buys5: b5, buys1h: b1h, buyPace,
     };
     // ---- best time to buy: five checks, then an estimated chance of being higher in an hour
@@ -333,5 +340,47 @@
     };
   }
 
-  root.PeakMomentum = { score, createTracker, WEIGHTS, H_PRICE, H_VOL };
+  // ---- Blended trending board: the best of every board, weighted toward momentum and growth, not size.
+  //   35% our momentum score
+  //   25% growth: 1h and 6h price, volume speeding up (5m pace vs the hour), holders growing
+  //   22% consensus: how many boards list it, and how high (Peak, Pump.fun and Jupiter count most; paid boosts least)
+  //   18% room to grow: smaller market caps score higher ($300K → full marks, $200M → none)
+  //   times a safety factor: thin liquidity, low organic volume, bleeding and brand-new coins are marked down
+  const SOURCE_W = { peak: 1, pump: 0.9, jupiter: 0.9, gecko: 0.8, dexboost: 0.5 };
+  const usd = v => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? '$' + Math.round(v / 1e3) + 'K' : '$' + Math.round(v);
+  function blend(entries) {
+    const totalW = Object.values(SOURCE_W).reduce((a, b) => a + b, 0);
+    return entries.map(e => {
+      let cons = 0;
+      for (const [s, r] of Object.entries(e.sources || {})) cons += (SOURCE_W[s] ?? 0.5) * (1 - (r - 1) / 12);
+      const C = Math.min(1, cons / (totalW * 0.55));
+      const M = e.m?.score != null ? e.m.score / 100 : 0.45;
+      const gp = [];
+      if (e.ch1h != null) gp.push([tanh(e.ch1h / 30), 0.35]);
+      if (e.ch6h != null) gp.push([tanh(e.ch6h / 80), 0.15]);
+      if (e.volAccel != null) gp.push([tanh(Math.log2(Math.max(e.volAccel, 0.05)) / 1.5), 0.2]);
+      if (e.holderCh1h != null) gp.push([tanh(e.holderCh1h / 2), 0.3]);
+      const G = gp.length ? gp.reduce((a, [v, w]) => a + v * w, 0) / gp.reduce((a, [, w]) => a + w, 0) : 0;
+      const R = e.mcap > 0 ? clamp(1 - (Math.log10(e.mcap) - Math.log10(3e5)) / (Math.log10(2e8) - Math.log10(3e5)), 0, 1) : 0.5;
+      let S = 1; const flags = [];
+      if ((e.liq ?? 0) < 10000) { S *= 0.6; flags.push('Thin liquidity'); }
+      else if (e.mcap > 0 && e.liq / e.mcap < 0.03) { S *= 0.85; flags.push('Low liquidity for its size'); }
+      if (e.organic != null && e.organic < 20) { S *= 0.85; flags.push('Low organic volume'); }
+      if (e.m?.phase === 'bleeding') { S *= 0.5; flags.push('Bleeding'); }
+      if (e.ageMin != null && e.ageMin < 15) { S *= 0.85; flags.push('Under 15 min old'); }
+      const blendScore = Math.round(100 * S * (0.35 * M + 0.25 * (G + 1) / 2 + 0.22 * C + 0.18 * R));
+      const why = [], nb = Object.keys(e.sources || {}).length;
+      if (nb >= 2) why.push({ w: 2 + nb, text: `On ${nb} boards`, good: true });
+      if (e.m?.score >= 60) why.push({ w: e.m.score / 25, text: `Momentum ${e.m.score}`, good: true });
+      if (e.holderCh1h != null && Math.abs(e.holderCh1h) >= 0.5) why.push({ w: 1 + Math.min(Math.abs(e.holderCh1h), 300) / 3, text: `Holders ${holdPct(e.holderCh1h)} 1h`, good: e.holderCh1h > 0 });
+      if (e.ch1h != null && Math.abs(e.ch1h) >= 10) why.push({ w: Math.abs(e.ch1h) / 25, text: `${pct(e.ch1h)} 1h`, good: e.ch1h > 0 });
+      if (e.volAccel != null && e.volAccel >= 1.5) why.push({ w: e.volAccel / 2, text: `Volume ${mult(e.volAccel)} pace`, good: true });
+      if (e.mcap > 0 && R >= 0.6) why.push({ w: 1.2, text: `Room to grow · ${usd(e.mcap)}`, good: true });
+      else if (e.mcap > 0 && R < 0.25) why.push({ w: 1, text: `Already ${usd(e.mcap)}`, good: false });
+      return { ...e, blend: blendScore, parts: { momentum: M, growth: G, consensus: C, room: R, safety: S }, flags,
+        why: why.sort((a, b) => b.w - a.w).slice(0, 3).map(x => ({ text: x.text, good: x.good })) };
+    }).sort((a, b) => b.blend - a.blend);
+  }
+
+  root.PeakMomentum = { score, createTracker, blend, WEIGHTS, H_PRICE, H_VOL };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
