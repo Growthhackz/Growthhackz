@@ -16,9 +16,9 @@ const listen = async server => { await new Promise(r => server.listen(0, '127.0.
 
 // ---------------------------------------------------------------- fake CMC
 // overlay: a full-page layer that appears once the composer opens ('onetrust' = CMC's late cookie banner; 'other' = anything else).
-const cmc = {posts: [], createReturnsId: true, nextId: 9001, overlay: null};
+const cmc = {posts: [], createReturnsId: true, nextId: 9001, overlay: null, slowEdit: false};
 const profileHtml = authed => page(authed ? `
-<button>Edit</button>
+<button id="edit"${cmc.slowEdit ? ' style="display:none"' : ''}>Edit</button>${cmc.slowEdit ? "<script>setTimeout(()=>{document.getElementById('edit').style.display=''},4000)</script>" : ''}
 <div><h2>All Posts</h2><div id="search" style="display:inline-block;width:32px"><svg width="16" height="16"></svg></div><div id="compose" style="display:inline-block;width:32px"><svg width="16" height="16"></svg></div></div>
 <div id="composer" style="display:none"><div contenteditable="true" id="ed"></div><input type="file" accept=".jpeg,.jpg,.png,.gif" multiple><button id="post">Post</button></div>
 <script>
@@ -68,6 +68,11 @@ const count = cmc.posts.length;
 await assert.rejects(postToCmc({text: 'Fourth post'}, null, cmcCfg()), e => e instanceof NotPostedError && /could not be clicked; nothing was sent|could not be clicked \(/.test(e.message));
 assert.equal(cmc.posts.length, count);
 cmc.overlay = null;
+// A slow profile page: the Edit button shows after 4 s. Logged in already, so no login (the wrong password would fail it).
+cmc.slowEdit = true;
+r = await postToCmc({text: 'Fifth post about Moon Frog'}, null, cmcCfg({password: 'wrong'}));
+assert.match(r.url, /\/community\/post\/\d+\/$/);
+cmc.slowEdit = false;
 await assert.rejects(postToCmc(target, null, {...cmcCfg(), email: undefined, statePath: join(dir, 'none3.json')}), NotPostedError);
 assert.equal(findPostId({data: {tweetDTOList: [{gravityId: '1', textContent: 'other'}, {gravityId: '2', textContent: 'Second post about'}]}}, 'Second post about Moon'), '2');
 

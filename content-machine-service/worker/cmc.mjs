@@ -50,8 +50,20 @@ async function snapshot(page, cfg, tag) {
   await writeFile(base + '.html', await page.content()).catch(() => {});
 }
 
+/** Our profile shows its Edit button when logged in, a Log In button when not; the page can take a while to show either. */
+async function profileState(page, ms = 30000) {
+  const edit = page.locator('button:has-text("Edit")').first();
+  const logIn = page.locator('button:has-text("Log In")').first();
+  for (let t = 0; t < ms; t += 500) {
+    if (await edit.isVisible().catch(() => false)) return 'in';
+    if (await logIn.isVisible().catch(() => false)) return 'out';
+    await page.waitForTimeout(500);
+  }
+  return null;
+}
+
 async function login(page, cfg) {
-  await page.locator('button:has-text("Log In")').first().click();
+  await page.locator('button:has-text("Log In")').first().click({timeout: 15000});
   const email = page.locator('input[type="email"]').first();
   await email.waitFor({timeout: 15000}).catch(() => {});
   if (!(await email.count())) throw new NotPostedError('CMC login form did not open.');
@@ -108,15 +120,18 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
       try { payloads.push(await r.json()); } catch {}
     });
     const profile = `${cfg.origin}/community/profile/${cfg.handle}/`;
-    const loggedIn = () => page.locator('button:has-text("Edit")').first().isVisible().catch(() => false);
+    // Everything up to the Post click sends nothing: any failure here is "not posted", safe to retry.
+    let post;
+    try {
     await page.goto(profile, {waitUntil: 'domcontentloaded'});
     await page.locator('button:has-text("Accept Cookies")').first().click({timeout: 5000}).catch(() => {});
-    await page.waitForTimeout(3000);
-    if (!(await loggedIn())) {
+    const state = await profileState(page);
+    if (!state) { await snapshot(page, cfg, 'profile'); throw new NotPostedError('CMC profile page did not load (neither our Edit button nor Log In showed).'); }
+    if (state === 'out') {
+      await clearCookieBanner(page);
       await login(page, cfg);
       await page.goto(profile, {waitUntil: 'domcontentloaded'});
-      await page.waitForTimeout(3000);
-      if (!(await loggedIn())) throw new NotPostedError(`Logged in, but ${profile} is not our editable profile (check CMC_PROFILE_HANDLE).`);
+      if ((await profileState(page)) !== 'in') throw new NotPostedError(`Logged in, but ${profile} is not our editable profile (check CMC_PROFILE_HANDLE).`);
       await context.storageState({path: cfg.statePath});
     }
 
@@ -141,8 +156,13 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
     if (await humanCheck(page)) { await snapshot(page, cfg, 'check'); throw new NotPostedError('CMC showed a human check before posting.'); }
     await clearCookieBanner(page);
     // Exact name: the page also has a "Posts" tab.
-    const post = page.getByRole('button', {name: 'Post', exact: true}).last();
+    post = page.getByRole('button', {name: 'Post', exact: true}).last();
     if (await post.isDisabled()) { await snapshot(page, cfg, 'disabled'); throw new NotPostedError('CMC Post button is disabled (empty post or image still uploading).'); }
+    } catch (e) {
+      if (e instanceof NotPostedError) throw e;
+      await snapshot(page, cfg, 'before-post');
+      throw new NotPostedError(`CMC: ${String(e?.message || e).split('\n')[0].slice(0, 160)}; nothing was sent.`);
+    }
 
     // A click that never lands (something covers the button) sends nothing, so it is safe to retry.
     const before = payloads.length;
