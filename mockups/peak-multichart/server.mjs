@@ -2,7 +2,9 @@
 //   /api/board    Peak's top 10 (peakbuybot.com mirrors the Telegram board), joined with DexScreener live
 //                 price, volume, liquidity and buys/sells, plus each coin's Peak Momentum score (momentum.js).
 //   /api/candles  GeckoTerminal 1-minute candles for one pool (the page builds 5m/15m from them).
+//   /api/stream   live push (server-sent events): "prices" every ~2.5s, the full "board" every 10s.
 //   /health       for the host's health check.
+// Prices: Solana coins come from Jupiter (updates every few seconds); other chains from DexScreener (~30s).
 // A background loop refreshes the board every 10s, keeps 1m candles fresh for every coin, and records holder
 // counts and scores over time so momentum can measure holder growth and whether a score is rising.
 // No dependencies. Run: node server.mjs  (PORT defaults to 8787)
@@ -19,6 +21,7 @@ const Momentum = globalThis.PeakMomentum;
 const tracker = Momentum.createTracker();
 const PEAK = 'https://www.peakbuybot.com/api/discovery?chain=all';
 const DEX = 'https://api.dexscreener.com/tokens/v1';
+const JUP = 'https://lite-api.jup.ag/price/v3?ids=';
 const GECKO = 'https://api.geckoterminal.com/api/v2/networks';
 const BOARD_SIZE = 10;
 
@@ -160,6 +163,11 @@ async function refresh() {
   const now = Date.now() / 1000;
   for (const t of b.tokens) {
     const key = `${t.chain}:${t.mint}`;
+    const lp = livePrices.get(key);
+    if (lp && Date.now() - lp.at < 15_000 && lp.price > 0) {
+      if (t.priceUsd > 0 && t.marketCap) t.marketCap *= lp.price / t.priceUsd;
+      t.priceUsd = lp.price;
+    }
     if (t.pool) candles(t.chain, t.pool).catch(() => {});               // queued and rate-limited; result lands in the cache
     tracker.recordHolders(key, t.holders, now);
     const hit = cache.get(candleKey(t) || '');
@@ -171,7 +179,41 @@ async function refresh() {
     delete t.dex;
   }
   state = b;
+  push('board', state);
 }
+
+// ---- fast prices: Jupiter for Solana coins every 2.5s, pushed to every open page
+const livePrices = new Map();   // chain:mint -> { price, at }
+async function fastTick() {
+  if (!state) return;
+  const sol = state.tokens.filter(t => t.chain === 'solana').map(t => t.mint);
+  if (!sol.length) return;
+  try {
+    const j = await getJson(JUP + sol.join(','));
+    const changed = {};
+    for (const t of state.tokens) {
+      const p = t.chain === 'solana' ? j[t.mint]?.usdPrice : null;
+      if (!(p > 0)) continue;
+      const key = `${t.chain}:${t.mint}`;
+      livePrices.set(key, { price: p, at: Date.now() });
+      if (t.priceUsd !== p) {
+        if (t.priceUsd > 0 && t.marketCap) t.marketCap *= p / t.priceUsd;
+        t.priceUsd = p; changed[key] = p;
+      }
+    }
+    if (Object.keys(changed).length) push('prices', { t: Date.now(), prices: changed });
+  } catch (e) { /* keep the last prices; DexScreener still updates them every 10s */ }
+}
+setInterval(fastTick, 2500);
+
+// ---- server-sent events
+const streams = new Set();
+function push(event, data) {
+  if (!streams.size) return;
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of streams) res.write(msg);
+}
+setInterval(() => { for (const res of streams) res.write(': keep-alive\n\n'); }, 20_000);
 async function loop() {
   try { await refresh(); } catch (e) { console.error('refresh', e.message); }
   setTimeout(loop, 10_000);
@@ -191,6 +233,14 @@ http.createServer(async (req, res) => {
     }
     const asset = url.pathname.match(/^\/assets\/([a-z0-9-]+\.png)$/);
     if (asset) return send(res, 200, await readFile(path.join(HERE, 'assets', asset[1])), 'image/png');
+    if (url.pathname === '/api/stream') {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+      res.write('retry: 3000\n\n');
+      if (state) res.write(`event: board\ndata: ${JSON.stringify(state)}\n\n`);
+      streams.add(res);
+      req.on('close', () => streams.delete(res));
+      return;
+    }
     if (url.pathname === '/health') return send(res, 200, { ok: true, board: !!state });
     if (url.pathname === '/momentum.js') return send(res, 200, await readFile(path.join(HERE, 'momentum.js')), 'text/javascript; charset=utf-8');
     if (url.pathname === '/api/board') { if (!state) await refresh(); return send(res, 200, state); }

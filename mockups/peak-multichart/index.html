@@ -817,7 +817,10 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       const tx = W * (n === 10 ? SLOT_X[c.rank] : 0.07 + 0.86 * c.rank / (n - 1));
       const byRank = 1 - c.rank / (n - 1);
       const byScore = hi === lo ? 1 : (c.score - lo) / (hi - lo);
-      const th = H * (0.1 + 0.24 * byRank + 0.08 * byScore);
+      // live: Peak rank sets the base, the momentum score (moves every update) sets the rest
+      const th = c.mo?.score != null
+        ? H * (0.08 + 0.16 * byRank + 0.24 * (c.mo.score / 100))
+        : H * (0.1 + 0.24 * byRank + 0.08 * byScore);
       let p = peaks.get(c.key);
       if (!p) { p = { x: tx, h: snap ? th : 0, tx, th }; peaks.set(c.key, p); }
       p.tx = tx; p.th = th;
@@ -831,6 +834,11 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
         summitsBox.appendChild(b); summitEls.set(c.key, b);
       }
     });
+  }
+  // a price tick nudges its mountain up or down, then it settles back
+  function kickPeak(c, up) {
+    const p = peaks.get(c.key); if (!p || REDUCED) return;
+    p.kick = Math.max(-H * 0.08, Math.min(H * 0.08, (p.kick || 0) + (up ? 1 : -1) * H * 0.035));
   }
   function jumpTo(key) {
     const r = cards.get(key); if (!r) return;
@@ -859,8 +867,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   }
 
   function frame(t) {
-    const list = [...peaks.values()];
-    for (const p of list) { p.x += (p.tx - p.x) * 0.06; p.h += (p.th - p.h) * 0.06; }
+    for (const p of peaks.values()) { p.x += (p.tx - p.x) * 0.06; p.h += (p.th - p.h) * 0.06; p.kick = (p.kick || 0) * 0.94; }
+    const list = [...peaks.values()].map(p => ({ x: p.x, h: Math.max(4, p.h + p.kick) }));
     ctx.clearRect(0, 0, W, H);
     for (const [sx, sy, sr, ph] of stars) { ctx.fillStyle = `rgba(255,255,255,${0.25 + 0.35 * Math.abs(Math.sin(t / 1400 + ph))})`; ctx.fillRect(sx * W, sy * H, sr, sr); }
     const base = H;
@@ -869,7 +877,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     ctx.lineTo(W, H); ctx.closePath(); ctx.fillStyle = 'rgba(22,48,20,.55)'; ctx.fill();
     const topP = board[0] && peaks.get(board[0].key);
     if (topP) {
-      const r = H * 0.19, cx = topP.x, cy = base - topP.h - H * 0.06 + r * 0.62;
+      const r = H * 0.19, cx = topP.x, cy = base - topP.h - (topP.kick || 0) - H * 0.06 + r * 0.62;
       const sun = ctx.createLinearGradient(0, cy - r, 0, cy + r);
       sun.addColorStop(0, 'rgba(120,205,70,.95)'); sun.addColorStop(1, 'rgba(40,110,30,.9)');
       ctx.save(); ctx.shadowColor = 'rgba(143,224,75,.55)'; ctx.shadowBlur = 40;
@@ -1226,7 +1234,9 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   async function pollBoard() {
     const r = await fetch('/api/board', { headers: { accept: 'application/json' } });
     if (!r.ok) throw new Error('board ' + r.status);
-    const j = await r.json();
+    applyBoard(await r.json());
+  }
+  function applyBoard(j) {
     if (!Array.isArray(j.tokens) || !j.tokens.length) throw new Error('empty board');
     lastBoardAt = Date.now();
     const prev = new Map(board.map(c => [c.key, c]));
@@ -1242,7 +1252,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       const oldPrice = c.price;
       applyApi(c, t);
       c.score = 100 - i * 6 + Math.max(-50, Math.min(50, c.ch1h || 0)) * 0.05;
-      if (c.price && oldPrice && c.price !== oldPrice) pushPrice(c, c.price, Date.now() / 1000);
+      if (c.price && oldPrice && c.price !== oldPrice) { pushPrice(c, c.price, Date.now() / 1000); kickPeak(c, c.price > oldPrice); }
       if (c.ch5 != null && Math.abs(c.ch5) >= 20 && Date.now() - (c.bigAt || 0) > 300000) c.bigAt = Date.now(), logEvent(`<b>$${esc(c.tk)}</b> <span class="${c.ch5 > 0 ? 'u' : 'd'}">${fmtPct(c.ch5)} in 5m</span>`);
       return c;
     });
@@ -1251,18 +1261,43 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     board = next;
     if (first) setMode('live');
     if (orderChanged) { if (!first) logRankChanges(prevKeys); layoutWall(); }
-    else { board.forEach(c => paintCard(c, true)); updateMomentum(); }
+    else { board.forEach(c => paintCard(c, true)); updateMomentum(); peaksTarget(); }
     if (first) logEvent(`Board loaded · <b>${board.length}</b> coins from Peak`);
     if (!first && board[0] && board[0].key !== prevTop) erupt(board[0]);
     // stagger candle loads so GeckoTerminal's free limit is respected
     board.filter(c => Date.now() - c.candlesAt > CANDLE_MS).slice(0, 4).forEach(loadCandles);
   }
 
+  // fast price ticks between full board updates
+  function applyPrices({ prices }) {
+    const now = Date.now() / 1000;
+    lastBoardAt = Date.now();
+    for (const c of board) {
+      const p = prices[c.key];
+      if (!(p > 0) || p === c.price) continue;
+      const up = p > c.price;
+      if (c.price > 0 && c.mc) c.mc *= p / c.price;
+      c.price = p;
+      pushPrice(c, p, now);
+      kickPeak(c, up);
+      paintCard(c, true);
+    }
+  }
   async function startLive() {
     await pollBoard();              // throws if the server isn't there, which drops us into demo mode
-    setInterval(() => pollBoard().catch(() => {
-      document.getElementById('feedLabel').textContent = 'Live · reconnecting';
-    }), POLL_MS);
+    let pushed = false;
+    if (window.EventSource) {
+      const es = new EventSource('/api/stream');
+      es.addEventListener('board', e => { pushed = true; try { applyBoard(JSON.parse(e.data)); } catch (err) {} });
+      es.addEventListener('prices', e => { pushed = true; try { applyPrices(JSON.parse(e.data)); } catch (err) {} });
+      es.onerror = () => { document.getElementById('feedLabel').textContent = 'Live · reconnecting'; };
+      es.onopen = () => { document.getElementById('feedLabel').textContent = 'Live · Peak board'; };
+    }
+    // fallback for networks that block the push channel: poll when nothing has been pushed for a while
+    setInterval(() => {
+      if (pushed && Date.now() - lastBoardAt < 15000) return;
+      pollBoard().catch(() => { document.getElementById('feedLabel').textContent = 'Live · reconnecting'; });
+    }, POLL_MS);
     cdWrap.firstChild.textContent = 'Updated ';
     setInterval(() => { const s = Math.round((Date.now() - lastBoardAt) / 1000); cdEl.textContent = s + 's ago'; }, 1000);
   }
