@@ -487,7 +487,7 @@ a { color: inherit; }
 .br .sc { grid-area: sc; text-align: center; font-family: var(--display); font-weight: 900; font-size: 24px; line-height: 1; color: var(--c); }
 .br .sc small { display: block; font-family: var(--mono); font-size: 8.5px; font-weight: 500; letter-spacing: .1em; color: var(--fog); text-transform: uppercase; margin-top: 2px; }
 .sb { font-family: var(--mono); font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; color: #000; background: var(--glow-a); white-space: nowrap; }
-.sb.pump { background: #6fe3a1; } .sb.jupiter { background: #c7f284; } .sb.gecko { background: #6fa8ff; } .sb.dexboost { background: #f0b44c; }
+.sb.pump { background: #6fe3a1; } .sb.jupiter { background: #c7f284; } .sb.gecko { background: #6fa8ff; } .sb.dexboost { background: #f0b44c; } .sb.birdeye { background: #ff9f5a; } .sb.dextools { background: #4fd1c5; }
 .br .chip { font-family: var(--mono); font-size: 9.5px; padding: 1px 6px; border-radius: 5px; background: rgba(143,224,75,.1); color: var(--glow-a); white-space: nowrap; }
 .br .chip.bad { background: rgba(224,87,75,.1); color: var(--down); }
 .br .chip.flag { background: rgba(240,180,76,.12); color: #f0b44c; }
@@ -1345,7 +1345,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
 
   // ---- every board's top 10, then the blended top 10
   const xbRows = document.getElementById('xbRows'), blList = document.getElementById('blList');
-  const SRC = { peak: 'Peak', pump: 'Pump', jupiter: 'Jup', gecko: 'Gecko', dexboost: 'Boost' };
+  const SRC = { peak: 'Peak', pump: 'Pump', jupiter: 'Jup', gecko: 'Gecko', birdeye: 'Bird', dextools: 'DEXT', dexboost: 'Boost' };
   const agoS = t => { if (!t) return ''; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago'; };
   const tkOf = x => x.tk || (x.symbol || '?').replace(/^\$/, '');
   function renderBoards(boards, blend) {

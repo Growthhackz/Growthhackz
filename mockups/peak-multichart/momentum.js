@@ -346,10 +346,11 @@
   //   22% consensus: how many boards list it, and how high (Peak, Pump.fun and Jupiter count most; paid boosts least)
   //   18% room to grow: smaller market caps score higher ($300K → full marks, $200M → none)
   //   times a safety factor: thin liquidity, low organic volume, bleeding and brand-new coins are marked down
-  const SOURCE_W = { peak: 1, pump: 0.9, jupiter: 0.9, gecko: 0.8, dexboost: 0.5 };
+  const SOURCE_W = { peak: 1, pump: 0.9, jupiter: 0.9, gecko: 0.8, dextools: 0.8, birdeye: 0.6, dexboost: 0.5 };
   const usd = v => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? '$' + Math.round(v / 1e3) + 'K' : '$' + Math.round(v);
   function blend(entries) {
-    const totalW = Object.values(SOURCE_W).reduce((a, b) => a + b, 0);
+    // fixed scale, so adding an optional board (Birdeye, DEXTools) doesn't shrink everyone's consensus score
+    const totalW = 4.1;
     return entries.map(e => {
       let cons = 0;
       for (const [s, r] of Object.entries(e.sources || {})) cons += (SOURCE_W[s] ?? 0.5) * (1 - (r - 1) / 12);

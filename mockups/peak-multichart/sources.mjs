@@ -8,6 +8,8 @@
 // GMGN, DEXTools, Axiom and DexScreener's trending page sit behind Cloudflare bot checks or wallet logins. They are
 // probed with one ordinary request every 15 minutes so the page can show their real status; nothing tries to get past them.
 
+const BIRDEYE_KEY = process.env.BIRDEYE_API_KEY || '';
+const DEXTOOLS_KEY = process.env.DEXTOOLS_API_KEY || '';
 const SOL_SKIP = new Set(['So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB']);
 
 export function createSources({ getJson, geckoLimited }) {
@@ -17,12 +19,15 @@ export function createSources({ getJson, geckoLimited }) {
     gecko:    { id: 'gecko',    name: 'GeckoTerminal', label: 'Trending · Solana', link: 'https://www.geckoterminal.com/solana/pools', status: 'loading', items: [] },
     dexboost: { id: 'dexboost', name: 'DexScreener',   label: 'Most boosted',     link: 'https://dexscreener.com',                   status: 'loading', items: [] },
   };
+  // keyed sources: added only when their API key is set on the server
+  if (BIRDEYE_KEY) boards.birdeye = { id: 'birdeye', name: 'Birdeye', label: 'Trending · Solana', link: 'https://birdeye.so/find-gems?chain=solana', status: 'loading', items: [] };
+  if (DEXTOOLS_KEY) boards.dextools = { id: 'dextools', name: 'DEXTools', label: 'Hot pools', link: 'https://www.dextools.io/app/en/solana/pool-explorer', status: 'loading', items: [] };
   const blocked = {
     gmgn:     { id: 'gmgn',     name: 'GMGN',        label: 'Trending',       link: 'https://gmgn.ai/?chain=sol',            probe: 'https://gmgn.ai/defi/quotation/v1/rank/sol/swaps/1h?orderby=swaps&direction=desc' },
-    dextools: { id: 'dextools', name: 'DEXTools',    label: 'Hot pairs',      link: 'https://www.dextools.io/app/en/solana/pool-explorer', probe: 'https://www.dextools.io/shared/hotpairs/hot?chain=solana' },
     axiom:    { id: 'axiom',    name: 'Axiom',       label: 'Trending',       link: 'https://axiom.trade',                   probe: 'https://api6.axiom.trade/meme-trending?timePeriod=1h' },
     dexscr:   { id: 'dexscr',   name: 'DexScreener', label: 'Trending page',  link: 'https://dexscreener.com/solana',        probe: 'https://dexscreener.com/solana?rankBy=trendingScoreH6&order=desc' },
   };
+  if (!DEXTOOLS_KEY) blocked.dextools = { id: 'dextools', name: 'DEXTools', label: 'Hot pools', link: 'https://www.dextools.io/app/en/solana/pool-explorer', probe: 'https://www.dextools.io/shared/hotpairs/hot?chain=solana' };
   for (const b of Object.values(blocked)) Object.assign(b, { status: 'checking', items: [], note: '' });
 
   const set = (b, items) => { b.items = items.slice(0, 10).map((x, i) => ({ rank: i + 1, ...x })); b.status = 'live'; b.updatedAt = Date.now(); b.note = ''; };
@@ -81,6 +86,33 @@ export function createSources({ getJson, geckoLimited }) {
       chain: t.chainId, address: t.tokenAddress, symbol: null, name: null, icon: t.icon ? `https://cdn.dexscreener.com/cms/images/${t.icon}?width=160&height=160&quality=95&format=auto` : null, boosts: t.totalAmount ?? null,
     })));
   }
+  // Birdeye's free plan: 30,000 credits a month and 50 per trending call, so one call every 80 minutes stays inside it
+  async function birdeye() {
+    const r = await fetch('https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=20', { headers: { accept: 'application/json', 'x-chain': 'solana', 'X-API-KEY': BIRDEYE_KEY } });
+    if (!r.ok) throw new Error(`${r.status} from Birdeye`);
+    const j = await r.json();
+    set(boards.birdeye, (j?.data?.tokens || []).filter(t => t?.address && !SOL_SKIP.has(t.address)).map(t => ({
+      chain: 'solana', address: t.address, symbol: t.symbol, name: t.name, icon: t.logoURI || null, mcap: t.marketcap ?? t.fdv ?? null,
+    })));
+  }
+  // DEXTools hides its plan names behind the key, so try each plan's address until one answers
+  let dextoolsPlan = process.env.DEXTOOLS_PLAN || null;
+  async function dextools() {
+    const plans = dextoolsPlan ? [dextoolsPlan] : ['free', 'trial', 'standard', 'advanced', 'pro'];
+    let last;
+    for (const plan of plans) {
+      const r = await fetch(`https://public-api.dextools.io/${plan}/v2/ranking/solana/hotpools`, { headers: { accept: 'application/json', 'X-API-KEY': DEXTOOLS_KEY } });
+      if (!r.ok) { last = `${r.status} from DEXTools`; continue; }
+      dextoolsPlan = plan;
+      const j = await r.json();
+      const seen = new Set();
+      set(boards.dextools, (j?.data || []).map(p => p.mainToken || {}).filter(t => t.address && !SOL_SKIP.has(t.address) && !seen.has(t.address) && seen.add(t.address)).map(t => ({
+        chain: 'solana', address: t.address, symbol: t.symbol, name: t.name, icon: null,
+      })));
+      return;
+    }
+    throw new Error(last || 'DEXTools did not answer');
+  }
   async function probe(b) {
     try {
       const r = await fetch(b.probe, { headers: { accept: 'application/json, text/html', 'user-agent': 'peak-ridge/0.1 (+https://peak-ridge-web-production.up.railway.app)' } });
@@ -95,11 +127,13 @@ export function createSources({ getJson, geckoLimited }) {
   }
 
   // a failed fetch retries after 15s instead of waiting a whole interval
-  const every = (fn, ms, b) => { const run = () => fn().then(() => setTimeout(run, ms), e => { fail(b, e); setTimeout(run, Math.min(ms, 15_000)); }); run(); };
+  const every = (fn, ms, b, retry = 15_000) => { const run = () => fn().then(() => setTimeout(run, ms), e => { fail(b, e); setTimeout(run, Math.min(ms, retry)); }); run(); };
   every(pump, 20_000, boards.pump);
   every(jupiter, 30_000, boards.jupiter);
   every(gecko, 60_000, boards.gecko);
   every(dexboost, 60_000, boards.dexboost);
+  if (BIRDEYE_KEY) every(birdeye, 80 * 60_000, boards.birdeye, 5 * 60_000);
+  if (DEXTOOLS_KEY) every(dextools, 5 * 60_000, boards.dextools, 5 * 60_000);
   const probeAll = () => Object.values(blocked).forEach(b => probe(b));
   probeAll(); setInterval(probeAll, 15 * 60_000);
 
