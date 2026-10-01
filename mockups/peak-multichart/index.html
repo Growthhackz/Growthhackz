@@ -1135,7 +1135,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const top = [...live].sort((a, b) => b.m.score - a.m.score)[0];
     const d = r => r.m.dScore15 ?? r.m.dScore5;
     const hot = live.filter(r => (d(r) ?? 0) >= 5).sort((a, b) => d(b) - d(a))[0];
-    const steady = live.filter(r => (r.m.parts?.trend ?? -1) > 0.2).sort((a, b) => b.m.parts.trend - a.m.parts.trend)[0];
+    // a "long climb" needs at least 3 hours of trading behind it
+    const steady = live.filter(r => (r.m.parts?.trend ?? -1) > 0.2 && (r.m.hoursSeen ?? 0) >= 3).sort((a, b) => b.m.parts.trend - a.m.parts.trend)[0];
     const haveHistory = live.some(r => d(r) != null);
     const ph = r => ({ text: `Phase: ${PHASES[r.m.phase]?.label}` });
     pmTiles.innerHTML = [
@@ -1145,7 +1146,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
         haveHistory ? 'No coin has gained 5+ momentum points in the last 15 minutes.' : 'Appears after 5 minutes of tracking.'),
       tileHtml('Longest clean climb', steady, steady?.m.hoursSeen >= 3 ? `${steady.m.upHours}/${steady.m.hoursSeen}` : shortPct(steady?.m.cells?.price?.[360]?.pct ?? steady?.m.cells?.price?.[60]?.pct) + '%',
         steady?.m.hoursSeen >= 3 ? 'green hours' : 'over 6h',
-        steady ? [...steady.m.reasons.filter(x => /uptrend|hours|in 3h|in 6h|in 1h/.test(x.text)), ...steady.m.reasons] : [], 'No coin has a clean multi-hour uptrend right now.'),
+        steady ? [...steady.m.reasons.filter(x => /uptrend|hours|in 3h|in 6h|in 1h/.test(x.text)), ...steady.m.reasons] : [], 'No coin with 3+ hours of trading has a clean uptrend right now.'),
     ].join('');
   }
 
