@@ -9,8 +9,11 @@
  *                 5m candles, higher lows on 15m candles. This is the "keeps going up" signal.
  *   Volume   20%  USD volume per minute over the last 1/5/15/30/60m against its 6h normal rate,
  *                 counted as positive only when price is rising with it (a volume spike on a dump is negative)
- *   Flow     10%  share of buys vs sells over 5m and 1h
- *   Holders  15%  holder growth over 5m / 15m / 1h (needs the tracker to have been watching for a while)
+ *   Flow     10%  share of buys vs sells over 5m and 1h, and how fast buys are coming in vs the hour's pace
+ *   Holders  15%  holder growth over 1h / 6h (holder counts refresh roughly every 15 minutes at the source)
+ *
+ * Parabolic: up 40%+ in the last hour and still steepening (the last 15 minutes climbing faster per minute than
+ * the hour as a whole), or up 100%+ in the hour and still up 8%+ in 15 minutes. "Approaching" is the step before.
  * Missing parts drop out and the rest are re-weighted.
  */
 (function (root) {
@@ -153,20 +156,25 @@
     // ---- buy/sell flow
     const share = t => t && (t.buys + t.sells) > 0 ? t.buys / (t.buys + t.sells) : null;
     const b5 = share(dex.txns?.m5), b1h = share(dex.txns?.h1);
+    // buy pace: buys in the last 5m against the hour's average 5m
+    const buyPace = dex.txns?.m5 && dex.txns?.h1?.buys > 0 ? dex.txns.m5.buys / (dex.txns.h1.buys / 12) : null;
     let flow = null;
-    if (b5 != null || b1h != null) flow = 0.6 * tanh(((b5 ?? b1h) - 0.5) * 4) + 0.4 * tanh(((b1h ?? b5) - 0.5) * 4);
+    if (b5 != null || b1h != null) {
+      flow = 0.6 * tanh(((b5 ?? b1h) - 0.5) * 4) + 0.4 * tanh(((b1h ?? b5) - 0.5) * 4);
+      if (buyPace != null) flow = 0.7 * flow + 0.3 * tanh(Math.log2(Math.max(buyPace, 0.1)) / 1.5);
+    }
 
     // ---- holder growth from tracked snapshots
     const hs = (hist.holders || []).filter(x => x.n > 0);
     let holders = null; const holderDelta = {};
     if (hs.length >= 2) {
       const cur = hs[hs.length - 1];
-      for (const w of [5, 15, 60]) {
-        const then = [...hs].reverse().find(x => x.t <= cur.t - w * 60) || (cur.t - hs[0].t >= w * 60 * 0.5 ? hs[0] : null);
-        if (then) holderDelta[w] = { abs: cur.n - then.n, pct: (cur.n - then.n) / Math.max(then.n, 50) * 100 };
+      for (const w of [60, 360]) {
+        const then = [...hs].reverse().find(x => x.t <= cur.t - w * 60) || (cur.t - hs[0].t >= w * 60 * 0.4 ? hs[0] : null);
+        if (then && then !== cur) holderDelta[w] = { abs: cur.n - then.n, pct: (cur.n - then.n) / Math.max(then.n, 50) * 100, mins: Math.round((cur.t - then.t) / 60) };
       }
-      const g15 = holderDelta[15]?.pct ?? holderDelta[5]?.pct, g60 = holderDelta[60]?.pct ?? g15;
-      if (g15 != null) holders = 0.55 * tanh(g15 / 3) + 0.45 * tanh(g60 / 8);
+      const g60 = holderDelta[60]?.pct, g360 = holderDelta[360]?.pct ?? g60;
+      if (g60 != null) holders = 0.6 * tanh(g60 / 5) + 0.4 * tanh(g360 / 15);
     }
 
     // ---- blend
@@ -185,11 +193,30 @@
     const scoreAgo = m => { const x = [...ss].reverse().find(p => p.t <= now - m * 60); return x ? sc - x.s : null; };
     const dScore5 = scoreAgo(5), dScore15 = scoreAgo(15);
 
-    // ---- phase: what kind of move this is
+    // ---- parabolic: a big hourly gain that is still steepening
     const r60 = ret[60] != null ? Math.exp(ret[60]) - 1 : null;
+    const r15 = ret[15] != null ? Math.exp(ret[15]) - 1 : null, r5 = ret[5] != null ? Math.exp(ret[5]) - 1 : null;
+    // 15m pace vs the hour's pace (5m pace when there is no 15m figure yet)
+    const accel = ret[60] > 0 && ret[15] != null ? (ret[15] / 15) / (ret[60] / 60) : ret[60] > 0 && ret[5] != null ? (ret[5] / 5) / (ret[60] / 60) : null;
+    let ema = null;
+    for (const b of bars.filter(x => x.time >= now - 90 * 60)) ema = ema == null ? b.close : ema + (b.close - ema) * (2 / 21);
+    const stretch = ema ? P / ema - 1 : null;                                                  // above its 20-minute average
+    const b3h = bars.filter(b => b.time >= now - 180 * 60);
+    const lowBar = b3h.reduce((m, b) => (!m || b.low < m.low ? b : m), null);
+    const fromLow = lowBar ? P / lowBar.low - 1 : null, minsSinceLow = lowBar ? Math.round((now - lowBar.time) / 60) : null;
+    let paraState = null;
+    const rs = r15 ?? r5;   // the recent leg
+    const volOk = (volRatio[5] ?? 1) >= 0.6;   // a vertical move on dying volume is not a real parabola
+    if (r60 != null && rs != null && volOk && ((r60 >= 0.4 && rs > 0 && (accel ?? 0) >= 1.15 && (r5 ?? 0) >= -0.02) || (r60 >= 1 && rs >= 0.08))) paraState = 'parabolic';
+    else if (r60 != null && rs != null && r60 >= 0.15 && rs > 0.04 && ((accel ?? 0) >= 1.3 || rs >= 0.15)) paraState = 'approaching';
+    const sample = (mins, step) => { const out = []; for (let t = now - mins * 60; t <= now; t += step * 60) { const c = closeAt(bars, t); out.push(c ?? null); } out[out.length - 1] = P; return out; };
+    const parabolic = { state: paraState, r5, r15, r60, accel, stretch, fromLow, minsSinceLow, curve: bars.length ? sample(120, 2) : [] };
+    const spark = bars.length ? sample(360, 5) : [];
+
+    // ---- phase: what kind of move this is
     const v5 = volRatio[5] ?? 1;
     let phase = 'chop';
-    if (r60 != null && r60 > 0.8 && short > 0.35) phase = 'parabolic';
+    if (paraState === 'parabolic') phase = 'parabolic';
     else if (short > 0.35 && v5 >= 2 && long < 0.2) phase = 'ignition';
     else if (short > 0.3 && fromHigh > -0.05 && v5 >= 1.3) phase = 'breakout';
     else if (short > 0.25 && long > 0.2 && fromHigh > -0.3) phase = 'climbing';
@@ -212,7 +239,9 @@
     if (hours.length >= 3 && (upHours >= hours.length - 1 || upHours <= 1)) cand.push({ w: 0.5, t: `Up ${upHours} of last ${hours.length} hours`, good: upHours >= hours.length - 1 });
     const td = trendDetail[180] || trendDetail[360] || trendDetail[60];
     if (td && td.r2 >= 0.6 && td.slopeHr > 0) cand.push({ w: td.r2 * 0.6, t: `Clean uptrend (R² ${td.r2.toFixed(2)})`, good: true });
-    if (holderDelta[15] && Math.abs(holderDelta[15].abs) >= 10) cand.push({ w: Math.abs(tanh(holderDelta[15].pct / 3)) * 0.6, t: `${holderDelta[15].abs > 0 ? '+' : ''}${holderDelta[15].abs} holders in 15m`, good: holderDelta[15].abs > 0 });
+    const hd = holderDelta[60] || holderDelta[360];
+    if (hd && Math.abs(hd.abs) >= 10) cand.push({ w: Math.abs(tanh(hd.pct / 5)) * 0.6, t: `${hd.abs > 0 ? '+' : ''}${hd.abs.toLocaleString('en-US')} holders in ${hd.mins >= 90 ? Math.round(hd.mins / 60) + 'h' : hd.mins + 'm'}`, good: hd.abs > 0 });
+    if (buyPace != null && (buyPace >= 1.8 || buyPace <= 0.4)) cand.push({ w: Math.abs(Math.log2(buyPace)) * 0.22, t: `Buys ${mult(buyPace)} normal pace`, good: buyPace >= 1 });
     if (b5 != null && (b5 >= 0.62 || b5 <= 0.4)) cand.push({ w: Math.abs(b5 - 0.5) * 1.5, t: `${Math.round(b5 * 100)}% buys (5m)`, good: b5 >= 0.5 });
     if (fromHigh > -0.03 && short > 0.1) cand.push({ w: 0.35, t: 'At the 1h high', good: true });
     else if (fromHigh < -0.3) cand.push({ w: 0.35, t: `${pct(fromHigh * 100)} from 1h high`, good: false });
@@ -231,12 +260,13 @@
     const cells = {
       price: Object.fromEntries(H_PRICE.map(h => [h, ret[h] != null ? { pct: rp(h), s: retPart[h], launch: !!sinceLaunch[h] } : null])),
       volume: Object.fromEntries(H_VOL.map(w => [w, volRatio[w] != null ? { x: volRatio[w], usd: volUsd[w] } : null])),
-      holders: Object.fromEntries([5, 15, 60].map(w => [w, holderDelta[w] || null])),
-      buys5: b5, buys1h: b1h,
+      holders: Object.fromEntries([60, 360].map(w => [w, holderDelta[w] || null])),
+      holdersNow: hs.length ? hs[hs.length - 1].n : null,
+      buys5: b5, buys1h: b1h, buyPace,
     };
     return {
       score: sc, raw, phase, phaseLabel: PHASES[phase], reasons, risks, confidence: conf, short, long,
-      parts, cells, dScore5, dScore15, upHours, hoursSeen: hours.length, fromHigh, sigma,
+      parts, cells, dScore5, dScore15, upHours, hoursSeen: hours.length, fromHigh, sigma, parabolic, spark,
     };
   }
 
@@ -249,7 +279,7 @@
       history: k => get(k),
       recordHolders(k, n, now = Date.now() / 1000) {
         if (!(n > 0)) return; const d = get(k), last = d.holders[d.holders.length - 1];
-        if (!last || last.n !== n || now - last.t > 60) d.holders.push({ t: now, n });
+        if (!last || last.n !== n || now - last.t > 300) d.holders.push({ t: now, n });
         trim(d.holders, now);
       },
       recordScore(k, s, now = Date.now() / 1000) {

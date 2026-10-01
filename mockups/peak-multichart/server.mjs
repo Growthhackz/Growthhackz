@@ -52,7 +52,7 @@ async function cached(key, ttl, load) {
   return pending;
 }
 
-// GeckoTerminal: queued in order, at most 12 calls a minute (the free tier is shared per IP),
+// GeckoTerminal: queued in order, at most 24 calls a minute (the free tier allows 30 per IP),
 // and a 30s pause after any 429.
 const geckoCalls = [];
 let geckoChain = Promise.resolve();
@@ -63,7 +63,7 @@ function geckoLimited(url) {
       const now = Date.now();
       while (geckoCalls.length && now - geckoCalls[0] > 60_000) geckoCalls.shift();
       if (now < geckoPauseUntil) { await new Promise(r => setTimeout(r, geckoPauseUntil - now)); continue; }
-      if (geckoCalls.length < 12) break;
+      if (geckoCalls.length < 24) break;
       await new Promise(r => setTimeout(r, 60_000 - (now - geckoCalls[0]) + 50));
     }
     geckoCalls.push(Date.now());
@@ -77,7 +77,8 @@ function geckoLimited(url) {
 
 async function loadPeak() {
   const j = await getJson(PEAK);
-  const tokens = (Array.isArray(j.tokens) ? j.tokens : []).slice().sort((a, b) => a.rank - b.rank).slice(0, BOARD_SIZE);
+  // every coin on Peak's list: the board shows 10, and coins further down replace any that are bleeding
+  const tokens = (Array.isArray(j.tokens) ? j.tokens : []).slice().sort((a, b) => a.rank - b.rank).slice(0, 30);
   return { updatedAt: j.updatedAt, tokens };
 }
 
@@ -116,7 +117,7 @@ async function board() {
   const peak = await cached('peak', BOARD_TTL, loadPeak);
   const market = await loadMarket(peak.tokens);
   const extras = {};
-  await Promise.all(peak.tokens.slice(0, 3).map(async t => {
+  await Promise.all(peak.tokens.slice(0, 5).map(async t => {
     const info = market[`${t.chain}:${t.mint}`]?.info;
     const hasTg = (info?.socials || []).some(x => x.type === 'telegram');
     if (t.page && (!hasTg || !(info?.imageUrl || t.icon))) extras[t.mint] = await peakPageExtras(t.page);
@@ -127,7 +128,7 @@ async function board() {
     tokens: peak.tokens.map(t => {
       const p = market[`${t.chain}:${t.mint}`];
       return {
-        rank: t.rank, chain: t.chain, symbol: t.symbol, name: t.name, mint: t.mint,
+        rank: t.rank, peakRank: t.rank, paid: !!(t.slot || t.permanent), chain: t.chain, symbol: t.symbol, name: t.name, mint: t.mint,
         // logos come from DexScreener (Peak's own icon as fallback), asked for at a small size
         icon: smallImg(p?.info?.imageUrl || t.icon || extras[t.mint]?.icon || null),
         telegram: (p?.info?.socials || []).find(x => x.type === 'telegram' && /^https:\/\/t\.me\//.test(x.url || ''))?.url || extras[t.mint]?.telegram || null,
@@ -148,6 +149,12 @@ async function board() {
   };
 }
 
+// Holder counts: Peak's own field never changes, so read GeckoTerminal's (they refresh it about every 15 minutes).
+async function holderCount(chain, mint) {
+  const j = await cached(`holders:${chain}:${mint}`, 15 * 60_000, () => geckoLimited(`${GECKO}/${encodeURIComponent(chain)}/tokens/${encodeURIComponent(mint)}/info`));
+  return j?.data?.attributes?.holders?.count ?? null;
+}
+
 async function candles(chain, pool) {
   const url = `${GECKO}/${encodeURIComponent(chain)}/pools/${encodeURIComponent(pool)}/ohlcv/minute?aggregate=1&limit=1000&currency=usd`;
   const j = await cached(`gecko:${chain}:${pool}`, CANDLE_TTL, () => geckoLimited(url));
@@ -158,6 +165,7 @@ async function candles(chain, pool) {
 // ---- background loop: board every 10s, candles kept under ~90s old, momentum on every pass
 let state = null;
 const candleKey = t => t.pool ? `gecko:${t.chain}:${t.pool}` : null;
+const dropState = new Map();   // chain:mint -> { bleedSince, okSince, dropped }
 async function refresh() {
   const b = await board();
   const now = Date.now() / 1000;
@@ -169,7 +177,9 @@ async function refresh() {
       t.priceUsd = lp.price;
     }
     if (t.pool) candles(t.chain, t.pool).catch(() => {});               // queued and rate-limited; result lands in the cache
-    tracker.recordHolders(key, t.holders, now);
+    holderCount(t.chain, t.mint).then(n => { if (n > 0) tracker.recordHolders(key, n); }).catch(() => {});
+    const hn = cache.get(`holders:${t.chain}:${t.mint}`)?.value?.data?.attributes?.holders?.count;
+    if (hn > 0) t.holders = hn;
     const hit = cache.get(candleKey(t) || '');
     const list = hit?.value?.data?.attributes?.ohlcv_list || [];
     const bars = list.map(([time, open, high, low, close, value]) => ({ time, open, high, low, close, value })).sort((a, c) => a.time - c.time);
@@ -177,8 +187,19 @@ async function refresh() {
     tracker.recordScore(key, m.score, now);
     t.momentum = { ...m, history: tracker.history(key).scores.slice(-90).map(p => [Math.round(p.t), p.s]) };
     delete t.dex;
+
+    // bleeding coins leave the board after 30s of bleeding (paid slots stay), and come back after 60s without it
+    const d = dropState.get(key) || { bleedSince: null, okSince: null, dropped: false };
+    const bleeding = m.phase === 'bleeding' && (m.score ?? 50) < 45;
+    if (bleeding) { d.bleedSince ??= now; d.okSince = null; if (!t.paid && now - d.bleedSince >= 30) d.dropped = true; }
+    else { d.bleedSince = null; d.okSince ??= now; if (d.dropped && now - d.okSince >= 60) d.dropped = false; }
+    dropState.set(key, d);
+    t.dropped = d.dropped;
   }
-  state = b;
+  const shown = b.tokens.filter(t => !t.dropped).slice(0, BOARD_SIZE);
+  const dropped = b.tokens.filter(t => t.dropped && t.peakRank <= (shown[shown.length - 1]?.peakRank ?? 99))
+    .map(t => ({ symbol: t.symbol, name: t.name, chain: t.chain, mint: t.mint, peakRank: t.peakRank, icon: t.icon, chartUrl: t.chartUrl, score: t.momentum?.score ?? null, reason: 'Bleeding' }));
+  state = { updatedAt: b.updatedAt, serverTime: b.serverTime, tokens: shown, dropped, tracked: b.tokens.length };
   push('board', state);
 }
 
@@ -186,7 +207,7 @@ async function refresh() {
 const livePrices = new Map();   // chain:mint -> { price, at }
 async function fastTick() {
   if (!state) return;
-  const sol = state.tokens.filter(t => t.chain === 'solana').map(t => t.mint);
+  const sol = state.tokens.filter(t => t.chain === 'solana').map(t => t.mint);   // only the 10 on screen need ticks
   if (!sol.length) return;
   try {
     const j = await getJson(JUP + sol.join(','));
