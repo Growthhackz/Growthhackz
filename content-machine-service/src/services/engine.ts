@@ -30,7 +30,7 @@ import { createPage, type PageLink } from '../providers/telegraph.js';
 import { memeKit, planPack, renderMeme, selectTemplates, type Meme } from '../providers/memes.js';
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
-import { getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
+import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
 import { assistKinds, sendAssists } from './assistService.js';
 
@@ -40,6 +40,8 @@ const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
 const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
+/** Telegram's limit for a static sticker pack. */
+const MAX_PACK_STICKERS = 120;
 
 type Leased = JobRow & { lease: string };
 
@@ -137,6 +139,48 @@ function ready(j: JobRow, o: Order): boolean {
   return true;
 }
 
+/** What a repeat purchase must not repeat: earlier purchases' posts, meme templates and captions, and its sticker pack. */
+export interface TokenHistory {
+  /** 1 for the first trending purchase of the token. */
+  number: number;
+  posts: string[];
+  templates: string[];
+  captions: unknown[];
+  /** The token's sticker pack from an earlier purchase, to add the new stickers to. */
+  pack: string | null;
+  /** An earlier purchase's pack is still being made: wait for it rather than start a second pack. */
+  packPending: boolean;
+}
+
+/** A repeat purchase of a token with no logo: the first purchase's campaign image, whose mascot is in the pack. */
+async function firstMascot(ctx: ServiceContext, o: Order): Promise<{ mime: string; bytes: Buffer } | undefined> {
+  if ((o.project.purchase_number ?? 1) < 2) return undefined;
+  for (const x of earlierTrendingOrders(ctx, o.project.chain, o.project.contract_address, o.project.purchase_number ?? 1)) {
+    const a = x.assets.find((y) => y.kind === 'campaign_image');
+    const bytes = a && (await ctx.assets.get(a.path));
+    if (bytes) return { mime: a.mime, bytes };
+  }
+  return undefined;
+}
+
+export function tokenHistory(ctx: ServiceContext, o: Order): TokenHistory {
+  const number = o.project.purchase_number ?? 1;
+  const prior = number > 1 ? earlierTrendingOrders(ctx, o.project.chain, o.project.contract_address, o.project.purchase_number ?? 1) : [];
+  const result = (x: Order, kind: string) => {
+    const j = x.jobs.find((y) => y.kind === kind && y.status === 'delivered' && y.result);
+    return j ? JSON.parse(j.result!) : null;
+  };
+  const plans = prior.map((x) => result(x, 'meme_plan')).filter(Boolean);
+  return {
+    number,
+    posts: prior.flatMap((x) => [x.copy?.spotlight_post, x.copy?.spotlight_alt, x.copy?.social_post]).filter((t): t is string => !!t),
+    templates: plans.flatMap((pl) => pl.templates ?? []),
+    captions: plans.flatMap((pl) => (pl.memes ?? []).map((m: { selected_caption: unknown }) => m.selected_caption)),
+    pack: prior.map((x) => result(x, 'sticker_publish')?.name).filter((n): n is string => typeof n === 'string').pop() ?? null,
+    packPending: prior.some((x) => x.jobs.some((y) => y.kind === 'sticker_publish' && ['queued', 'running', 'blocked'].includes(y.status))),
+  };
+}
+
 const SOLO_KINDS = ['metadata', 'social_boost'];
 
 /** Atomically leases the next ready job on an order. `render` selects renderer-only kinds. */
@@ -202,7 +246,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
       return finish(ctx, j, { source: project.source, fetched_at: new Date(nowMs(ctx)).toISOString() });
     }
     case 'copy': {
-      const copy = await generateCopy(ctx, o);
+      const copy = await generateCopy(ctx, o, tokenHistory(ctx, o));
       run(ctx.db, 'UPDATE orders SET copy = :c WHERE id = :id', { c: copy, id: o.id });
       return finish(ctx, j, {
         formats: ['article', 'social_post', 'short_post', 'meme_captions', 'trailer_lines'],
@@ -224,7 +268,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     if (o.demo) return finish(ctx, j, { demo: true, note: 'Demo uses supplied artwork; no generation charged.' }, 'skipped');
     // No logo: the stickers copy the mascot the campaign image invented; with neither there is nothing to copy.
     if (j.kind.startsWith('sticker_art_') && !p.logo_url && !o.assets.some((a) => a.kind === 'campaign_image')) return skipStickerPack(ctx, j, o);
-    const m = await generateImage(ctx, o, j.kind);
+    const m = await generateImage(ctx, o, j.kind, j.kind === 'campaign_image' && !p.logo_url ? await firstMascot(ctx, o) : undefined);
     const ext = m.mime === 'image/jpeg' ? 'jpg' : m.mime.split('/')[1];
     return finish(ctx, j, await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, m.mime, m.bytes));
   }
@@ -266,6 +310,16 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
       });
     }
     case 'sticker_publish': {
+      if (tokenHistory(ctx, o).packPending) {
+        // Back in the queue without using an attempt; the earlier purchase's pack is usually minutes away.
+        run(
+          ctx.db,
+          `UPDATE jobs SET status = 'queued', attempts = attempts - 1, lease = NULL, lease_until = NULL, available_at = :a, error = :e, updated_at = :t
+           WHERE id = :id AND lease = :lease`,
+          { a: nowMs(ctx) + 2 * 60_000, e: "Waiting for the token's sticker pack from its earlier purchase", t: nowMs(ctx), id: j.id, lease: j.lease },
+        );
+        return;
+      }
       const pack = await publishStickers(ctx, j, o);
       finish(ctx, j, pack);
       // Dedicated event so the buybot can DM the pack link to the buyer.
@@ -284,8 +338,11 @@ const MIN_MEMES = 3;
 async function runMemeJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
   if (j.kind === 'meme_plan') {
-    const templates = selectTemplates();
-    const memes = await planPack(ctx, o, templates);
+    // A repeat purchase gets templates its token hasn't had (all of them again once the bank runs out) and new jokes.
+    const history = tokenHistory(ctx, o);
+    const fresh = selectTemplates(undefined, history.templates);
+    const templates = fresh.length === 5 ? fresh : selectTemplates();
+    const memes = await planPack(ctx, o, templates, history.captions);
     return finish(ctx, j, { templates: templates.map((t) => t.id), memes });
   }
   const plan = o.jobs.find((x) => x.kind === 'meme_plan' && x.status === 'delivered');
@@ -343,6 +400,33 @@ async function publishStickers(ctx: ServiceContext, j: Leased, o: Order) {
       return null; // Not created yet.
     }
   };
+  const sticker = async (i: number) => {
+    const a = pngs[i]!;
+    const bytes = await ctx.assets.get(a.path);
+    if (!bytes) throw new SetupRequiredError('Sticker asset missing.');
+    return { sticker: await uploadStickerFile(ctx, ownerId, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i % STICKER_EMOJI.length]] };
+  };
+
+  // Repeat purchase: the new stickers join the token's existing pack (a new pack only once that one is full or gone).
+  const pack = tokenHistory(ctx, o).pack;
+  if (pack) {
+    const existing = await find(pack);
+    const count: number = existing?.stickers?.length ?? 0;
+    // The pack's size before this purchase, recorded before the first add so a retry adds only what is missing.
+    const saved = j.result ? JSON.parse(j.result) : {};
+    let base: number | null = saved.name === pack && typeof saved.base === 'number' ? saved.base : null;
+    if (existing && base === null && count + pngs.length <= MAX_PACK_STICKERS) {
+      base = count;
+      run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: { name: pack, base }, id: j.id, lease: j.lease });
+    }
+    if (existing && base !== null) {
+      for (let i = Math.max(0, count - base); i < pngs.length; i++) await telegram(ctx, 'addStickerToSet', { user_id: ownerId, name: pack, sticker: await sticker(i) });
+      const check = await telegram(ctx, 'getStickerSet', { name: pack });
+      if (check.stickers?.length !== base + pngs.length) throw new NotVerifiedError(`Sticker pack ${pack} has ${check.stickers?.length} stickers, expected ${base + pngs.length}; check it before retrying.`);
+      return { url: `https://t.me/addstickers/${pack}`, name: pack, count: base + pngs.length, added: pngs.length };
+    }
+  }
+
   // A name chosen on an earlier attempt is kept, so a retry never makes a second pack.
   const prev = j.result ? JSON.parse(j.result).name : null;
   let name: string | null = typeof prev === 'string' && prev.endsWith(`_by_${me.username}`) ? prev : null;
@@ -360,11 +444,7 @@ async function publishStickers(ctx: ServiceContext, j: Leased, o: Order) {
     run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: { name }, id: j.id, lease: j.lease });
   }
   const stickers = [];
-  for (const [i, a] of pngs.entries()) {
-    const bytes = await ctx.assets.get(a.path);
-    if (!bytes) throw new SetupRequiredError('Sticker asset missing.');
-    stickers.push({ sticker: await uploadStickerFile(ctx, ownerId, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i % STICKER_EMOJI.length]] });
-  }
+  for (let i = 0; i < pngs.length; i++) stickers.push(await sticker(i));
   await telegram(ctx, 'createNewStickerSet', { user_id: ownerId, name, title: `${(p.name ?? '').slice(0, 48)} Community`, stickers });
   const check = await telegram(ctx, 'getStickerSet', { name });
   if (check.stickers?.length !== pngs.length) throw new NotVerifiedError('Sticker set creation needs verification.');
@@ -565,7 +645,14 @@ export function projectLinks(p: Order['project']): PageLink[] {
   ].filter((l): l is PageLink => !!l);
 }
 
-export const spotlightTitle = (p: Order['project']) => `Community Spotlight: ${p.name}${p.symbol ? ` ($${p.symbol})` : ''}`;
+const REPEAT_TITLES = ['Back in the Spotlight', 'Still Building', 'Full Steam Ahead', 'Keeping the Momentum', 'Never Slowing Down'];
+
+/** "Community Spotlight" for a first purchase; a returning project gets a new title each time (numbered after five). */
+export function spotlightTitle(p: Order['project']): string {
+  const n = p.purchase_number ?? 1;
+  const head = n < 2 ? 'Community Spotlight' : REPEAT_TITLES[(n - 2) % REPEAT_TITLES.length]!;
+  return `${head}: ${p.name}${p.symbol ? ` ($${p.symbol})` : ''}${n > REPEAT_TITLES.length + 1 ? ` #${n}` : ''}`;
+}
 
 /** Binance Square post title: the spotlight title, or the article headline for copy made before spotlights. */
 export function binanceTitle(o: Order): string | undefined {

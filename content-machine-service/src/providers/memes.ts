@@ -136,13 +136,20 @@ const RULES = [
 ].join('\n');
 
 /** One planning call for the whole pack; one targeted review if the planner or the local checks flag problems. */
-export async function planPack(ctx: ServiceContext, o: Order, templates: Template[]): Promise<Meme[]> {
+/** `previousCaptions`: captions from the token's earlier packs (repeat purchases), never to be reused. */
+export async function planPack(ctx: ServiceContext, o: Order, templates: Template[], previousCaptions: unknown[] = []): Promise<Meme[]> {
   const k = memeKit();
   const context = [
     `LINGO_GUIDE: ${JSON.stringify(k.lingo)}`,
     `APPROVED_EXAMPLES (voice and quality target, not copy to reuse): ${JSON.stringify(k.examples)}`,
     `TOKEN_BRIEF: ${JSON.stringify(brief(o))}`,
     `SELECTED_TEMPLATES: ${JSON.stringify(templates.map(templateCard))}`,
+    ...(previousCaptions.length
+      ? [
+          `RETURNING_PROJECT: this token keeps investing in its growth (purchase #${o.project.purchase_number ?? 1}): it keeps marketing, paying for exposure and building its community. Lean the jokes into that energy (a team that never stops, holders being looked after), positive, no price promises.`,
+          `PREVIOUS_CAPTIONS (already used for this token; never reuse or paraphrase them): ${JSON.stringify(previousCaptions.slice(-15))}`,
+        ]
+      : []),
   ].join('\n');
   const issues: string[] = [];
   const parse = (v: unknown) => {
