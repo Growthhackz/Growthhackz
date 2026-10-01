@@ -89,7 +89,9 @@ function ffmpegArgs() {
     '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
     '-map', '0:v', '-map', '1:a', '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p',
     '-b:v', BITRATE, '-maxrate', BITRATE, '-bufsize', String(parseInt(BITRATE) * 2) + 'k', '-g', String(FPS * 2), '-keyint_min', String(FPS * 2), '-sc_threshold', '0',
-    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100'];
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+    // with the tee output, ffmpeg otherwise sends an empty H.264 header first and players like Telegram's stay black
+    '-flags', '+global_header'];
   if (process.env.RECORD_SECONDS) enc.push('-t', process.env.RECORD_SECONDS);
   const outs = [...rtmp.map(u => `[f=flv:onfail=ignore]${u}`), ...files.map(f => `[f=mp4:movflags=+faststart]${f}`)];
   return ['-hide_banner', '-loglevel', 'warning', ...enc, '-f', 'tee', outs.join('|')];
