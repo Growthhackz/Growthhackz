@@ -188,6 +188,8 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
         await next();
       }
       const site = page.locator('input[name="socials.website"]');
+      // The links step can take a while to render after the date step.
+      await site.waitFor({state: 'visible', timeout: 15000}).catch(() => {});
       if (!(await site.count())) throw notSent('freshcoins', 'the links step did not open');
       await site.fill(anyLink(listing));
       if (listing.telegram_url) await page.fill('input[name="socials.telegram"]', listing.telegram_url);
