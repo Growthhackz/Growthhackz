@@ -28,11 +28,24 @@ export function createSources({ getJson, geckoLimited }) {
   const set = (b, items) => { b.items = items.slice(0, 10).map((x, i) => ({ rank: i + 1, ...x })); b.status = 'live'; b.updatedAt = Date.now(); b.note = ''; };
   const fail = (b, e) => { b.status = b.items.length ? 'stale' : 'error'; b.note = String(e?.message || e).slice(0, 120); };
 
+  // Pump.fun's own API refuses requests from servers (Cloudflare 403). When it does, the row shows the Pump.fun coins
+  // on GeckoTerminal's trending list instead, labelled as such.
+  let geckoRaw = [];
   async function pump() {
-    const j = await getJson('https://frontend-api-v3.pump.fun/coins/great-coins');
-    set(boards.pump, (Array.isArray(j) ? j : []).filter(c => c?.mint).map(c => ({
-      chain: 'solana', address: c.mint, symbol: c.symbol, name: c.name, icon: c.image_uri || null, mcap: c.usd_market_cap ?? null,
-    })));
+    try {
+      const j = await getJson('https://frontend-api-v3.pump.fun/coins/great-coins');
+      set(boards.pump, (Array.isArray(j) ? j : []).filter(c => c?.mint).map(c => ({
+        chain: 'solana', address: c.mint, symbol: c.symbol, name: c.name, icon: c.image_uri || null, mcap: c.usd_market_cap ?? null,
+      })));
+      boards.pump.label = 'Now trending';
+    } catch (e) {
+      if (!geckoRaw.length) throw e;
+      const items = geckoItems(geckoRaw.filter(p => /^pump/.test(p.relationships?.dex?.data?.id || '')));
+      if (!items.length) throw e;
+      set(boards.pump, items);
+      boards.pump.label = 'Trending · via GeckoTerminal';
+      boards.pump.note = 'pump.fun blocks server requests, so this shows its coins trending on GeckoTerminal';
+    }
   }
   async function jupiter() {
     const j = await getJson('https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=50');
@@ -43,17 +56,23 @@ export function createSources({ getJson, geckoLimited }) {
     const memes = (Array.isArray(j) ? j : []).filter(isMeme);
     set(boards.jupiter, memes.map(t => ({ chain: 'solana', address: t.id, symbol: t.symbol, name: t.name, icon: t.icon || null, mcap: t.mcap ?? null, ch1h: t.stats1h?.priceChange ?? null })));
   }
-  async function gecko() {
-    const j = await geckoLimited('https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?duration=1h', 'high');
+  function geckoItems(pools) {
     const seen = new Set(), items = [];
-    for (const p of j?.data || []) {
+    for (const p of pools) {
       const addr = (p.relationships?.base_token?.data?.id || '').replace(/^solana_/, '');
       if (!addr || SOL_SKIP.has(addr) || seen.has(addr)) continue;
       seen.add(addr);
       const a = p.attributes || {};
       items.push({ chain: 'solana', address: addr, symbol: (a.name || '').split(' / ')[0], name: a.name, icon: null, mcap: Number(a.market_cap_usd || a.fdv_usd) || null, ch1h: a.price_change_percentage?.h1 != null ? Number(a.price_change_percentage.h1) : null });
     }
-    set(boards.gecko, items);
+    return items;
+  }
+  async function gecko() {
+    const j = await geckoLimited('https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?duration=1h', 'high');
+    let pools = j?.data || [];
+    try { pools = pools.concat((await geckoLimited('https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?duration=1h&page=2', 'low'))?.data || []); } catch {}
+    geckoRaw = pools;
+    set(boards.gecko, geckoItems(pools));
   }
   async function dexboost() {
     const j = await getJson('https://api.dexscreener.com/token-boosts/top/v1');
