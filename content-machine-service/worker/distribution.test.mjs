@@ -4,7 +4,7 @@ import {createServer} from 'node:http';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {cmcConfig,findPostId,postToCmc,publishCmc} from './cmc.mjs';
+import {cmcConfig, cmcFindPost,findPostId,postToCmc,publishCmc} from './cmc.mjs';
 import {checkRelease,pressConfig,pressCycle,slug,submitRelease} from './press.mjs';
 import {NotPostedError} from './reddit.mjs';
 
@@ -68,6 +68,14 @@ const count = cmc.posts.length;
 await assert.rejects(postToCmc({text: 'Fourth post'}, null, cmcCfg()), e => e instanceof NotPostedError && /could not be clicked; nothing was sent|could not be clicked \(/.test(e.message));
 assert.equal(cmc.posts.length, count);
 cmc.overlay = null;
+// Self-healing lookups on our profile: found (link), absent (list loaded, not in it).
+assert.deepEqual(await cmcFindPost('Third post about Moon Frog', cmcCfg()), {url: `${cmcOrigin}/community/post/9003/`});
+// Same title line, different body: matched on the body, so an older post with the same title is never taken for it.
+cmc.posts.unshift({gravityId: '7001', textContent: 'Back in the Spotlight: Moon Frog ($MFROG)\n\nAn older update about the frog and its pond that went out last week.'});
+assert.deepEqual(await cmcFindPost('Back in the Spotlight: Moon Frog ($MFROG)\n\nA brand new update about the frog building every single day.', cmcCfg()), {absent: true});
+assert.deepEqual(await cmcFindPost('Back in the Spotlight: Moon Frog ($MFROG)\n\nAn older update about the frog and its pond that went out last week.', cmcCfg()), {url: `${cmcOrigin}/community/post/7001/`});
+cmc.posts.shift();
+assert.deepEqual(await cmcFindPost('A post that was never made', cmcCfg()), {absent: true});
 // A slow profile page: the Edit button shows after 4 s. Logged in already, so no login (the wrong password would fail it).
 cmc.slowEdit = true;
 r = await postToCmc({text: 'Fifth post about Moon Frog'}, null, cmcCfg({password: 'wrong'}));

@@ -43,6 +43,21 @@ export function findPostId(payload, text) {
   return found;
 }
 
+/** The id of a listed post whose text contains `text` (its first 60 characters, normalized), or null. */
+export function findPostContaining(payload, text) {
+  const want = norm(text).slice(0, 60);
+  let found = null;
+  const walk = v => {
+    if (found || !v || typeof v !== 'object') return;
+    if (Array.isArray(v)) return v.forEach(walk);
+    const id = v.gravityId ?? v.rootId;
+    if (id && /^\d+$/.test(String(id)) && want.length >= 15 && norm(v.textContent).includes(want)) { found = String(id); return; }
+    Object.values(v).forEach(walk);
+  };
+  walk(payload);
+  return found;
+}
+
 async function snapshot(page, cfg, tag) {
   if (!cfg.debugDir) return;
   await mkdir(cfg.debugDir, {recursive: true});
@@ -136,6 +151,31 @@ export const cmcHealth = (cfg = cmcConfig()) => withLock('cmc', async () => {
     return {ok: false, detail: String(e?.message || e).split('\n')[0].slice(0, 200)};
   } finally { await browser.close(); }
 });
+
+/**
+ * Self-healing: is this post on our profile? {url} when found; {absent: true} only when our post list loaded and it
+ * isn't in it; otherwise {note} (could not tell).
+ */
+export const cmcFindPost = (text, cfg = cmcConfig()) => withLock('cmc', async () => {
+  if (!existsSync(cfg.statePath)) return {note: 'no saved CMC session'};
+  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(cfg.proxy)});
+  try {
+    const context = await browser.newContext(browserContext({storageState: cfg.statePath}));
+    const page = await context.newPage();
+    const payloads = [];
+    page.on('response', async r => { if (/gravity/i.test(r.url())) { try { payloads.push(await r.json()); } catch {} } });
+    await page.goto(`${cfg.origin}/community/profile/${cfg.handle}/`, {waitUntil: 'domcontentloaded', timeout: 60000});
+    for (let t = 0; t < 20000 && !payloads.some(listsPosts); t += 1000) await page.waitForTimeout(1000);
+    // Match on the body, not the title line: titles repeat across a token's purchases, bodies never do.
+    const body = text.split('\n\n').find((part, i) => i > 0 && part.length > 40) ?? text;
+    const id = payloads.map(p => findPostContaining(p, body)).find(Boolean) ?? null;
+    if (id) return {url: `${cfg.origin}/community/post/${id}/`};
+    return payloads.some(listsPosts) ? {absent: true} : {note: 'our post list did not load'};
+  } catch (e) { return {note: String(e?.message || e).split('\n')[0].slice(0, 160)}; } finally { await browser.close(); }
+});
+
+/** A CMC payload that lists our posts (the profile feed). */
+const listsPosts = p => { let found = false; const walk = v => { if (found || !v || typeof v !== 'object') return; if (Array.isArray(v.tweetDTOList) && v.tweetDTOList.length) found = true; else Object.values(v).forEach(walk); }; walk(p); return found; };
 
 async function postUnlocked(target, imagePath, cfg) {
   if (cfg.cookies) {

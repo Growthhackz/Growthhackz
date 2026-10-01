@@ -1,11 +1,13 @@
 import {access} from 'node:fs/promises';
 import {join} from 'node:path';
 import {btcConfig, btcWhoAmI} from './bitcointalk.mjs';
-import {cmcConfig, cmcHealth} from './cmc.mjs';
-import {coinscopeHealth, freshcoinsHealth, gemfinderHealth, top100Health} from './listingsites.mjs';
+import {cmcConfig, cmcFindPost, cmcHealth} from './cmc.mjs';
+import {coinscopeHealth, freshcoinsHealth, gemfinderFind, gemfinderHealth, top100Health} from './listingsites.mjs';
 
 /** How often every source is checked. The CMC and GemFinder checks also keep their logins fresh. */
 export const HEALTH_EVERY_MS = 30 * 60_000;
+/** While a source is broken it is rechecked (each check also renews its login where it can) this often. */
+export const FIXING_EVERY_MS = 5 * 60_000;
 
 const safe = async (fn) => { try { return await fn(); } catch (e) { return {ok: false, detail: String(e?.message || e).split('\n')[0].slice(0, 200)}; } };
 
@@ -41,4 +43,22 @@ export async function healthRound(client, env = process.env) {
   const checks = await sourceChecks(env);
   for (const c of checks) console.log(`Health ${c.source}: ${c.ok ? 'ok' : 'BROKEN'} (${c.detail})`);
   await client.request('health/report', {checks});
+  return checks;
+}
+
+/** How long until the next round: sooner while something is broken. */
+export const nextRoundIn = checks => (checks.some(c => !c.ok) ? FIXING_EVERY_MS : HEALTH_EVERY_MS);
+
+/**
+ * Self-healing: takes one uncertain publication (a CMC post or GemFinder listing that may or may not have gone out),
+ * looks for it on our account and reports: found (its link), absent (posted again), or could not tell.
+ */
+export async function verifyCycle(client, env = process.env) {
+  const kinds = [...(env.CMC_COOKIES || env.CMC_EMAIL ? ['cmc_community'] : []), ...(env.GEMFINDER_EMAIL ? ['gemfinder'] : [])];
+  if (!kinds.length) return;
+  const c = await client.request('verify/claim', {kinds});
+  if (!c) return;
+  const r = c.job.kind === 'cmc_community' ? await cmcFindPost(c.target.text, cmcConfig(env)) : await gemfinderFind(c.target.listing, env);
+  console.log(`Verify ${c.job.kind} (${c.job.order_id}): ${r.url ? `found ${r.url}` : r.absent ? 'not on our account; it will be posted again' : `could not tell (${r.note ?? r.detail})`}`);
+  await client.request(`verify/${c.job.id}/result`, {url: r.url ?? null, absent: r.absent === true, note: r.note ?? r.detail ?? null});
 }

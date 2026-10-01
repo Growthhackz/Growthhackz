@@ -31,6 +31,7 @@ import { memeKit, planPack, renderMeme, selectTemplates, type Meme } from '../pr
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
 import { apiHealthChecks } from './healthService.js';
+import { healOrders } from './healService.js';
 import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
 import { assistKinds, sendAssists } from './assistService.js';
@@ -481,6 +482,10 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
   if (ctx.config.HEALTH_CHECKS_ENABLED)
     await apiHealthChecks(ctx).catch((err) => ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'health checks failed'));
   await sendAssists(ctx);
+  // Self-healing first: a retried item keeps its order open instead of ending it.
+  if (ctx.config.SELF_HEAL_ENABLED) {
+    await healOrders(ctx, WORKER_PUBLICATIONS).catch((err) => ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'self-heal failed'));
+  }
   settleOrders(ctx);
   const callbacks = await deliverCallbacks(ctx);
   return { paused: false, processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
