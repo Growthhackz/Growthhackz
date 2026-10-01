@@ -84,6 +84,15 @@ async function openComposer(page) {
  * Posts `target.text` (+ image) from our CMC profile. Returns {url} with the public post URL, or {url: null} when
  * Post was clicked but the post could not be found (it may exist).
  */
+/**
+ * CMC's OneTrust cookie banner can appear after the page loads and covers the Post button: accept it, and if it is
+ * still there take it off the page (it is only the consent banner).
+ */
+async function clearCookieBanner(page) {
+  await page.locator('#onetrust-accept-btn-handler, button:has-text("Accept Cookies")').first().click({timeout: 3000}).catch(() => {});
+  await page.evaluate(() => document.getElementById('onetrust-consent-sdk')?.remove()).catch(() => {});
+}
+
 export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
   if (cfg.cookies) {
     try { installCookieSession(cfg.statePath, cfg.cookies, CMC_COOKIES); } catch (e) { throw new NotPostedError(`CMC_COOKIES: ${e.message}`); }
@@ -111,8 +120,15 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
       await context.storageState({path: cfg.statePath});
     }
 
+    await clearCookieBanner(page);
     const editor = await openComposer(page);
-    await editor.click();
+    await clearCookieBanner(page);
+    try {
+      await editor.click({timeout: 20000});
+    } catch (e) {
+      await snapshot(page, cfg, 'composer');
+      throw new NotPostedError(`CMC post box could not be clicked (${String(e?.message || e).split('\n')[0].slice(0, 120)}); nothing was sent.`);
+    }
     const lines = target.text.split('\n');
     for (let i = 0; i < lines.length; i++) {
       if (lines[i]) await page.keyboard.insertText(lines[i]);
@@ -123,13 +139,20 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
       if (await input.count()) { await input.setInputFiles(imagePath); await page.waitForTimeout(5000); }
     }
     if (await humanCheck(page)) { await snapshot(page, cfg, 'check'); throw new NotPostedError('CMC showed a human check before posting.'); }
+    await clearCookieBanner(page);
     // Exact name: the page also has a "Posts" tab.
     const post = page.getByRole('button', {name: 'Post', exact: true}).last();
     if (await post.isDisabled()) { await snapshot(page, cfg, 'disabled'); throw new NotPostedError('CMC Post button is disabled (empty post or image still uploading).'); }
 
-    // From the click on, the post may exist: failures are "maybe posted", never retried blindly.
+    // A click that never lands (something covers the button) sends nothing, so it is safe to retry.
     const before = payloads.length;
-    await post.click();
+    try {
+      await post.click({timeout: 20000});
+    } catch (e) {
+      await snapshot(page, cfg, 'unclickable');
+      throw new NotPostedError(`CMC Post button could not be clicked (${String(e?.message || e).split('\n')[0].slice(0, 120)}); nothing was sent.`);
+    }
+    // From the click on, the post may exist: failures are "maybe posted", never retried blindly.
     await page.waitForTimeout(6000);
     let id = payloads.slice(before).map(p => findPostId(p, null)).find(Boolean) ?? null;
     if (!id) {

@@ -13,6 +13,8 @@ import {browserContext, installCookieSession, NotPostedError, redditProxy} from 
 
 const launch = () => chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(process.env.DIRECTORY_PROXY)});
 const stateDir = (env = process.env) => resolve(env.DIRECTORY_STATE_DIR || '.');
+/** A link for forms that require one: the project's own, else its DEX Screener chart. */
+const anyLink = l => l.website_url || l.x_url || l.telegram_url || l.chart_url || `https://dexscreener.com/${l.chain}/${l.contract_address}`;
 const notSent = (site, what, e) => new NotPostedError(`${site}: ${what}${e ? ` (${String(e?.message || e).split('\n')[0].slice(0, 160)})` : ''}; nothing was sent.`);
 
 async function top100Submit(listing, logoPath) {
@@ -37,7 +39,9 @@ async function top100Submit(listing, logoPath) {
       await fillIf('input[placeholder="Bitcoin"]', listing.name);
       await fillIf('input[placeholder="BTC"]', listing.symbol);
       await fillIf('textarea', listing.description);
-      await page.locator('input[name=presale]').nth(1).check();
+      // "Presale?" (answer: no) only shows for tokens the site doesn't know yet; for trading tokens it fills the details itself.
+      const presale = page.locator('input[name=presale]');
+      if ((await presale.count()) > 1) await presale.nth(1).check();
       await page.getByRole('button', {name: 'Next'}).click();
       await page.waitForTimeout(3000);
       await fillIf('input[placeholder^="https://yourwebsite.com"]', listing.website_url);
@@ -86,7 +90,8 @@ async function gemfinderSubmit(listing, logoPath, env = process.env) {
       await page.fill('#symbol', listing.symbol || listing.name);
       if (logoPath) await page.locator('input[name=files]').setInputFiles(logoPath);
       else if (listing.logo_url) await page.fill('#logo_link', listing.logo_url);
-      await page.fill('#telegram', listing.telegram_url || listing.x_url || listing.website_url || '');
+      // Required by the form: Telegram when the project has one, else its other links or the chart.
+      await page.fill('#telegram', listing.telegram_url || anyLink(listing));
       if (listing.website_url) await page.fill('#website', listing.website_url);
       if (listing.x_url) await page.fill('#twitter', listing.x_url);
       const chain = (await page.locator('select[name=chain] option').allInnerTexts()).find(t => t.toLowerCase().includes(listing.chain));
@@ -98,6 +103,9 @@ async function gemfinderSubmit(listing, logoPath, env = process.env) {
       const editor = page.locator('.note-editable').first();
       if (await editor.count()) { await editor.click(); await page.keyboard.insertText(listing.description); }
       await page.locator('input[type=checkbox][required]').first().check({force: true});
+      // The browser refuses to submit a form with an empty required field: report it rather than "maybe sent".
+      const missing = await page.locator('[required]').evaluateAll(es => es.filter(e => !e.checkValidity()).map(e => e.name || e.id));
+      if (missing.length) throw notSent('gemfinder', `required fields not filled: ${missing.join(', ')}`);
     } catch (e) { throw e instanceof NotPostedError ? e : notSent('gemfinder', 'could not fill the form', e); }
     await page.locator('button:has-text("ADD COIN")').last().click();
     // Success redirects to My coins; through the proxy that can take a while.
@@ -181,7 +189,7 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
       }
       const site = page.locator('input[name="socials.website"]');
       if (!(await site.count())) throw notSent('freshcoins', 'the links step did not open');
-      await site.fill(listing.website_url || listing.x_url || listing.telegram_url);
+      await site.fill(anyLink(listing));
       if (listing.telegram_url) await page.fill('input[name="socials.telegram"]', listing.telegram_url);
       if (listing.x_url) await page.fill('input[name="socials.x"]', listing.x_url);
       await next();
