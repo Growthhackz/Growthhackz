@@ -54,8 +54,13 @@ const EnvSchema = z.object({
     .default('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'),
   X_GQL_USER_BY_SCREEN_NAME: z.string().regex(/^[A-Za-z0-9_-]+$/).default('xmU6X_CKVnQ5lSrCbAmJsg'),
   X_GQL_USER_TWEETS: z.string().regex(/^[A-Za-z0-9_-]+$/).default('E3opETHurmVJflFsUBVuUQ'),
-  /** Channels every trending order gets on top of what the buybot sends. Reddit is on hold. */
-  TRENDING_CHANNELS: z.string().default('telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,social_boost,bitcointalk,meme_pack'),
+  /**
+   * Channels every trending order gets on top of what the buybot sends. Listing sites: the four the worker submits
+   * automatically. Off: Reddit (on hold), CoinSniper and Coinvote (their submissions don't go through).
+   */
+  TRENDING_CHANNELS: z
+    .string()
+    .default('telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack'),
 
   /**
    * Posts handed to a person instead of the worker: the order's operator gets one Telegram DM with a page where each

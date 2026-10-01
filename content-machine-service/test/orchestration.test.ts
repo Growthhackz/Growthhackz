@@ -61,7 +61,19 @@ describe('trending orchestration', () => {
     const seen = socialFake(t, state);
     await t.setSetting('GEMINI_API_KEY', 'G');
     const o = (await t.api('POST', '/v1/trending', purchase)).body;
-    expect(o.project.channels).toEqual(['binance', 'bitcointalk', 'call_channel', 'cmc_community', 'coinsniper', 'coinvote', 'meme_pack', 'social_boost', 'telegraph']);
+    expect(o.project.channels).toEqual([
+      'binance',
+      'bitcointalk',
+      'call_channel',
+      'cmc_community',
+      'coinscope',
+      'freshcoins',
+      'gemfinder',
+      'meme_pack',
+      'social_boost',
+      'telegraph',
+      'top100token',
+    ]);
     expect(jobOf(o, 'reddit_moonshots').status).toBe('skipped');
 
     await drain(t);

@@ -79,7 +79,7 @@ A trending purchase (`POST /v1/trending`) becomes one order. Its items run on th
 4   order.completed callback + GET /v1/orders/:id/report                  once every item is final
 ```
 
-- **Channels:** every trending order gets `TRENDING_CHANNELS` (default: `telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost`) plus any the buybot sends.
+- **Channels:** every trending order gets `TRENDING_CHANNELS` (default: `telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack`; CoinSniper and Coinvote are off because their submissions don't go through, Reddit is on hold) plus any the buybot sends.
 - **Links:** the copy is written without links. Every post gets the project's Telegram link, and articles (Telegraph, Binance, Reddit, press release) also get X and the website.
 - **Social boost:** calls social-activity-service (`SOCIAL_ACTIVITY_URL`, `SOCIAL_ACTIVITY_TOKEN`) to create a bundled WURK package (`SOCIAL_BOOST_PRESET`: `trending` by default, the $1 small raid plus 50 X followers and 50 Telegram members, $4.00; `small_raid` is the raid alone; `full` is saved for later) and marks it paid by the trending purchase. The call is idempotent per order. It is delivered once WURK has accepted the job (the report shows its job link). If the social service is down, the boost keeps retrying until its deadline and nothing else waits on it. With no `x_post_url` in the purchase it is skipped.
 - **Deadlines:** each item fails automatically when its time runs out. It's measured from the order, or from an admin retry.
