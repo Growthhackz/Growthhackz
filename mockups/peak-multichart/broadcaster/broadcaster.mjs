@@ -5,7 +5,8 @@
 // Every part is optional: with no STREAM_URLS it doesn't stream, with no TELEGRAM_* it doesn't post.
 //
 // Env:
-//   PAGE_URL            page to show (default: the Railway site with ?broadcast=1)
+//   PAGE_URL            page to stream (default: the Railway site with ?tour=1, slowly scrolling the whole page)
+//   CARD_URL            page for the pinned card screenshot (default: the same site with ?broadcast=1)
 //   STREAM_URLS         space/comma separated rtmp(s)://host/app/KEY targets; "file:/path.mp4" records instead (testing)
 //   VIDEO_BITRATE       e.g. 3000k (default)          FPS  default 30          RECORD_SECONDS  for file: targets
 //   TELEGRAM_BOT_TOKEN  bot that is an admin of the channel
@@ -23,7 +24,9 @@ import fs from 'node:fs';
 const W = 1280, H = 720;
 const FPS = Number(process.env.FPS || 30);
 const BITRATE = process.env.VIDEO_BITRATE || '3000k';
-const PAGE_URL = process.env.PAGE_URL || 'https://peak-ridge-web-production.up.railway.app/?broadcast=1';
+const PAGE_URL = process.env.PAGE_URL || 'https://peak-ridge-web-production.up.railway.app/?tour=1';
+// the pinned Telegram card always shows the one-screen broadcast view, rendered off-screen so the stream isn't disturbed
+const CARD_URL = process.env.CARD_URL || new URL('/?broadcast=1', PAGE_URL).href;
 const SITE_URL = new URL('/', PAGE_URL).href;
 const BOARD_URL = new URL('/api/board', PAGE_URL).href;
 const STREAM_URLS = (process.env.STREAM_URLS || '').split(/[\s,]+/).filter(Boolean);
@@ -140,9 +143,21 @@ function buttons() {
   if (WATCH_URL) row.push({ text: '🔴 Watch live', url: WATCH_URL });
   return { inline_keyboard: [row] };
 }
+let cardPage = null;
+async function cardShot() {
+  if (!cardPage || cardPage.isClosed()) {
+    const b = await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage', ...(process.env.EXTRA_CHROME_ARGS || '').split(/\s+/).filter(Boolean)] });
+    const ctx = await b.newContext({ viewport: { width: W, height: H }, ignoreHTTPSErrors: !!process.env.IGNORE_HTTPS_ERRORS });
+    cardPage = await ctx.newPage();
+    cardPage.on('crash', () => { cardPage = null; b.close().catch(() => {}); });
+    await cardPage.goto(CARD_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await sleep(12_000);                 // let data, logos and charts arrive
+  }
+  return cardPage.screenshot({ type: 'jpeg', quality: 85 });
+}
 async function postCard() {
   if (!page) return;
-  const shot = await page.screenshot({ type: 'jpeg', quality: 85 });
+  const shot = await cardShot();
   lastShot = shot;
   if (!TG_TOKEN || !TG_CHAT) return;
   const cap = await caption();
@@ -216,4 +231,4 @@ await sleep(8000);                       // let the page load data and fonts bef
 startStream();
 setInterval(() => postCard().catch(e => log('card:', e.message)), CARD_EVERY);
 setTimeout(() => postCard().catch(e => log('card:', e.message)), 15_000);
-setInterval(() => { log('scheduled page reload'); page?.reload().catch(() => reopen()); }, 6 * 3600e3);   // keep memory in check
+setInterval(() => { log('scheduled page reload'); page?.reload().catch(() => reopen()); cardPage?.reload().catch(() => { cardPage = null; }); }, 6 * 3600e3);   // keep memory in check
