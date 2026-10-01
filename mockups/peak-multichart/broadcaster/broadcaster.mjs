@@ -164,9 +164,47 @@ async function postCard() {
 }
 
 // ---------- health ----------
-http.createServer((req, res) => {
-  if (req.url === '/snapshot.jpg' && lastShot) { res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store' }); return res.end(lastShot); }
+// One frame grabbed from the same virtual screen ffmpeg streams, so the preview shows exactly what goes out.
+let frame = { at: 0, jpg: null, pending: null };
+function grabFrame() {
+  if (Date.now() - frame.at < 900 && frame.jpg) return Promise.resolve(frame.jpg);
+  if (frame.pending) return frame.pending;
+  frame.pending = new Promise(resolve => {
+    const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'x11grab', '-video_size', `${W}x${H}`, '-i', `${DISPLAY}.0`,
+      '-frames:v', '1', '-q:v', '5', '-f', 'image2', '-c:v', 'mjpeg', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const parts = [];
+    ff.stdout.on('data', d => parts.push(d));
+    ff.on('close', () => { const jpg = Buffer.concat(parts); if (jpg.length) frame = { at: Date.now(), jpg, pending: null }; else frame.pending = null; resolve(frame.jpg); });
+  });
+  return frame.pending;
+}
+const PREVIEW = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peak Ridge · stream preview</title>
+<style>body{margin:0;background:#000;color:#8a9585;font:13px ui-monospace,Menlo,monospace;display:grid;gap:10px;padding:12px}
+img{width:100%;max-width:1280px;aspect-ratio:16/9;background:#101410;border:1px solid #1f2a1b;border-radius:8px}
+b{color:#8fe04b}.bad{color:#e0574b}</style>
+<div>What the broadcaster is sending right now (refreshes every second) · <span id="st">…</span></div>
+<img id="f" alt="current stream frame">
+<script>
+const f = document.getElementById('f'), st = document.getElementById('st');
+let busy = false;
+setInterval(() => { if (busy) return; busy = true; const i = new Image(); i.onload = () => { f.src = i.src; busy = false; }; i.onerror = () => busy = false; i.src = 'frame.jpg?t=' + Date.now(); }, 1000);
+async function s() { try { const j = await (await fetch('status')).json();
+  st.innerHTML = 'stream: <b class="' + (j.stream === 'live' ? '' : 'bad') + '">' + j.stream + '</b> · restarts ' + j.streamRestarts + ' · up ' + Math.round((Date.now() - j.startedAt) / 60000) + ' min';
+} catch (e) { st.textContent = 'status unavailable'; } }
+s(); setInterval(s, 5000);
+</script>`;
+http.createServer(async (req, res) => {
+  const p = req.url.split('?')[0];
+  if (p === '/frame.jpg') {
+    const jpg = await grabFrame();
+    if (!jpg) { res.writeHead(503); return res.end('no frame yet'); }
+    res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store' }); return res.end(jpg);
+  }
+  if (p === '/snapshot.jpg' && lastShot) { res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store' }); return res.end(lastShot); }
+  if (p === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(PREVIEW); }
   res.writeHead(200, { 'content-type': 'application/json' });
+  // /health and /status
   res.end(JSON.stringify({ ok: status.page === 'ok', ...status, streamTargets: STREAM_URLS.length, telegram: !!(TG_TOKEN && TG_CHAT), page: PAGE_URL }));
 }).listen(Number(process.env.PORT || 8080));
 
