@@ -285,7 +285,7 @@ async function blendBoards(shown, jup, now) {
     } else {
       const p = dex[e.key];
       if (!p && !jt) continue;
-      if (p?.pairAddress) refreshCandles(e.chain, p.pairAddress, false);
+      // off-board coins are scored from DexScreener's figures only, so they don't use up GeckoTerminal's rate limit
       const bars = p?.pairAddress ? toBars(cache.get(`gecko:${e.chain}:${p.pairAddress}`)?.value) : [];
       const price = p ? Number(p.priceUsd) : jt?.usdPrice;
       const holders = jt?.holderCount ?? null;

@@ -87,13 +87,15 @@ export function createSources({ getJson, geckoLimited }) {
       const text = await r.text();
       if (r.ok && /^\s*[{[]/.test(text)) { b.status = 'reachable'; b.note = 'Answered; not parsed yet'; }
       else if (/just a moment|cf-chl|cloudflare/i.test(text) || r.status === 403) { b.status = 'blocked'; b.note = 'Behind a Cloudflare bot check'; }
+      else if (r.status === 404 && b.id === 'axiom') { b.status = 'blocked'; b.note = 'No public API · data needs a logged-in wallet'; }
       else if (r.status === 401 || r.status === 425) { b.status = 'blocked'; b.note = 'Needs a logged-in wallet session'; }
       else { b.status = 'blocked'; b.note = `HTTP ${r.status}`; }
     } catch (e) { b.status = 'blocked'; b.note = 'No answer'; }
     b.updatedAt = Date.now();
   }
 
-  const every = (fn, ms, b) => { const run = () => fn().catch(e => fail(b, e)); run(); setInterval(run, ms); };
+  // a failed fetch retries after 15s instead of waiting a whole interval
+  const every = (fn, ms, b) => { const run = () => fn().then(() => setTimeout(run, ms), e => { fail(b, e); setTimeout(run, Math.min(ms, 15_000)); }); run(); };
   every(pump, 20_000, boards.pump);
   every(jupiter, 30_000, boards.jupiter);
   every(gecko, 60_000, boards.gecko);
