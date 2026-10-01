@@ -955,7 +955,7 @@ async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
     ctx,
     'POST',
     '/v1/wurk/packages',
-    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'full' ? { xProfile: p.x_url, telegram: p.telegram_url } : {}) },
+    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'small_raid' ? {} : { xProfile: p.x_url, telegram: p.telegram_url }) },
     { 'idempotency-key': `cm-${o.id}` },
   );
   await socialActivity(ctx, 'POST', `/v1/wurk/packages/${pkg.id}/payment-received`, { paymentRef: o.order_id, actor: 'content-machine' });

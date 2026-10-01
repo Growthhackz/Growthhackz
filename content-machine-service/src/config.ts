@@ -43,8 +43,11 @@ const EnvSchema = z.object({
   /** social-activity-service (private network URL) for the social_boost item. */
   SOCIAL_ACTIVITY_URL: z.string().url().optional(),
   SOCIAL_ACTIVITY_TOKEN: z.string().optional(),
-  /** WURK preset for trending orders: the $1 small raid now; `full` is the saved four-purchase package. */
-  SOCIAL_BOOST_PRESET: z.enum(['small_raid', 'full']).default('small_raid'),
+  /**
+   * WURK preset for trending orders: `trending` is the $1 small raid plus 50 X followers and 50 Telegram members
+   * ($4.00); `small_raid` is the raid alone; `full` is the saved four-purchase package.
+   */
+  SOCIAL_BOOST_PRESET: z.enum(['trending', 'small_raid', 'full']).default('trending'),
   /** Logged-out x.com web client credentials, used to find the post to raid when the order has none. */
   X_WEB_BEARER: z
     .string()

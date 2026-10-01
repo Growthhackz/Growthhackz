@@ -311,7 +311,7 @@ export function dependenciesOf(kind: string): string[] {
 
 /** Names used in the order report. Items not listed are internal steps, reported only when they fail. */
 export const SOURCE_LABELS: Record<string, string> = {
-  social_boost: 'X raid (WURK)',
+  social_boost: 'X raid, followers and Telegram members (WURK)',
   hub: 'Project hub',
   telegraph: 'Telegraph article',
   binance: 'Binance Square article',
