@@ -863,7 +863,8 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
     ctx.db,
     `UPDATE jobs SET status = 'blocked', error = :error, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
      WHERE id = :id AND lease = :lease`,
-    { error: message, a: nowMs(ctx) + 5 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+    // Nothing was sent, so try again soon: most of these are a slow page.
+    { error: message, a: nowMs(ctx) + 2 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
   );
   recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'blocked', error: message });
   return { status: 'blocked' };
@@ -1078,6 +1079,7 @@ async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
 }
 
 const BOOST_OK = ['paid_job_created', 'in_progress', 'completed', 'partial'];
+const BOOST_PROBLEMS = ['needs_attention', 'reconcile_required'];
 
 /** Delivered once WURK has accepted and been paid for the job; problems are shown until the deadline fails it. */
 export async function pollSocialBoosts(ctx: ServiceContext): Promise<number> {
@@ -1179,7 +1181,9 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
     ctx.db,
     `SELECT o.id FROM orders o WHERE o.completed_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')})
-         AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL))`,
+         AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL)
+         -- A paid social boost runs on WURK's schedule; the report doesn't wait for it.
+         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost'))`,
     {},
   );
   for (const { id } of pending) {
@@ -1203,6 +1207,10 @@ export function orderReport(ctx: ServiceContext, o: Order) {
       if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label, url: result.url ?? null });
     } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
     else if (j.status === 'submitted' && DIRECTORY_HOSTS[j.kind] && result.url) successes.push({ source: j.kind, label: `${label} (in review)`, url: result.url });
+    else if (j.status === 'submitted' && j.kind === 'social_boost') {
+      if (BOOST_PROBLEMS.includes(result.status)) failures.push({ source: j.kind, label, status: 'needs checking', error: j.error ?? `WURK: ${result.status}` });
+      else successes.push({ source: j.kind, label: `${label} (in progress)`, url: result.url ?? null });
+    }
     else if (j.status === 'uncertain')
       failures.push({ source: j.kind, label, status: 'unconfirmed', error: j.error ?? 'May have been published; needs checking before any retry.' });
     else pending.push({ source: j.kind, label, status: j.status, deadline_at: j.deadline_at ? new Date(j.deadline_at).toISOString() : null, note: j.error });

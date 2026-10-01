@@ -209,12 +209,12 @@ describe('trending orchestration', () => {
     let now = (await t.api('GET', `/v1/orders/${o.id}`)).body;
     expect(jobOf(now, 'copy').status).toBe('blocked');
 
-    // The raid problem is visible while it waits.
+    // The raid problem is visible at once, as something to check.
     t.clock.advance(61_000);
     await t.api('POST', '/v1/tick');
     let report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.complete).toBe(false);
-    expect(report.pending.find((p: any) => p.source === 'social_boost').note).toContain('Wallet holds');
+    expect(report.failures.find((f: any) => f.source === 'social_boost')).toMatchObject({ status: 'needs checking', error: expect.stringContaining('Wallet holds') });
 
     // Copy's deadline (2h) passes: it fails, and everything built on it fails immediately.
     t.clock.advance(2 * 60 * 60_000);
@@ -224,17 +224,14 @@ describe('trending orchestration', () => {
     expect(jobOf(now, 'campaign_image').error).toBe('Not started: copy failed');
     expect(jobOf(now, 'binance').error).toBe('Not started: campaign_image failed');
     expect(jobOf(now, 'sticker_publish').error).toBe('Not started: stickers failed');
+    // The paid boost is still with WURK, but the report no longer waits for it.
     expect(jobOf(now, 'social_boost').status).toBe('submitted');
-    expect(received.some((e) => e.type === 'order.completed')).toBe(false);
-
-    // The raid's own deadline (24h) ends the order.
-    t.clock.advance(22 * 60 * 60_000);
-    await t.api('POST', '/v1/tick');
     report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.complete).toBe(true);
-    expect(report.failures.find((f: any) => f.source === 'social_boost').error).toContain('Timed out after 24h (submitted: Wallet holds');
+    expect(report.failures.find((f: any) => f.source === 'social_boost').error).toContain('Wallet holds');
     expect(report.failures.find((f: any) => f.source === 'copy').label).toBe('Content (article and posts)');
     expect(report.failures.find((f: any) => f.source === 'cmc_community').error).toBe('Not started: campaign_image failed');
+    await t.api('POST', '/v1/tick'); // the completion callback goes out on the next tick
     const done = received.find((e) => e.type === 'order.completed');
     expect(done.external_order_id).toBe('trending:orch-1');
     expect(done.data.failures.length).toBe(report.failures.length);

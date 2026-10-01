@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, channelOf, DIRECTORY_HOSTS, deadlineMs, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -71,7 +71,7 @@ export function recordEvent(ctx: ServiceContext, orderId: string, type: string, 
     t: nowMs(ctx),
   });
   logProblem(ctx, orderId, type, data);
-  const link = type === 'delivery.updated' ? publishedLink(ctx, data) : null;
+  const link = type === 'delivery.updated' ? publishedLink(ctx, orderId, data) : null;
   if (link) {
     const p = JSON.parse(get<{ project: string }>(ctx.db, 'SELECT project FROM orders WHERE id = :id', { id: orderId })?.project ?? '{}');
     recordEvent(ctx, orderId, 'link.published', { ...link, project: { name: p.name ?? null, symbol: p.symbol ?? null } });
@@ -113,16 +113,24 @@ export function recentProblems(ctx: ServiceContext, sinceMs = 0, limit = 100) {
  * A live public URL for one destination, for the core bot to DM the buyer. The sticker pack has its own
  * sticker_pack.ready event, so it isn't repeated here; the hub is only linked when it is public.
  */
-function publishedLink(ctx: ServiceContext, data: unknown): { source: string; label: string; url: string } | null {
+function publishedLink(ctx: ServiceContext, orderId: string, data: unknown): { source: string; label: string; url: string } | null {
   const d = data as { kind?: string; status?: string; result?: { url?: unknown } };
+  // A listing's coin page is known at submission: it goes out then ("in review"), not again when the site approves it.
+  const listing = !!d?.kind && !!DIRECTORY_HOSTS[d.kind];
+  if (listing && d.status === 'submitted') return linkOf(d.kind!, `${SOURCE_LABELS[d.kind!]} (in review)`, d.result?.url);
   if (d?.status !== 'delivered' || !d.kind || d.kind === 'sticker_publish' || !SOURCE_LABELS[d.kind]) return null;
+  if (listing && get(ctx.db, "SELECT 1 AS x FROM events WHERE order_id = :o AND type = 'link.published' AND json_extract(data, '$.source') = :k", { o: orderId, k: d.kind }))
+    return null;
   if (d.kind === 'hub' && !ctx.config.PUBLIC_HUB_ENABLED) return null;
-  const url = d.result?.url;
+  return linkOf(d.kind, SOURCE_LABELS[d.kind]!, d.result?.url);
+}
+
+function linkOf(source: string, label: string, url: unknown): { source: string; label: string; url: string } | null {
   if (typeof url !== 'string' || url.length > 500) return null;
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:' || u.username || u.password) return null;
-    return { source: d.kind, label: SOURCE_LABELS[d.kind]!, url: u.href };
+    return { source, label, url: u.href };
   } catch {
     return null;
   }

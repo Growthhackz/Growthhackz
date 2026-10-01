@@ -130,6 +130,13 @@ describe('order report with listings under review', () => {
 
     expect((await t.api('POST', `/v1/listings/${b.job.id}/checked`, { live: true, url: 'https://gemfinder.cc/gem/42' })).body.status).toBe('delivered');
     await tick();
+    // Peak bot gets each listing's link once: at submission when the page is known ("in review"), else when it is live.
+    expect((await t.api('POST', `/v1/listings/${a.job.id}/checked`, { live: true, url: `https://top100token.com/solana/${SOL}` })).body.status).toBe('delivered');
+    const links = (await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.filter((e: any) => e.type === 'link.published').map((e: any) => [e.data.source, e.data.label]);
+    expect(links).toEqual([
+      ['top100token', 'Top100Token listing (in review)'],
+      ['gemfinder', 'GemFinder listing'],
+    ]);
     const [done] = await completed();
     expect(done.data.successes).toEqual(
       expect.arrayContaining([
