@@ -153,8 +153,12 @@ export async function postToCmc(target, imagePath, cfg = cmcConfig()) {
       throw new NotPostedError(`CMC Post button could not be clicked (${String(e?.message || e).split('\n')[0].slice(0, 120)}); nothing was sent.`);
     }
     // From the click on, the post may exist: failures are "maybe posted", never retried blindly.
-    await page.waitForTimeout(6000);
-    let id = payloads.slice(before).map(p => findPostId(p, null)).find(Boolean) ?? null;
+    // The create response carries the new post's id: take it as soon as it arrives (up to 15 s).
+    let id = null;
+    for (let waited = 0; !id && waited < 15000; waited += 250) {
+      await page.waitForTimeout(250);
+      id = payloads.slice(before).map(p => findPostId(p, null)).find(Boolean) ?? null;
+    }
     if (!id) {
       payloads.length = 0;
       await page.goto(profile, {waitUntil: 'domcontentloaded'}).catch(() => {});

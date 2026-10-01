@@ -125,6 +125,9 @@ function ready(j: JobRow, o: Order): boolean {
   if (j.kind === 'media') return done('campaign_image');
   if (j.kind === 'stickers') return [0, 1, 2, 3, 4].every((i) => done('sticker_art_' + i));
   if (j.kind === 'sticker_publish') return done('stickers');
+  // No logo: each sticker redraws the mascot from the campaign image, so it waits for that image to settle.
+  if (j.kind.startsWith('sticker_art_') && !o.project.logo_url)
+    return o.jobs.some((x) => x.kind === 'campaign_image' && ['delivered', 'failed', 'skipped'].includes(x.status));
   if (j.kind === 'meme_plan') return true;
   if (MEME_SLOTS.includes(j.kind)) return done('meme_plan');
   // The gallery goes out once every render has finished one way or the other.
@@ -134,8 +137,10 @@ function ready(j: JobRow, o: Order): boolean {
   return true;
 }
 
+const SOLO_KINDS = ['metadata', 'social_boost'];
+
 /** Atomically leases the next ready job on an order. `render` selects renderer-only kinds. */
-export function claim(ctx: ServiceContext, orderId: string, render = false): { job: Leased; order: Order } | null {
+export function claim(ctx: ServiceContext, orderId: string, render = false, skip: readonly string[] = []): { job: Leased; order: Order } | null {
   expireLeases(ctx);
   const o = loadOrder(ctx, orderId);
   const t = nowMs(ctx);
@@ -146,6 +151,7 @@ export function claim(ctx: ServiceContext, orderId: string, render = false): { j
       RENDER_KINDS.includes(j.kind) === render &&
       // Binance and Reddit wait for the companion worker's publish claim.
       !WORKER_PUBLICATIONS.includes(j.kind) &&
+      !skip.includes(j.kind) &&
       ready(j, o),
   );
   for (const j of candidates) {
@@ -161,17 +167,28 @@ export function claim(ctx: ServiceContext, orderId: string, render = false): { j
   return null;
 }
 
-/** Runs at most one ready in-process job on the order. */
-export async function processOrder(ctx: ServiceContext, orderId: string): Promise<boolean> {
-  const c = claim(ctx, orderId);
-  if (!c) return false;
-  try {
-    await runJob(ctx, c.job, c.order);
-  } catch (err) {
-    fail(ctx, c.job, err);
-  }
+/**
+ * Runs the order's ready in-process jobs, up to PARALLEL_JOBS_PER_ORDER at once (jobs are only ready once what they
+ * need is delivered, so the ones running together are independent). Returns how many ran.
+ */
+export async function processOrder(ctx: ServiceContext, orderId: string): Promise<number> {
+  const first = claim(ctx, orderId);
+  if (!first) return 0;
+  const batch = [first];
+  // Both save the order's project (the boost stores the X post it chose): never alongside anything else.
+  if (!SOLO_KINDS.includes(first.job.kind))
+    for (let c; batch.length < ctx.config.PARALLEL_JOBS_PER_ORDER && (c = claim(ctx, orderId, false, SOLO_KINDS)); ) batch.push(c);
+  await Promise.all(
+    batch.map(async (c) => {
+      try {
+        await runJob(ctx, c.job, c.order);
+      } catch (err) {
+        fail(ctx, c.job, err);
+      }
+    }),
+  );
   touchOrder(ctx, orderId);
-  return true;
+  return batch.length;
 }
 
 async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
@@ -370,8 +387,9 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     let progressed = false;
     for (const r of rows) {
       if (processed >= limit) break;
-      if (await processOrder(ctx, r.order_id)) {
-        processed++;
+      const ran = await processOrder(ctx, r.order_id);
+      if (ran) {
+        processed += ran;
         progressed = true;
         touched.add(r.order_id);
       }
@@ -1068,10 +1086,13 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
     }
   }
   let completed = 0;
+  // A listing submitted with its coin page URL counts as done for the report: the site's review can take days.
+  const listings = Object.keys(DIRECTORY_HOSTS).map((k) => `'${k}'`).join(', ');
   const pending = all<{ id: string }>(
     ctx.db,
     `SELECT o.id FROM orders o WHERE o.completed_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')}))`,
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')})
+         AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL))`,
     {},
   );
   for (const { id } of pending) {
@@ -1094,6 +1115,7 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     if (j.status === 'delivered') {
       if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label, url: result.url ?? null });
     } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
+    else if (j.status === 'submitted' && DIRECTORY_HOSTS[j.kind] && result.url) successes.push({ source: j.kind, label: `${label} (in review)`, url: result.url });
     else if (j.status === 'uncertain')
       failures.push({ source: j.kind, label, status: 'unconfirmed', error: j.error ?? 'May have been published; needs checking before any retry.' });
     else pending.push({ source: j.kind, label, status: j.status, deadline_at: j.deadline_at ? new Date(j.deadline_at).toISOString() : null, note: j.error });
