@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -13,6 +13,7 @@ export const DIRECTORY_HOSTS: Record<string, string[]> = {
   coinvote: ['coinvote.cc', 'www.coinvote.cc'],
   top100token: ['top100token.com', 'www.top100token.com'],
   gemfinder: ['gemfinder.cc', 'www.gemfinder.cc'],
+  freshcoins: ['www.freshcoins.io', 'freshcoins.io'],
   press_1888: ['www.1888pressrelease.com', '1888pressrelease.com'],
 };
 /** What the live page's path looks like on each of those sites. */
@@ -21,6 +22,7 @@ export const LISTING_PATHS: Record<string, RegExp> = {
   coinvote: /\/coins?\//i,
   top100token: /^\/[a-z]+\/[A-Za-z0-9]{20,}\/?$/,
   gemfinder: /^\/gem\/\d+\/?$/,
+  freshcoins: /^\/coins\/[a-z0-9-]+\/?$/,
   press_1888: /-pr-\d+\.html$/i,
 };
 /** Press releases: the worker needs the release text, not a coin listing. */
@@ -202,6 +204,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['coinvote', 86],
   ['top100token', 86],
   ['gemfinder', 86],
+  ['freshcoins', 86],
   ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
@@ -223,7 +226,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'gemfinder', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'gemfinder', 'freshcoins', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
@@ -258,6 +261,7 @@ export const DEADLINE_MS: Record<string, number> = {
   coinvote: 8 * 24 * HOUR,
   top100token: 8 * 24 * HOUR,
   gemfinder: 8 * 24 * HOUR,
+  freshcoins: 8 * 24 * HOUR,
   press_1888: 8 * 24 * HOUR,
   sticker_art_0: 6 * HOUR,
   sticker_art_1: 6 * HOUR,
@@ -302,6 +306,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   coinvote: 'Coinvote listing',
   top100token: 'Top100Token listing',
   gemfinder: 'GemFinder listing',
+  freshcoins: 'FreshCoins listing',
   cmc_community: 'CoinMarketCap community post',
   bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',

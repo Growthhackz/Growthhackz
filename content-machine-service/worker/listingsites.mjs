@@ -114,6 +114,91 @@ async function gemfinderSubmit(listing, logoPath, env = process.env) {
   } finally { await browser.close(); }
 }
 
+/**
+ * FreshCoins: Google-only account, so the session comes from FRESHCOINS_COOKIES (a browser export that includes the
+ * long-lived __client cookie on clerk.freshcoins.io). 4 steps: basic info (logo crop), market details, links, verify.
+ */
+const FRESHCOINS_COOKIES = {domain: /(^|\.)freshcoins\.io$/, isLogin: n => n === '__client', label: 'FreshCoins login cookies (__client on clerk.freshcoins.io)'};
+
+async function freshcoinsSubmit(listing, logoPath, env = process.env) {
+  const statePath = join(stateDir(env), 'freshcoins-session.json');
+  try { installCookieSession(statePath, env.FRESHCOINS_COOKIES, FRESHCOINS_COOKIES); } catch (e) { throw notSent('freshcoins', `FRESHCOINS_COOKIES: ${e.message}`); }
+  const browser = await launch();
+  try {
+    const context = await browser.newContext(browserContext(existsSync(statePath) ? {storageState: statePath} : {}));
+    const page = await context.newPage();
+    const next = async () => { const b = page.locator('button[aria-label="Next step"]').last(); await b.evaluate(e => e.scrollIntoView({block: 'center'})); await b.click(); await page.waitForTimeout(2500); };
+    const menuItems = () => page.locator('[role=menu]:visible [role=menuitemradio], [role=menu]:visible [role=menuitem]');
+    const pick = async (button, re) => {
+      for (let i = 0; i < 4; i++) {
+        const b = page.locator(`button:has-text("${button}")`).last();
+        await b.evaluate(e => e.scrollIntoView({block: 'center'})).catch(() => {});
+        await page.waitForTimeout(400);
+        await b.click().catch(() => {});
+        await page.waitForTimeout(1200);
+        if (await menuItems().count()) {
+          const opts = (await menuItems().allInnerTexts()).map(t => t.trim());
+          const want = opts.find(t => re.test(t));
+          if (!want) throw notSent('freshcoins', `${button}: no match in ${opts.join(', ')}`);
+          await menuItems().filter({hasText: want}).first().click();
+          return;
+        }
+      }
+      throw notSent('freshcoins', `${button} did not open`);
+    };
+    try {
+      await page.goto('https://www.freshcoins.io/add-coin', {waitUntil: 'domcontentloaded', timeout: 60000});
+      await page.waitForTimeout(6000);
+      if (!page.url().includes('/add-coin')) throw notSent('freshcoins', 'not logged in; refresh FRESHCOINS_COOKIES');
+      await page.getByPlaceholder('Enter coin name').fill(listing.name);
+      await page.getByPlaceholder('PEPE').fill(listing.symbol || listing.name);
+      for (const c of ['Memecoins', 'Pump Fun Tokens']) await page.getByText(c, {exact: true}).click().catch(() => {});
+      if (logoPath) {
+        await page.locator('input[type=file]').first().setInputFiles(logoPath);
+        await page.waitForTimeout(2000);
+        await page.locator('[role=dialog]').last().locator('button').filter({hasText: /^\s*Confirm\s*$/}).click();
+        await page.waitForTimeout(3000);
+      }
+      const editor = page.locator('[contenteditable=true]').first();
+      await editor.click(); await page.keyboard.insertText(listing.description);
+      await page.locator('button:has-text("Market Details")').first().click();
+      await page.waitForTimeout(3000);
+      await pick('Select a blockchain', new RegExp(`^${listing.chain}$`, 'i'));
+      await pick('Select a DEX', /pump|raydium|other/i);
+      const ca = page.getByPlaceholder('Enter project contract address');
+      await ca.click(); await ca.fill(listing.contract_address);
+      await page.waitForTimeout(1000);
+      await next();
+      // Neither presale nor fairlaunch: the form then asks for the launch date.
+      const month = page.locator('[role=spinbutton][data-type=month]:visible').first();
+      if (await month.count()) {
+        const [y, m, d] = listing.launch_date.split('-');
+        await month.click(); await page.keyboard.type(m, {delay: 80});
+        await page.locator('[role=spinbutton][data-type=day]:visible').first().click(); await page.keyboard.type(d, {delay: 80});
+        await page.locator('[role=spinbutton][data-type=year]:visible').first().click(); await page.keyboard.type(y, {delay: 80});
+        await page.waitForTimeout(800);
+        await next();
+      }
+      const site = page.locator('input[name="socials.website"]');
+      if (!(await site.count())) throw notSent('freshcoins', 'the links step did not open');
+      await site.fill(listing.website_url || listing.x_url || listing.telegram_url);
+      if (listing.telegram_url) await page.fill('input[name="socials.telegram"]', listing.telegram_url);
+      if (listing.x_url) await page.fill('input[name="socials.x"]', listing.x_url);
+      await next();
+    } catch (e) { throw e instanceof NotPostedError ? e : notSent('freshcoins', 'could not fill the form', e); }
+    const created = page.waitForResponse(r => /freshcoinsbackend\.site\/api\/coin$/.test(r.url()) && r.request().method() === 'POST', {timeout: 45000}).catch(() => null);
+    const submit = page.locator('button:visible').filter({hasText: /^\s*Submit\s*$/}).last();
+    await submit.evaluate(e => e.scrollIntoView({block: 'center'}));
+    await submit.click();
+    const r = await created;
+    if (!r) return {submitted: false};
+    const body = await r.json().catch(() => ({}));
+    if (r.status() >= 300) throw new NotPostedError(`freshcoins rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
+    await context.storageState({path: statePath}).catch(() => {});
+    return {submitted: true, url: body.slug ? `https://www.freshcoins.io/coins/${body.slug}` : null};
+  } finally { await browser.close(); }
+}
+
 /** Logged-out: is the coin page public and about this coin? */
 async function pageIsLive(url, listing) {
   if (!url) return {live: false};
@@ -131,6 +216,7 @@ async function pageIsLive(url, listing) {
 export const LISTING_SITES = {
   top100token: {enabled: () => true, submit: top100Submit, check: pageIsLive},
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: gemfinderSubmit, check: pageIsLive},
+  freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: freshcoinsSubmit, check: pageIsLive},
 };
 
 async function logoFile(client, listing) {
