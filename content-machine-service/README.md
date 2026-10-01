@@ -257,3 +257,21 @@ With `PUBLIC_HUB_ENABLED=true`, `GET /projects/:id` serves the project page as H
 ## Not yet verified live
 
 Gemini, Telegraph, Telegram and Binance have not been exercised with real credentials. The first paid order should be a low-cost acceptance test with connected accounts.
+
+
+## Keeping sources up (health checks)
+
+Every 30 minutes the worker checks each site it posts to and the API checks its own keys, bots and the WURK wallet (`GET /v1/health/sources`, `POST /v1/health/run`). A failed check is retried once before it counts. Each change between working and broken is sent to `ASSIST_CHAT_ID` (else `STICKER_OWNER_ID`) on Telegram: 🔴 with what to fix, 🟢 when it works again. The CMC and GemFinder checks also log in again when their session lapsed, which keeps those logins fresh between orders.
+
+| Source | What keeps it working | Checked by | When it breaks |
+|---|---|---|---|
+| CoinMarketCap | `CMC_COOKIES` + `CMC_EMAIL` / `CMC_PASSWORD` (the worker re-logs in and saves fresh cookies to `/data`), residential `DIRECTORY_PROXY` | profile shows our Edit button | log in once in a normal browser and export fresh `CMC_COOKIES` (a human check at login is not bypassed) |
+| Bitcointalk | `BTCTALK_COOKIES` (`SMFCookie…`, "stay logged in"; current one expires 2027-11) | logged-in username | export fresh cookies from a logged-in browser |
+| Binance Square | `BINANCE_SQUARE_OPENAPI_KEY` + the Square skill in the image | key and script present | new OpenAPI key |
+| Top100Token | no login | submit form loads | usually Cloudflare; clears by itself |
+| GemFinder | `GEMFINDER_EMAIL` / `GEMFINDER_PASSWORD` | logged in, add-coin form loads | check the password |
+| FreshCoins | `FRESHCOINS_COOKIES` (Google login; `__client` cookie lasts a year) | add-coin form loads | export fresh cookies from a logged-in browser |
+| Coinscope | `COINSCOPE_REFRESH_TOKEN` (Google login) | token mints a login | sign in again and copy the new refresh token |
+| Gemini, sticker bot, Telegraph | API keys / tokens | key works, `getMe`, token valid | replace the key or token |
+| WURK | wallet key + `WURK_LIVE_PAYMENTS_ENABLED`, USDC balance | live and at least `WURK_LOW_BALANCE_USDC` (20) USDC | top up the wallet |
+| Worker | `content-machine-worker` running | polled the API in the last 10 min | redeploy the worker |

@@ -1,0 +1,15 @@
+<!DOCTYPE html><html><head></head><body><form method="post" enctype="multipart/form-data" action="/submit" data-cm-form="1">
+<label for="n">Coin Name</label><input id="n" name="coin_name" required="" data-cm-idx="0" style="">
+<label for="s">Symbol</label><input id="s" name="symbol" required="" data-cm-idx="1" style="">
+<label for="c">Chain</label><select id="c" name="chain" required="" data-cm-idx="2"><option value="">Select</option><option value="56">Binance Smart Chain</option><option value="sol">Solana</option><option value="1">Ethereum</option></select>
+<label for="ca">Contract Address</label><input id="ca" name="contract" required="" data-cm-idx="3" style="">
+<label for="ld">Launch Date</label><input id="ld" type="date" name="launch_date" required="" data-cm-idx="4" style="">
+<label for="d">Description</label><textarea id="d" name="description" required="" data-cm-idx="5" style=""></textarea>
+<label for="w">Website</label><input id="w" name="website" data-cm-idx="6" style="">
+<label for="t">Telegram</label><input id="t" name="telegram" data-cm-idx="7" style="">
+<label for="x">Twitter</label><input id="x" name="twitter" data-cm-idx="8" style="">
+<label for="dc">Discord</label><input id="dc" name="discord" data-cm-idx="9" style="">
+<label for="l">Logo</label><input id="l" type="file" name="logo" required="" data-cm-idx="10" style="">
+
+<label><input type="checkbox" name="terms" required="" data-cm-idx="11" style=""> I agree to the terms</label>
+<button type="submit">Submit Coin</button></form><footer><form method="post" action="/subscribe"><input type="email" name="email" placeholder="Email address" required="" style=""><button type="submit" name="submit">Subscribe</button></form></footer></body></html>

@@ -30,6 +30,7 @@ import { createPage, type PageLink } from '../providers/telegraph.js';
 import { memeKit, planPack, renderMeme, selectTemplates, type Meme } from '../providers/memes.js';
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
+import { apiHealthChecks } from './healthService.js';
 import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
 import { assistKinds, sendAssists } from './assistService.js';
@@ -477,6 +478,8 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     if (!progressed) break;
   }
   await pollSocialBoosts(ctx);
+  if (ctx.config.HEALTH_CHECKS_ENABLED)
+    await apiHealthChecks(ctx).catch((err) => ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'health checks failed'));
   await sendAssists(ctx);
   settleOrders(ctx);
   const callbacks = await deliverCallbacks(ctx);

@@ -480,6 +480,10 @@ export async function runComponent(ctx: ServiceContext, componentId: string): Pr
     // x402 settles only after the resource succeeds; a definite refusal means the signed payment was not used.
     run(ctx.db, "UPDATE wurk_payments SET status = 'failed', error = :e, updated_at = :t WHERE id = :id", { id: paymentId, e: `refused ${paid.status}`, t: nowIso(ctx) });
     if (paid.status === 409 && c.kind === 'tg_batch_2') return defer(ctx, c, `WURK refused an overlapping Telegram job (409): ${text.slice(0, 300)}`);
+    // The quote went stale between the challenge and the payment (WURK: "differs from its sealed component manifest"):
+    // nothing was paid, so a fresh quote and a new payment are safe.
+    if (paid.status === 409 && /X402_REWARD_SOURCE_INVALID|sealed component manifest/i.test(text))
+      return retryLater(ctx, c, `WURK refused a stale quote (409); trying again with a fresh one: ${text.slice(0, 200)}`);
     needsAttention(ctx, c, `WURK refused the paid request (${paid.status}): ${text.slice(0, 300)}`);
     return true;
   }

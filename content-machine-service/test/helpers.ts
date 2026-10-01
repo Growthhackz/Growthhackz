@@ -75,6 +75,7 @@ export function makeApp(env: Record<string, string> = {}) {
     CONFIG_ENCRYPTION_KEY: 'test-only-vault-key-32-characters!',
     PUBLIC_BASE_URL: 'https://content.example.test',
     WORKERS_ENABLED: 'false',
+    HEALTH_CHECKS_ENABLED: 'false',
     ...env,
   });
   const db = openDatabase(':memory:');
