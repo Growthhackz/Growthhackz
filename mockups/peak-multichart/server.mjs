@@ -52,27 +52,36 @@ async function cached(key, ttl, load) {
   return pending;
 }
 
-// GeckoTerminal: queued in order, at most 24 calls a minute (the free tier allows 30 per IP),
-// and a 30s pause after any 429.
+// Like cached(), but never waits once there is a value: an expired value is returned at once and refreshed behind it.
+function swr(key, ttl, load) {
+  const hit = cache.get(key);
+  if (hit && 'value' in hit) { if (Date.now() - hit.at >= ttl && !hit.pending) cached(key, 0, load).catch(() => {}); return hit.value; }
+  cached(key, ttl, load).catch(() => {});
+  return undefined;
+}
+
+// GeckoTerminal: at most 24 calls a minute (the free tier allows 30 per IP), with a 30s pause after any 429.
+// Two lanes: coins on the board ("high") always go before the rest ("low").
 const geckoCalls = [];
-let geckoChain = Promise.resolve();
-let geckoPauseUntil = 0;
-function geckoLimited(url) {
-  const run = async () => {
-    for (;;) {
+const lanes = { high: [], low: [] };
+let geckoPauseUntil = 0, geckoBusy = false;
+function geckoLimited(url, lane = 'high') {
+  return new Promise((resolve, reject) => { lanes[lane].push({ url, resolve, reject }); pumpGecko(); });
+}
+async function pumpGecko() {
+  if (geckoBusy) return; geckoBusy = true;
+  try {
+    while (lanes.high.length || lanes.low.length) {
       const now = Date.now();
       while (geckoCalls.length && now - geckoCalls[0] > 60_000) geckoCalls.shift();
       if (now < geckoPauseUntil) { await new Promise(r => setTimeout(r, geckoPauseUntil - now)); continue; }
-      if (geckoCalls.length < 24) break;
-      await new Promise(r => setTimeout(r, 60_000 - (now - geckoCalls[0]) + 50));
+      if (geckoCalls.length >= 24) { await new Promise(r => setTimeout(r, 60_000 - (now - geckoCalls[0]) + 50)); continue; }
+      const job = (lanes.high.length ? lanes.high : lanes.low).shift();
+      geckoCalls.push(Date.now());
+      try { job.resolve(await getJson(job.url)); }
+      catch (e) { if (e.status === 429) geckoPauseUntil = Date.now() + 30_000; job.reject(e); }
     }
-    geckoCalls.push(Date.now());
-    try { return await getJson(url); }
-    catch (e) { if (e.status === 429) geckoPauseUntil = Date.now() + 30_000; throw e; }
-  };
-  const p = geckoChain.then(run, run);
-  geckoChain = p.catch(() => {});
-  return p;
+  } finally { geckoBusy = false; }
 }
 
 async function loadPeak() {
@@ -151,15 +160,20 @@ async function board() {
 
 // Holder counts: Peak's own field never changes, so read GeckoTerminal's (they refresh it about every 15 minutes).
 async function holderCount(chain, mint) {
-  const j = await cached(`holders:${chain}:${mint}`, 15 * 60_000, () => geckoLimited(`${GECKO}/${encodeURIComponent(chain)}/tokens/${encodeURIComponent(mint)}/info`));
+  const j = await cached(`holders:${chain}:${mint}`, 20 * 60_000, () => geckoLimited(`${GECKO}/${encodeURIComponent(chain)}/tokens/${encodeURIComponent(mint)}/info`, 'low'));
   return j?.data?.attributes?.holders?.count ?? null;
 }
 
-async function candles(chain, pool) {
-  const url = `${GECKO}/${encodeURIComponent(chain)}/pools/${encodeURIComponent(pool)}/ohlcv/minute?aggregate=1&limit=1000&currency=usd`;
-  const j = await cached(`gecko:${chain}:${pool}`, CANDLE_TTL, () => geckoLimited(url));
-  const list = j?.data?.attributes?.ohlcv_list || [];
-  return list.map(([time, open, high, low, close, value]) => ({ time, open, high, low, close, value })).sort((a, b) => a.time - b.time);
+const candleUrl = (chain, pool) => `${GECKO}/${encodeURIComponent(chain)}/pools/${encodeURIComponent(pool)}/ohlcv/minute?aggregate=1&limit=1000&currency=usd`;
+const toBars = j => (j?.data?.attributes?.ohlcv_list || []).map(([time, open, high, low, close, value]) => ({ time, open, high, low, close, value })).sort((a, b) => a.time - b.time);
+// keep candles fresh in the background: board coins every ~75s on the fast lane, the rest every 5 min on the slow lane
+function refreshCandles(chain, pool, onBoard) {
+  return swr(`gecko:${chain}:${pool}`, onBoard ? CANDLE_TTL : 300_000, () => geckoLimited(candleUrl(chain, pool), onBoard ? 'high' : 'low'));
+}
+// for the page: whatever we have right now, never waiting on the queue
+function candles(chain, pool) {
+  const j = refreshCandles(chain, pool, true);
+  return { candles: toBars(j), pending: j === undefined };
 }
 
 // ---- background loop: board every 10s, candles kept under ~90s old, momentum on every pass
@@ -176,7 +190,7 @@ async function refresh() {
       if (t.priceUsd > 0 && t.marketCap) t.marketCap *= lp.price / t.priceUsd;
       t.priceUsd = lp.price;
     }
-    if (t.pool) candles(t.chain, t.pool).catch(() => {});               // queued and rate-limited; result lands in the cache
+    if (t.pool) refreshCandles(t.chain, t.pool, t.peakRank <= (b.tokens[BOARD_SIZE + 2]?.peakRank ?? 99));   // queued; lands in the cache
     holderCount(t.chain, t.mint).then(n => { if (n > 0) tracker.recordHolders(key, n); }).catch(() => {});
     const hn = cache.get(`holders:${t.chain}:${t.mint}`)?.value?.data?.attributes?.holders?.count;
     if (hn > 0) t.holders = hn;
@@ -199,8 +213,51 @@ async function refresh() {
   const shown = b.tokens.filter(t => !t.dropped).slice(0, BOARD_SIZE);
   const dropped = b.tokens.filter(t => t.dropped && t.peakRank <= (shown[shown.length - 1]?.peakRank ?? 99))
     .map(t => ({ symbol: t.symbol, name: t.name, chain: t.chain, mint: t.mint, peakRank: t.peakRank, icon: t.icon, chartUrl: t.chartUrl, score: t.momentum?.score ?? null, reason: 'Bleeding' }));
-  state = { updatedAt: b.updatedAt, serverTime: b.serverTime, tokens: shown, dropped, tracked: b.tokens.length };
+  updatePick(shown, b.tokens, now);
+  state = { updatedAt: b.updatedAt, serverTime: b.serverTime, tokens: shown, dropped, tracked: b.tokens.length, buy: buyState(shown, b.tokens) };
   push('board', state);
+}
+
+// ---- best time to buy: one pick that stays put, and a record of how past picks did an hour later
+let pick = null;        // { key, symbol, chain, mint, icon, chartUrl, since, entry, p, stop, target }
+const pickLog = [];     // { key, symbol, entry, at, p, exit, result }
+const keyOf = t => `${t.chain}:${t.mint}`;
+function updatePick(shown, all, now) {
+  const byKey = new Map(all.map(t => [keyOf(t), t]));
+  const cands = shown.filter(t => t.momentum?.buy?.eligible).sort((a, c) => c.momentum.buy.p - a.momentum.buy.p);
+  const cur = pick && byKey.get(pick.key), curB = cur?.momentum?.buy;
+  let keep = false;
+  if (cur && curB && shown.includes(cur)) {
+    const held = now - pick.since, best = cands[0];
+    keep = cur.priceUsd > pick.stop && curB.p >= 0.48 && curB.passes >= 4;
+    // a pick holds for 15 min unless something is far better; after that, a clearly better setup replaces it
+    if (keep && best && best !== cur && best.momentum.buy.p >= curB.p + (held < 900 ? 0.08 : 0.03)) keep = false;
+  }
+  if (!keep && pick) { pick.endedAt = now; pick = null; }
+  if (!pick && cands[0]) {
+    const t = cands[0], bb = t.momentum.buy;
+    pick = { key: keyOf(t), symbol: t.symbol, chain: t.chain, mint: t.mint, since: now, entry: t.priceUsd, p: bb.p, stop: bb.stop, target: bb.target };
+    pickLog.push({ key: pick.key, symbol: t.symbol, entry: t.priceUsd, at: now, p: bb.p, result: null });
+    if (pickLog.length > 60) pickLog.shift();
+  }
+  for (const l of pickLog) {
+    if (l.result != null || now - l.at < 3600) continue;
+    const t = byKey.get(l.key);
+    if (t?.priceUsd > 0) { l.exit = t.priceUsd; l.result = t.priceUsd > l.entry ? 'win' : 'loss'; }
+    else if (now - l.at > 7200) l.result = 'unknown';
+  }
+}
+function buyState(shown, all) {
+  const done = pickLog.filter(l => l.result === 'win' || l.result === 'loss');
+  const record = { done: done.length, wins: done.filter(l => l.result === 'win').length, open: pickLog.filter(l => l.result == null).length,
+    recent: done.slice(-8).map(l => ({ symbol: l.symbol, ret: l.exit / l.entry - 1, win: l.result === 'win' })) };
+  if (pick) {
+    const t = all.find(x => keyOf(x) === pick.key);
+    return { pick: { ...pick, price: t?.priceUsd ?? null, setup: t?.momentum?.buy ?? null, pnl: t?.priceUsd ? t.priceUsd / pick.entry - 1 : null }, record };
+  }
+  // no pick: the closest candidate and what it is waiting for
+  const near = shown.filter(t => t.momentum?.buy).sort((a, c) => (c.momentum.buy.passes - a.momentum.buy.passes) || (c.momentum.buy.p - a.momentum.buy.p))[0];
+  return { pick: null, closest: near ? { key: keyOf(near), symbol: near.symbol, passes: near.momentum.buy.passes, waiting: near.momentum.buy.stages.filter(x => !x.pass).map(x => x.label) } : null, record };
 }
 
 // ---- fast prices: Jupiter for Solana coins every 2.5s, pushed to every open page
@@ -268,7 +325,7 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/candles') {
       const chain = url.searchParams.get('chain'), pool = url.searchParams.get('pool');
       if (!/^[a-z0-9-]+$/.test(chain || '') || !/^[A-Za-z0-9]+$/.test(pool || '')) return send(res, 400, { error: 'chain and pool are required' });
-      return send(res, 200, { candles: await candles(chain, pool) });
+      return send(res, 200, candles(chain, pool));
     }
     send(res, 404, { error: 'not found' });
   } catch (err) {

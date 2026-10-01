@@ -133,20 +133,20 @@ a { color: inherit; }
 .trend .pr { font-family: var(--display); font-weight: 900; font-size: 17px; color: var(--glow-a); text-align: center; }
 .trend .coin { width: 22px; height: 22px; font-size: 10px; }
 .trend .nm { min-width: 0; line-height: 1.15; }
-.trend .nm b { display: block; font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.trend .nm small { font-family: var(--mono); font-size: 10px; color: var(--mist); white-space: nowrap; }
+.trend .nm b { display: flex; align-items: center; gap: 4px; min-width: 0; } .trend .nm b > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } .trend .nm b.x { display: block; font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trend .nm small { display: block; font-family: var(--mono); font-size: 10px; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trend .ms { font-family: var(--display); font-weight: 900; font-size: 14px; min-width: 30px; text-align: center; padding: 2px 4px; border-radius: 6px; color: #000; background: var(--c); }
 .trend .ms.na { background: var(--night-3); color: var(--fog); }
 .trend a.dx { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--glow-a); text-decoration: none; border: 1px solid rgba(143,224,75,.35); border-radius: 6px; padding: 3px 6px; white-space: nowrap; }
 .trend a.dx:hover { background: rgba(143,224,75,.12); }
-.trend .paid { font-family: var(--mono); font-size: 8.5px; font-weight: 700; letter-spacing: .08em; color: #000; background: var(--glow-b); border-radius: 3px; padding: 1px 4px; margin-left: 4px; vertical-align: 2px; }
+.trend .paid { flex: none; font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: .06em; color: #000; background: var(--glow-b); border-radius: 3px; padding: 1px 3px; }
 .trend .gone { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 10px; letter-spacing: .1em; color: var(--down); text-transform: uppercase; }
 .trend li.out { opacity: .55; }
 .trend li.out .pr { color: var(--down); }
 
 /* ---------- toasts on the ridge ---------- */
-.toasts { position: absolute; right: 14px; bottom: 34px; z-index: 6; display: flex; flex-direction: column-reverse; gap: 6px; align-items: flex-end; pointer-events: none; max-width: min(380px, 70%); }
-.toast { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--snow);
+.toasts { position: absolute; right: 54px; top: 34px; z-index: 6; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; pointer-events: none; max-width: min(380px, 70%); }
+.toast { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; color: var(--snow);
   background: rgba(0,0,0,.78); border: 1px solid var(--tc, var(--line)); box-shadow: 0 0 22px color-mix(in srgb, var(--tc, #000) 35%, transparent); backdrop-filter: blur(6px);
   animation: toastIn .45s cubic-bezier(.2,.9,.25,1), toastOut .6s ease-in 5.4s forwards; }
 .toast b { font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .02em; }
@@ -167,7 +167,9 @@ a { color: inherit; }
 .para.cold .para-head h2 { background: linear-gradient(90deg, var(--mist), var(--fog)); -webkit-background-clip: text; background-clip: text; }
 .para-head p { margin: 0; max-width: 64ch; font-size: 13px; color: var(--mist); }
 .para-head p b { color: var(--snow); font-weight: 600; }
-.para-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.para-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.rule { font-family: var(--mono); font-size: 11px; color: #ffcf9a; border: 1px solid rgba(255,140,60,.35); border-radius: 999px; padding: 5px 10px; white-space: nowrap; }
+.para.cold .rule { color: var(--mist); border-color: var(--line); }
 .pcard { position: relative; border-radius: 16px; padding: 14px; min-width: 0; display: grid; gap: 10px; cursor: pointer;
   background: linear-gradient(180deg, rgba(255,120,40,.10), rgba(0,0,0,.4)), #0d0a06; border: 1px solid rgba(255,140,60,.45);
   box-shadow: 0 0 0 1px rgba(255,140,60,.08), 0 0 34px -6px rgba(255,100,30,.45); animation: heat 2.4s ease-in-out infinite; }
@@ -196,84 +198,107 @@ a { color: inherit; }
 .para-empty { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13.5px; color: var(--mist); }
 .para-empty b { color: var(--snow); }
 
-/* ---------- Peak Momentum leaderboard ---------- */
-.pm { margin-top: 16px; border: 1px solid var(--line); border-radius: 22px; padding: 20px; min-width: 0;
-  background: linear-gradient(180deg, rgba(143,224,75,.05), rgba(143,224,75,0) 200px), var(--night-2); display: grid; gap: 14px; }
-.pm-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 32px; }
-.pm-head h2 { font-family: var(--brand); font-style: italic; font-weight: 900; font-size: clamp(26px, 3.2vw, 40px); line-height: 1; margin: 6px 0 0; }
-.pm-head p { margin: 0; max-width: 60ch; color: var(--mist); font-size: 13px; }
-.pm-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.tile { display: grid; gap: 8px; align-content: start; padding: 14px 16px; border-radius: 16px; background: var(--night-3); border: 1px solid var(--line); cursor: pointer; min-width: 0; text-align: left; }
-.tile:hover { border-color: rgba(143,224,75,.5); }
-.tile .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
-.tile .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.tile .who .coin { width: 34px; height: 34px; font-size: 14px; }
-.tile .who b { font-family: var(--display); font-weight: 900; font-size: 24px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile .num { margin-left: auto; text-align: right; font-family: var(--display); font-weight: 900; font-size: 30px; line-height: .9; color: var(--c, var(--snow)); white-space: nowrap; }
-.tile .num small { display: block; font-family: var(--mono); font-weight: 400; font-size: 9.5px; letter-spacing: .08em; color: var(--mist); text-transform: uppercase; margin-top: 3px; }
-.tile ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
-.tile li { font-size: 12.5px; color: var(--snow); display: flex; gap: 7px; }
-.tile li::before { content: "▸"; color: var(--glow-a); }
-.tile li.bad::before { color: var(--down); }
-.tile .none { font-size: 12.5px; color: var(--mist); }
-.lb { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
-.lb-row { display: grid; align-items: center; gap: 4px 14px; padding: 10px 14px; position: relative;
-  grid-template-columns: 26px minmax(150px, 1.25fr) 190px 236px 132px 118px minmax(170px, 1fr) 96px;
-  grid-template-areas: "n coin score tf spark phase stats hold" ". why why why why why why why"; border-top: 1px solid rgba(31,42,27,.85); background: var(--night-2); cursor: pointer; transition: background .2s; }
-.lb-row.lb-headrow { grid-template-areas: "n coin score tf spark phase stats hold"; cursor: default; background: var(--night); padding-block: 8px; border-top: 0; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fog); }
+/* ---------- Parabolic + Momentum side by side ---------- */
+.duo { display: grid; grid-template-columns: minmax(0, 1fr) 470px; gap: 16px; margin-top: 16px; align-items: start; }
+.duo > .para, .duo > .pm { margin-top: 0; }
+
+/* ---------- Peak Momentum (compact leaderboard) ---------- */
+.pm { border: 1px solid var(--line); border-radius: 22px; padding: 16px; min-width: 0; background: linear-gradient(180deg, rgba(143,224,75,.05), rgba(143,224,75,0) 160px), var(--night-2); display: grid; gap: 12px; }
+.pm-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.pm-head h2 { font-family: var(--brand); font-style: italic; font-weight: 900; font-size: 30px; line-height: 1; margin: 4px 0 0; }
+.legend { display: flex; gap: 3px; align-items: center; font-family: var(--mono); font-size: 9px; color: var(--fog); }
+.legend span { width: 16px; text-align: center; }
+.nut { border-radius: 14px; background: var(--night-3); border: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 4px; }
+.nut .lbl { font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
+.nut p { margin: 0; font-size: 13px; line-height: 1.35; display: flex; gap: 8px; }
+.nut p i { font-style: normal; width: 18px; flex: none; text-align: center; }
+.nut b { font-weight: 700; }
+.lb { display: grid; gap: 4px; }
+.lb-row { display: grid; align-items: center; gap: 2px 10px; padding: 7px 8px; border-radius: 12px; cursor: pointer; transition: background .2s;
+  grid-template-columns: 22px minmax(0, 1fr) 92px 140px; grid-template-areas: "n coin score tf"; }
 .lb-row:hover, .lb-row.hot { background: #121a11; }
 .lb-row.dim { opacity: .3; }
-.lb-row > .n { grid-area: n; font-family: var(--mono); font-size: 12px; color: var(--mist); }
-.lb-row > .coin-c { grid-area: coin; display: flex; align-items: center; gap: 9px; min-width: 0; }
-.lb-row > .coin-c .coin { width: 28px; height: 28px; font-size: 11px; }
-.lb-row > .coin-c b { display: block; font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: .02em; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lb-row > .coin-c small { font-family: var(--mono); font-size: 10px; color: var(--mist); white-space: nowrap; }
-.lb-row > .score { grid-area: score; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; }
-.score .v { font-family: var(--display); font-weight: 900; font-size: 30px; line-height: .85; color: var(--c); min-width: 2ch; text-align: right; }
-.score .v.na { color: var(--fog); font-size: 20px; }
-.score .meter { position: relative; height: 8px; border-radius: 4px; background: rgba(255,255,255,.06); }
-.score .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 40%, transparent), var(--c)); box-shadow: 0 0 10px color-mix(in srgb, var(--c) 50%, transparent); transition: width .9s cubic-bezier(.2,.8,.2,1); }
-.score .meter u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: rgba(255,255,255,.7); transition: left .9s; }
-.score .d { grid-column: 2; font-family: var(--mono); font-size: 10.5px; color: var(--mist); white-space: nowrap; }
-.score .d b { font-weight: 700; }
-.lb-row > .tf { grid-area: tf; display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-.tf span { height: 24px; border-radius: 5px; display: grid; place-items: center; font-family: var(--mono); font-size: 9.5px; font-weight: 700; color: rgba(255,255,255,.85); background: var(--bg, rgba(255,255,255,.04)); }
-.tf span.na { color: var(--fog); }
-.lb-headrow .tf span { height: auto; background: none; color: var(--fog); font-weight: 500; }
-.lb-row > .spark { grid-area: spark; }
-.spark svg { width: 132px; height: 34px; display: block; }
-.lb-row > .phase { grid-area: phase; }
-.lb-row > .stats { grid-area: stats; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; font-variant-numeric: tabular-nums; }
-.stats dt { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--fog); }
-.stats dd { margin: 0; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
-.lb-row > .hold { grid-area: hold; font-family: var(--mono); font-size: 12px; text-align: right; white-space: nowrap; }
-.hold small { display: block; font-size: 10.5px; }
-.lb-row > .why { grid-area: why; font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px; }
-.lb-headrow > div { white-space: nowrap; }
-.ph { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; padding: 4px 8px; border-radius: 6px; color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); white-space: nowrap; }
-.chip { display: inline-block; padding: 2px 7px; border-radius: 5px; background: rgba(143,224,75,.1); color: #d6f5b8; }
+.lb-row > .n { grid-area: n; font-family: var(--display); font-weight: 900; font-size: 15px; color: var(--mist); text-align: center; }
+.lb-row > .coin-c { grid-area: coin; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lb-row > .coin-c .coin { width: 22px; height: 22px; font-size: 10px; flex: none; }
+.lb-row > .coin-c .t { min-width: 0; line-height: 1.1; }
+.lb-row > .coin-c b { display: block; font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-row > .coin-c small { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--fog); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-row > .score { grid-area: score; display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 6px; }
+.score .v { font-family: var(--display); font-weight: 900; font-size: 20px; line-height: 1; color: var(--c); text-align: right; }
+.score .v.na { color: var(--fog); font-size: 14px; }
+.score .meter { position: relative; height: 6px; border-radius: 3px; background: rgba(255,255,255,.07); }
+.score .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--c); box-shadow: 0 0 8px color-mix(in srgb, var(--c) 50%, transparent); transition: width .9s cubic-bezier(.2,.8,.2,1); }
+.score .meter u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: rgba(255,255,255,.75); transition: left .9s; }
+.lb-row > .tf { grid-area: tf; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.tf span { height: 14px; border-radius: 3px; background: var(--bg, rgba(255,255,255,.05)); }
+.lb-row > .ph, .lb-row > .why, .lb-row > .spark, .lb-row > .stats { display: none; }
+/* the top three get room for the evidence */
+.lb-row.big { grid-template-columns: 30px minmax(0, 1fr) 118px; grid-template-areas: "n coin score" "n tf tf" "n ph ph"; padding: 12px 10px; background: var(--night-3); border: 1px solid var(--line); gap: 8px 10px; }
+.lb-row.big:hover, .lb-row.big.hot { border-color: rgba(143,224,75,.45); }
+.lb-row.big > .n { font-size: 26px; color: var(--glow-a); align-self: start; }
+.lb-row.big > .coin-c .coin { width: 34px; height: 34px; font-size: 13px; }
+.lb-row.big > .coin-c b { font-size: 22px; }
+.lb-row.big > .coin-c small { font-size: 10.5px; color: var(--mist); }
+.lb-row.big > .score { grid-template-columns: 44px 1fr; }
+.lb-row.big .score .v { font-size: 32px; }
+.lb-row.big .tf span { height: 18px; }
+.lb-row.big > .ph { grid-area: ph; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.ph-chip { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .03em; padding: 3px 7px; border-radius: 6px; color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); white-space: nowrap; }
+.chip { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 5px; background: rgba(143,224,75,.1); color: #d6f5b8; white-space: nowrap; }
 .chip.bad { background: rgba(224,87,75,.12); color: #f5b8b0; }
 .chip.risk { background: rgba(240,180,76,.14); color: #f0c37a; }
-.pm-guide { border: 1px solid var(--line); border-radius: 14px; background: var(--night-3); }
-.pm-guide summary { cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: 13px; color: var(--mist); }
-.pm-guide summary:hover { color: var(--snow); }
-.pm-guide-body { padding: 0 16px 16px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
-.pm-guide dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
-.pm-guide dd { margin: 4px 0 0; font-size: 12px; color: var(--mist); line-height: 1.45; }
-.pm-guide h4 { margin: 0 0 8px; font-size: 13px; }
-.pm-guide ul { margin: 0; padding-left: 18px; font-size: 12px; color: var(--mist); line-height: 1.6; }
-@media (max-width: 1240px) {
-  .lb-row { grid-template-columns: 26px minmax(140px, 1fr) 180px 220px 118px minmax(150px, 1fr);
-    grid-template-areas: "n coin score tf phase stats" ". why why why why why"; }
-  .lb-row.lb-headrow { grid-template-areas: "n coin score tf phase stats"; }
-  .lb-row > .spark, .lb-row > .hold { display: none; }
+.pm-guide { border: 1px solid var(--line); border-radius: 12px; background: var(--night-3); }
+.pm-guide summary { cursor: pointer; padding: 9px 12px; font-size: 12px; color: var(--mist); }
+.pm-guide dl { margin: 0; padding: 0 12px 12px; display: grid; gap: 8px; }
+.pm-guide dd { margin: 3px 0 0; font-size: 11.5px; color: var(--mist); }
+
+/* ---------- Best time to buy ---------- */
+.btb { margin-top: 16px; border-radius: 22px; padding: 16px 18px; display: grid; gap: 14px 22px; align-items: center;
+  grid-template-columns: minmax(230px, 1.1fr) minmax(260px, 1.2fr) minmax(220px, 1fr);
+  background: radial-gradient(500px 200px at 0% 50%, rgba(204,255,0,.12), transparent 70%), var(--night-2); border: 1px solid rgba(204,255,0,.4); box-shadow: 0 0 40px -18px rgba(204,255,0,.5); }
+.btb.none { border-color: var(--line); box-shadow: none; background: var(--night-2); }
+.btb .eyebrow { color: var(--glow-b); }
+.btb-who { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; cursor: pointer; }
+.btb-who .eyebrow { grid-column: 1 / -1; }
+.btb-who .coin { width: 48px; height: 48px; font-size: 18px; box-shadow: 0 0 0 2px var(--glow-b), 0 0 18px rgba(204,255,0,.45); }
+.btb-who .tk { font-family: var(--display); font-weight: 900; font-size: 30px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btb-who .tk small { display: block; font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--mist); margin-top: 4px; }
+.btb-who .pct { text-align: right; font-family: var(--display); font-weight: 900; font-size: 46px; line-height: .85; color: var(--glow-b); }
+.btb-who .pct small { display: block; font-family: var(--mono); font-weight: 400; font-size: 9.5px; letter-spacing: .08em; color: var(--mist); text-transform: uppercase; margin-top: 5px; }
+.ladder { display: grid; gap: 6px; }
+.ladder .bar { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(224,87,75,.7) 0 var(--now), rgba(143,224,75,.7) var(--now) 100%); }
+.ladder .bar i { position: absolute; top: -5px; width: 3px; height: 20px; border-radius: 2px; background: #fff; box-shadow: 0 0 8px #fff; transform: translateX(-50%); }
+.ladder .lv { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11.5px; }
+.ladder .lv span { display: grid; gap: 1px; }
+.ladder .lv span:nth-child(2) { text-align: center; } .ladder .lv span:last-child { text-align: right; }
+.ladder .lv small { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--fog); }
+.ladder .meta { font-family: var(--mono); font-size: 11px; color: var(--mist); }
+.ladder .meta b { color: var(--snow); }
+.checks { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.checks li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.checks li b { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; flex: none; background: rgba(143,224,75,.18); color: var(--glow-a); }
+.checks li.no b { background: rgba(224,87,75,.16); color: var(--down); }
+.checks li span { color: var(--fog); font-family: var(--mono); font-size: 10.5px; margin-left: auto; }
+.btb-foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; font-family: var(--mono); font-size: 11px; color: var(--mist); border-top: 1px solid var(--line); padding-top: 10px; }
+.btb-foot b { color: var(--snow); }
+.btb-foot .rec { display: inline-flex; gap: 3px; vertical-align: middle; }
+.btb-foot .rec i { width: 8px; height: 8px; border-radius: 2px; background: var(--down); }
+.btb-foot .rec i.w { background: var(--up); }
+.btb-foot .fine { margin-left: auto; color: var(--fog); }
+.btb-empty { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 14px; }
+.btb-empty b { font-family: var(--display); font-size: 18px; }
+.btb-empty > span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.btb-empty .coin { width: 22px; height: 22px; font-size: 10px; }
+@media (max-width: 1100px) {
+  .duo { grid-template-columns: minmax(0, 1fr); }
+  .btb { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .btb-who { grid-column: 1 / -1; }
 }
-@media (max-width: 860px) {
-  .pm-tiles { grid-template-columns: minmax(0, 1fr); }
-  .lb-row { grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "n coin score" ". tf tf" ". phase stats" ". why why"; }
-  .lb-row.lb-headrow { display: none; }
-  .lb-row > .score { grid-template-columns: auto 90px; }
-  .pm-guide-body, .pm-guide dl { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 620px) {
+  .btb { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .lb-row { grid-template-columns: 20px minmax(0, 1fr) 80px; grid-template-areas: "n coin score" ". tf tf"; }
+  .lb-row.big { grid-template-columns: 26px minmax(0, 1fr) 100px; }
 }
 
 /* ---------- controls row ---------- */
@@ -418,7 +443,8 @@ html.broadcast .wrap { max-width: none; width: 1280px; height: 720px; padding: 1
   grid-template-areas: "bar bar" "ridge pm" "wall pm" "tick tick"; }
 html.broadcast .bar { grid-area: bar; position: static; padding: 0; background: none; }
 html.broadcast #chainSeg, html.broadcast .wrap > .row, html.broadcast .foot, html.broadcast .card .join, html.broadcast .trend, html.broadcast .para,
-html.broadcast .pm-head p, html.broadcast .pm-tiles, html.broadcast .pm-guide, html.broadcast .lb-row > :is(.why, .spark, .stats, .hold), html.broadcast .score .d { display: none; }
+html.broadcast .btb, html.broadcast .nut, html.broadcast .pm-guide { display: none; }
+html.broadcast .duo { display: contents; }
 html.broadcast .hero { grid-area: ridge; display: block; margin: 0; }
 html.broadcast .ridge { height: 300px; }
 html.broadcast .ridge-head { max-width: none; }
@@ -426,12 +452,9 @@ html.broadcast .ridge-head .eyebrow { white-space: nowrap; }
 html.broadcast .ridge-head h1 { display: none; }
 html.broadcast .pm { grid-area: pm; margin: 0; padding: 12px 12px 8px; gap: 8px; align-content: start; overflow: hidden; }
 html.broadcast .pm-head h2 { font-size: 22px; }
-html.broadcast .tf { grid-template-columns: repeat(4, 1fr) !important; }
-html.broadcast .tf span:is(:nth-child(1), :nth-child(4), :nth-child(6)) { display: none; }
-html.broadcast .lb-row { grid-template-columns: 20px minmax(0, 1fr) 112px 132px 96px; grid-template-areas: "n coin score tf phase"; padding: 7px 10px; gap: 4px 10px; }
-html.broadcast .lb-row > .coin-c b { font-size: 16px; }
-html.broadcast .score .v { font-size: 24px; }
-html.broadcast .tf span { height: 22px; font-size: 9px; }
+html.broadcast .lb-row.big { grid-template-columns: 30px minmax(0, 1fr) 118px 150px; grid-template-areas: "n coin score tf" "n ph ph ph"; padding: 8px 10px; }
+html.broadcast .lb { gap: 3px; }
+html.broadcast .lb-row { grid-template-columns: 22px minmax(0, 1fr) 110px 150px; }
 html.broadcast .wall { grid-area: wall; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 1fr; min-height: 0; }
 html.broadcast .wall .card:nth-child(n+4) { display: none; }
 html.broadcast .wall.summit-mode .card:first-child { grid-column: auto; grid-row: auto; }
@@ -471,7 +494,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     <div class="ridge" id="ridge">
       <canvas id="ridgeCanvas" aria-hidden="true"></canvas>
       <div class="ridge-head">
-        <div class="eyebrow">Order = Peak rank · Height = momentum · tap a summit for its chart</div>
+        <div class="eyebrow">Tallest = strongest momentum</div>
         <h1>Who's on top right now</h1>
       </div>
       <div class="alt-scale" aria-hidden="true"><span>STRONG MOMENTUM</span><span></span><span></span><span>WEAK</span></div>
@@ -485,56 +508,36 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     </aside>
   </section>
 
-  <section class="para cold" id="para">
-    <div class="para-head">
-      <div>
-        <div class="eyebrow">Parabolic · live</div>
-        <h2>Going vertical</h2>
-      </div>
-      <p><b>Parabolic</b> means up 40%+ in the last hour and still steepening: the last 15 minutes are climbing faster per minute than the hour as a whole. A coin up 100%+ in the hour that is still rising also counts. <b>Approaching</b> is the step before.</p>
-    </div>
-    <div class="para-cards" id="paraCards"></div>
-  </section>
+  <section class="btb none" id="btb" aria-live="polite"></section>
 
-  <section class="pm" id="pm">
-    <div class="pm-head">
-      <div>
-        <div class="eyebrow">Peak Momentum · live</div>
-        <h2>Momentum leaderboard</h2>
-      </div>
-      <p>Ranked by momentum score: how hard each coin is climbing right now, and how long it has kept climbing. The coloured strip shows each timeframe from 1 minute to 6 hours: all green means every timeframe agrees.</p>
-    </div>
-    <div class="pm-tiles" id="pmTiles"></div>
-    <div class="lb" id="lb">
-      <div class="lb-row lb-headrow" aria-hidden="true">
-        <div class="n">#</div><div>Coin</div><div>Momentum score</div>
-        <div class="tf"><span>1m</span><span>5m</span><span>15m</span><span>30m</span><span>1h</span><span>3h</span><span>6h</span></div>
-        <div class="spark">Price, 6h</div><div class="phase">Phase</div><div class="stats">MC · LP · Vol 24h</div><div class="hold">Holders</div>
-      </div>
-      <div id="lbBody"></div>
-    </div>
-    <details class="pm-guide">
-      <summary>How the score and phases work</summary>
-      <div class="pm-guide-body">
-        <dl id="pmGuide"></dl>
+  <div class="duo">
+    <section class="para cold" id="para">
+      <div class="para-head">
         <div>
-          <h4>The score, 0 to 100</h4>
-          <ul>
-            <li><b>Price, 30%</b>: moves over 1m to 6h, judged against how volatile the coin normally is.</li>
-            <li><b>Trend, 25%</b>: how cleanly it keeps rising over 1h, 3h and 6h (steady line, green candles, higher lows).</li>
-            <li><b>Volume, 20%</b>: volume against its normal pace, only counted as good while price rises with it.</li>
-            <li><b>Holders, 15%</b>: holder growth over 1h and 6h.</li>
-            <li><b>Buys, 10%</b>: share of buys vs sells, and how fast buys are arriving.</li>
-          </ul>
-          <h4 style="margin-top:12px">Board rules</h4>
-          <ul>
-            <li>A coin that is bleeding (falling on every timeframe, score under 45) leaves the board after 30 seconds and the next coin on Peak's list takes its place. Paid slots always stay.</li>
-            <li>Not financial advice.</li>
-          </ul>
+          <div class="eyebrow">Parabolic · live</div>
+          <h2>Going vertical</h2>
         </div>
+        <span class="rule">+40% in 1h and still accelerating</span>
       </div>
-    </details>
-  </section>
+      <div class="para-cards" id="paraCards"></div>
+    </section>
+
+    <section class="pm" id="pm">
+      <div class="pm-head">
+        <div>
+          <div class="eyebrow">Peak Momentum · live</div>
+          <h2>Momentum</h2>
+        </div>
+        <div class="legend" aria-hidden="true"><span>1m</span><span>5m</span><span>15</span><span>30</span><span>1h</span><span>3h</span><span>6h</span></div>
+      </div>
+      <div class="nut" id="nut"></div>
+      <div class="lb" id="lbBody"></div>
+      <details class="pm-guide">
+        <summary>What the phases mean</summary>
+        <dl id="pmGuide"></dl>
+      </details>
+    </section>
+  </div>
 
   <div class="row">
     <h2>The wall <span id="wallCount">10 charts</span></h2>
@@ -746,7 +749,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
 
   function paintCard(c, flash) {
     const r = cards.get(c.key); if (!r) return;
-    r.rankEl.textContent = prk(c);
+    r.rankEl.textContent = pos(c) + 1;
+    r.rankEl.title = `Momentum #${pos(c) + 1} · Peak #${prk(c)}`;
     const d = c.prevRank == null ? null : c.prevRank - c.rank;
     if (c.isNew) { r.moveEl.className = 'move n'; r.moveEl.textContent = 'NEW'; }
     else if (d > 0) { r.moveEl.className = 'move u'; r.moveEl.textContent = '▲ ' + d; }
@@ -778,11 +782,13 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   }
 
   // FLIP reorder so cards glide to their new rank
-  function layoutWall() {
+  function layoutWall(ranked) {
+    if (!ranked) rankByMomentum();
+    wallSig = mOrder.map(c => c.key).join();
     const before = new Map();
     cards.forEach((r, key) => before.set(key, r.el.getBoundingClientRect()));
     for (const key of [...cards.keys()]) if (!board.some(c => c.key === key)) removeCard(key);
-    board.forEach(c => {
+    (mOrder.length ? mOrder : board).forEach(c => {
       let r = cards.get(c.key);
       if (!r) { const el = buildCard(c); if (MODE !== 'boot') { el.classList.add('enter'); setTimeout(() => el.classList.remove('enter'), 950); } r = cards.get(c.key); }
       wall.appendChild(r.el);
@@ -790,7 +796,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     });
     applyFilter();
     peaksTarget();
-    updateMomentum();
+    renderViews();
     if (REDUCED) return;
     board.forEach(c => {
       const r = cards.get(c.key), a = before.get(c.key); if (!a) return;
@@ -863,7 +869,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     el.className = 'toast'; el.style.setProperty('--tc', color);
     el.innerHTML = (icon ? `<i>${icon}</i>` : '') + `<span>${html}</span>`;
     toastsEl.prepend(el);
-    while (toastsEl.children.length > 4) toastsEl.lastChild.remove();
+    while (toastsEl.children.length > 2) toastsEl.lastChild.remove();
     setTimeout(() => el.remove(), 6200);
   }
   const logEvent = html => toast(html);
@@ -893,7 +899,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   function peaksTarget(snap) {
     const n = Math.max(2, board.length);
     board.forEach(c => {
-      const tx = W * (n === 10 ? SLOT_X[c.rank] : 0.07 + 0.86 * c.rank / (n - 1));
+      const tx = W * (n === 10 ? SLOT_X[pos(c)] : 0.07 + 0.86 * pos(c) / (n - 1));
       const sc = c.mo?.score;
       const th = H * (sc != null ? 0.05 + 0.42 * Math.pow(sc / 100, 1.15) : 0.07);
       let p = peaks.get(c.key);
@@ -923,16 +929,16 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   }
   // summit label: logo for the top 3 spots, cashtag sized by spot, Peak rank, momentum score, JOIN on #1
   function summitLabel(el, c) {
-    const tg = c.rank === 0 ? tgUrl(c) : null;
-    const sig = [c.rank, prk(c), c.tk, c.icon, tg].join('|');
+    const pr = pos(c), tg = pr === 0 ? tgUrl(c) : null;
+    const sig = [pr, c.tk, c.icon, tg].join('|');
     if (el.dataset.sig !== sig) {
       el.dataset.sig = sig;
-      el.className = 'summit r' + (c.rank + 1) + (c.rank < 5 ? ' top5' : '') + (c.rank < 3 ? ' top3' : '') + (el.classList.contains('dim') ? ' dim' : '') + (el.classList.contains('hot') ? ' hot' : '');
-      el.style.setProperty('--fs', (BROADCAST ? rankFs(c.rank, 17, 10) : rankFs(c.rank, 22, 11)) + 'px');
-      el.innerHTML = `<span class="row"><button type="button" class="tag">${c.rank < 3 ? coinImg(c) : ''}<span><i>#${prk(c)}</i><span class="tk">$${esc(c.tk)}</span></span></button>${tg ? `<a class="join" href="${esc(tg)}" target="_blank" rel="noopener" title="Join $${esc(c.tk)} on Telegram">JOIN</a>` : ''}</span><span class="chg"></span>`;
+      el.className = 'summit r' + (pr + 1) + (pr < 5 ? ' top5' : '') + (pr < 3 ? ' top3' : '') + (el.classList.contains('dim') ? ' dim' : '') + (el.classList.contains('hot') ? ' hot' : '');
+      el.style.setProperty('--fs', (BROADCAST ? rankFs(pr, 17, 10) : rankFs(pr, 22, 11)) + 'px');
+      el.innerHTML = `<span class="row"><button type="button" class="tag">${pr < 3 ? coinImg(c) : ''}<span><i>#${pr + 1}</i><span class="tk">$${esc(c.tk)}</span></span></button>${tg ? `<a class="join" href="${esc(tg)}" target="_blank" rel="noopener" title="Join $${esc(c.tk)} on Telegram">JOIN</a>` : ''}</span><span class="chg"></span>`;
     }
     const ch = el.querySelector('.chg'), sc = c.mo?.score, v = c.ch1h;
-    const txt = (sc != null ? `<b style="color:${scoreColor(sc)}">${sc}</b>` : '') + (v != null ? ` <span class="${v >= 0 ? 'up' : 'dn'}">${fmtPct(v)}</span>` : '');
+    const txt = sc != null ? `<b style="color:${scoreColor(sc)}">${sc}</b>` : '';
     if (ch._t !== txt) { ch._t = txt; ch.innerHTML = txt; ch.className = 'chg'; }
   }
   const noise = x => Math.sin(x * 0.051) * 0.5 + Math.sin(x * 0.137 + 1.3) * 0.3 + Math.sin(x * 0.31 + 4) * 0.2;
@@ -996,7 +1002,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       ctx.fillStyle = g; ctx.fillRect(lp.x - r, cy - r, r * 2, r * 2);
       if (st === 'parabolic' && !REDUCED && Math.random() < 0.5) parts.push({ x: lp.x + (Math.random() - 0.5) * 16, y: cy + 4, vx: (Math.random() - 0.5) * 0.6, vy: -1 - Math.random() * 1.4, g: -0.01, age: 0, life: 1.4, col: ['#ffb347', '#ff8a3d', '#ffd166'][(Math.random() * 3) | 0], size: 1.8 });
     }
-    const topLive = board[0] && liveOf(board[0].key);
+    const topLive = mOrder[0] && liveOf(mOrder[0].key);
     if (topLive) {
       const r = H * 0.19, cx = topLive.x, cy = base - topLive.h - H * 0.06 + r * 0.62;
       const sun = ctx.createLinearGradient(0, cy - r, 0, cy + r);
@@ -1053,7 +1059,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     // labels: placed against where the mountains are heading (stable between updates), then eased there
     const tlist = [...peaks.values()].map(p => ({ x: p.tx, h: p.th }));
     const placed = [];
-    for (const c of [...board].sort((a, b) => a.rank - b.rank)) {
+    for (const c of [...board].sort((a, b) => pos(a) - pos(b))) {
       const p = peaks.get(c.key), el = summitEls.get(c.key); if (!p || !el) continue;
       summitLabel(el, c);
       const row = el.firstElementChild, chg = el.lastElementChild;
@@ -1119,38 +1125,56 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".35"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${mid ? `<line x1="${w / 2}" y1="2" x2="${w / 2}" y2="${h - 2}" stroke="rgba(255,255,255,.25)" stroke-dasharray="3 3"/>` : ''}${fill ? `<path d="${d} L${X(v.length - 1)} ${h} L${X(0)} ${h} Z" fill="url(#${id})"/>` : ''}<path d="${d}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/><circle cx="${X(v.length - 1)}" cy="${Y(v[v.length - 1])}" r="2.6" fill="${col}"/></svg>`;
   }
 
-  // ---- tiles: each one names its number and the evidence for it
-  const pmTiles = document.getElementById('pmTiles');
-  function tileHtml(label, r, num, unit, bullets, emptyText) {
-    if (!r) return `<div class="tile"><span class="lbl">${label}</span><span class="none">${esc(emptyText)}</span></div>`;
-    const c = r.c, m = r.m;
-    return `<button type="button" class="tile" data-key="${esc(c.key)}" style="--c:${scoreColor(m.score)}">
-      <span class="lbl">${label}</span>
-      <span class="who">${coinImg(c)}<b>$${esc(c.tk)}</b><span class="num">${esc(num)}<small>${esc(unit)}</small></span></span>
-      <ul>${bullets.filter((b, i, a) => b && a.findIndex(x => x && x.text === b.text) === i).slice(0, 3).map(b => `<li class="${b.good === false ? 'bad' : ''}">${esc(b.text)}</li>`).join('')}</ul>
-    </button>`;
+  // ---- momentum order: the ridge, the leaderboard and the wall all follow it.
+  // Scores are smoothed and a coin only overtakes the one above it by 2+ points, so the order doesn't flicker.
+  let mOrder = [];
+  let leader = { key: null, since: 0, shown: null, at: 0 };
+  function rankByMomentum() {
+    for (const c of board) { const s = c.mo?.score; if (s != null) c.msm = c.msm == null ? s : c.msm + (s - c.msm) * 0.4; }
+    const val = c => c.msm ?? -1;
+    mOrder = mOrder.filter(c => board.includes(c));
+    for (const c of board) if (!mOrder.includes(c)) mOrder.push(c);
+    for (let pass = 0; pass < mOrder.length; pass++) {
+      let moved = false;
+      for (let i = 1; i < mOrder.length; i++) {
+        const a = mOrder[i - 1], b = mOrder[i];
+        if (val(b) > val(a) + (val(a) < 0 ? 0 : 2)) { mOrder[i - 1] = b; mOrder[i] = a; moved = true; }
+      }
+      if (!moved) break;
+    }
+    mOrder.forEach((c, i) => { c.pos = i; });
+    // a new leader gets the eruption once it has held #1 for 30s (at most every 3 minutes)
+    const top = mOrder[0], now = Date.now();
+    if (top) {
+      if (top.key !== leader.key) leader = { ...leader, key: top.key, since: now };
+      else if (leader.shown !== top.key && now - leader.since >= 30000 && now - leader.at >= 180000 && MODE !== 'boot') {
+        const first = leader.shown == null; leader.shown = top.key; leader.at = now;
+        if (!first) erupt(top);
+      }
+    }
   }
-  function renderTiles(rows) {
+  const pos = c => c.pos ?? c.rank;
+
+  // ---- in a nutshell: what is happening, in a few short lines
+  const nutEl = document.getElementById('nut');
+  function renderNut(rows) {
     const live = rows.filter(r => r.m.score != null);
-    const top = [...live].sort((a, b) => b.m.score - a.m.score)[0];
+    const lines = [];
+    const top = mOrder[0] && mo(mOrder[0]).score != null ? mOrder[0] : null;
+    if (top) lines.push(['👑', `<b>$${esc(top.tk)}</b> leads at <b style="color:${scoreColor(top.mo.score)}">${top.mo.score}</b> · ${PHASES[top.mo.phase]?.label || ''}`]);
+    const para = live.filter(r => r.m.parabolic?.state === 'parabolic').sort((a, b) => b.m.parabolic.r60 - a.m.parabolic.r60);
+    lines.push(para.length ? ['🔥', `${para.length} parabolic: ${para.slice(0, 3).map(r => `<b>$${esc(r.c.tk)}</b> <span class="up">${fmtPct(r.m.parabolic.r60 * 100)}</span>`).join(', ')}`] : ['🧊', 'Nothing parabolic right now']);
+    const up = rows.filter(r => (r.c.ch1h ?? 0) > 0).length;
+    lines.push([up >= rows.length / 2 ? '📈' : '📉', `<b>${up} of ${rows.length}</b> up over the last hour`]);
     const d = r => r.m.dScore15 ?? r.m.dScore5;
-    const hot = live.filter(r => (d(r) ?? 0) >= 5).sort((a, b) => d(b) - d(a))[0];
-    // a "long climb" needs at least 3 hours of trading behind it
-    const steady = live.filter(r => (r.m.parts?.trend ?? -1) > 0.2 && (r.m.hoursSeen ?? 0) >= 3).sort((a, b) => b.m.parts.trend - a.m.parts.trend)[0];
-    const haveHistory = live.some(r => d(r) != null);
-    const ph = r => ({ text: `Phase: ${PHASES[r.m.phase]?.label}` });
-    pmTiles.innerHTML = [
-      tileHtml('Strongest momentum', top, top?.m.score, 'score / 100', top ? [...top.m.reasons, ph(top)] : [], 'Waiting for data'),
-      tileHtml('Heating up fastest', hot, hot ? '+' + d(hot) : '', `points in ${hot?.m.dScore15 != null ? 15 : 5} min`,
-        hot ? [{ text: `Score ${hot.m.score - d(hot)} → ${hot.m.score}` }, ...hot.m.reasons] : [],
-        haveHistory ? 'No coin has gained 5+ momentum points in the last 15 minutes.' : 'Appears after 5 minutes of tracking.'),
-      tileHtml('Longest clean climb', steady, steady?.m.hoursSeen >= 3 ? `${steady.m.upHours}/${steady.m.hoursSeen}` : shortPct(steady?.m.cells?.price?.[360]?.pct ?? steady?.m.cells?.price?.[60]?.pct) + '%',
-        steady?.m.hoursSeen >= 3 ? 'green hours' : 'over 6h',
-        steady ? [...steady.m.reasons.filter(x => /uptrend|hours|in 3h|in 6h|in 1h/.test(x.text)), ...steady.m.reasons] : [], 'No coin with 3+ hours of trading has a clean uptrend right now.'),
-    ].join('');
+    const mover = live.filter(r => d(r) != null).sort((a, b) => Math.abs(d(b)) - Math.abs(d(a)))[0];
+    if (mover && Math.abs(d(mover)) >= 5) lines.push([d(mover) > 0 ? '🚀' : '🔻', `<b>$${esc(mover.c.tk)}</b> momentum <span class="${d(mover) > 0 ? 'up' : 'dn'}">${d(mover) > 0 ? '+' : ''}${d(mover)}</span> in ${mover.m.dScore15 != null ? 15 : 5} min`]);
+    if (droppedList.length) lines.push(['🩸', `Dropped for bleeding: ${droppedList.slice(0, 3).map(x => `<b>$${esc(x.symbol)}</b>`).join(', ')}`]);
+    const html = `<span class="lbl">In a nutshell</span>` + lines.slice(0, 5).map(([i, t]) => `<p><i>${i}</i><span>${t}</span></p>`).join('');
+    if (nutEl._h !== html) { nutEl._h = html; nutEl.innerHTML = html; }
   }
 
-  // ---- leaderboard rows are kept and updated in place, so bars slide and rows glide when the order changes
+  // ---- leaderboard: rows are kept and updated in place, so bars slide and rows glide when the order changes
   const lbBody = document.getElementById('lbBody');
   const lbRows = new Map();
   const TFS = [1, 5, 15, 30, 60, 180, 360];
@@ -1158,48 +1182,45 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const el = document.createElement('div');
     el.className = 'lb-row'; el.dataset.key = c.key;
     el.innerHTML = `<div class="n"></div><div class="coin-c"></div>
-      <div class="score"><span class="v"></span><span class="meter"><i></i><u></u></span><span class="d"></span></div>
-      <div class="tf">${TFS.map(() => '<span></span>').join('')}</div><div class="spark"></div><div class="phase"><span class="ph"></span></div>
-      <dl class="stats"><div><dt>MC</dt><dd></dd></div><div><dt>LP</dt><dd></dd></div><div><dt>Vol</dt><dd></dd></div></dl>
-      <div class="hold"></div><div class="why"></div>`;
+      <div class="score"><span class="v"></span><span class="meter"><i></i><u></u></span></div>
+      <div class="tf">${TFS.map(() => '<span></span>').join('')}</div><div class="ph"></div>`;
     el.addEventListener('click', e => { if (!e.target.closest('a')) jumpTo(c.key); });
     el.addEventListener('mouseenter', () => setHot(c.key, true));
     el.addEventListener('mouseleave', () => setHot(c.key, false));
     return el;
   }
-  function renderLeaderboard(rows) {
-    const sorted = [...rows].sort((a, b) => (b.m.score ?? -1) - (a.m.score ?? -1));
+  function renderLeaderboard() {
     const before = new Map(); lbRows.forEach((el, k) => before.set(k, el.getBoundingClientRect().top));
-    for (const [k, el] of lbRows) if (!rows.some(r => r.c.key === k)) { el.remove(); lbRows.delete(k); }
-    sorted.forEach(({ c, m }, i) => {
+    for (const [k, el] of lbRows) if (!board.some(c => c.key === k)) { el.remove(); lbRows.delete(k); }
+    mOrder.forEach((c, i) => {
+      const m = mo(c);
       let el = lbRows.get(c.key);
       if (!el) { el = lbRow(c); lbRows.set(c.key, el); }
-      const q = s => el.querySelector(s);
+      const q = s => el.querySelector(s), big = i < 3;
+      el.classList.toggle('big', big);
       q('.n').textContent = i + 1;
-      const sig = [c.tk, c.icon, prk(c), c.chain].join('|');
-      if (el._sig !== sig) { el._sig = sig; q('.coin-c').innerHTML = `${coinImg(c)}<span style="min-width:0"><b>$${esc(c.tk)}</b><small>Peak #${prk(c)} · ${CHAIN_LABEL[c.chain] || ''}</small></span>`; }
-      const col = scoreColor(m.score);
-      const sc = q('.score'); sc.style.setProperty('--c', col);
+      const sub = big ? `Peak #${prk(c)} · MC ${fmtUsd(c.mc)} · LP ${fmtUsd(c.liq)} · Vol ${fmtUsd(c.vol24)}` : `Peak #${prk(c)} · MC ${fmtUsd(c.mc)} · LP ${fmtUsd(c.liq)}`;
+      const head = `${coinImg(c)}<span class="t"><b>$${esc(c.tk)}</b><small>${esc(sub)}</small></span>`;
+      if (q('.coin-c')._h !== head) { q('.coin-c')._h = head; q('.coin-c').innerHTML = head; }
+      const sc = q('.score'); sc.style.setProperty('--c', scoreColor(m.score));
       const v = q('.v'); v.textContent = m.score ?? '–'; v.classList.toggle('na', m.score == null);
       q('.meter i').style.width = (m.score ?? 0) + '%';
-      const dd = m.dScore15 ?? m.dScore5;
-      q('.meter u').style.left = m.score != null && dd != null ? Math.max(0, Math.min(100, m.score - dd)) + '%' : '-10px';
-      q('.meter u').style.display = dd != null ? '' : 'none';
-      q('.d').innerHTML = dd == null ? 'tracking…' : dd === 0 ? 'flat vs 15 min ago' : `<b class="${dd > 0 ? 'up' : 'dn'}">${dd > 0 ? '▲ +' : '▼ '}${dd}</b> vs ${m.dScore15 != null ? 15 : 5} min ago`;
+      const dd = m.dScore15 ?? m.dScore5, u = q('.meter u');
+      u.style.display = dd != null && m.score != null ? '' : 'none';
+      if (dd != null && m.score != null) u.style.left = Math.max(0, Math.min(100, m.score - dd)) + '%';
+      sc.title = dd != null ? `Score ${m.score}, ${dd >= 0 ? '+' : ''}${dd} vs ${m.dScore15 != null ? 15 : 5} min ago (white mark)` : '';
       q('.tf').querySelectorAll('span').forEach((s, j) => {
         const x = m.cells?.price?.[TFS[j]];
-        s.textContent = x ? shortPct(x.pct) : '–'; s.className = x ? '' : 'na';
-        s.style.setProperty('--bg', heat(x?.s)); s.title = x ? `${TFS[j] < 60 ? TFS[j] + 'm' : TFS[j] / 60 + 'h'}: ${fmtPct(x.pct)}${x.launch ? ' (since launch)' : ''}` : '';
+        s.style.setProperty('--bg', heat(x?.s));
+        s.title = x ? `${TFS[j] < 60 ? TFS[j] + 'm' : TFS[j] / 60 + 'h'}: ${fmtPct(x.pct)}` : 'no data';
       });
-      q('.spark').innerHTML = sparkSvg(m.spark, 132, 34);
-      const phd = PHASES[m.phase] || PHASES.chop, ph = q('.ph');
-      ph.textContent = phd.label; ph.style.setProperty('--c', phd.color); ph.title = phd.tip;
-      const dds = q('.stats').querySelectorAll('dd');
-      dds[0].textContent = fmtUsd(c.mc); dds[1].textContent = fmtUsd(c.liq); dds[2].textContent = fmtUsd(c.vol24);
-      const hn = m.cells?.holdersNow ?? c.holders, hd = m.cells?.holders?.[60] || m.cells?.holders?.[360];
-      q('.hold').innerHTML = `${fmtInt(hn)}<small class="${hd ? (hd.abs >= 0 ? 'up' : 'dn') : ''}">${hd ? `${hd.abs >= 0 ? '+' : ''}${fmtInt(hd.abs)} / ${hd.mins >= 90 ? Math.round(hd.mins / 60) + 'h' : hd.mins + 'm'}` : 'growth: tracking'}</small>`;
-      const why = (m.reasons || []).map(r => `<span class="chip${r.good ? '' : ' bad'}">${esc(r.text)}</span>`).join('') + (m.risks || []).map(r => `<span class="chip risk">⚠ ${esc(r)}</span>`).join('');
-      const w = q('.why'); if (w._h !== why) { w._h = why; w.innerHTML = why; }
+      if (big) {
+        const phd = PHASES[m.phase] || PHASES.chop;
+        const chips = `<span class="ph-chip" style="--c:${phd.color}" title="${esc(phd.tip)}">${phd.label}</span>` +
+          (m.reasons || []).slice(0, 2).map(r => `<span class="chip${r.good ? '' : ' bad'}">${esc(r.text)}</span>`).join('') +
+          (m.risks || []).slice(0, 1).map(r => `<span class="chip risk">⚠ ${esc(r)}</span>`).join('');
+        if (q('.ph')._h !== chips) { q('.ph')._h = chips; q('.ph').innerHTML = chips; }
+      } else el.title = `${PHASES[m.phase]?.label || ''}${m.reasons?.length ? ' · ' + m.reasons.map(r => r.text).join(' · ') : ''}`;
       el.classList.toggle('dim', !(chainFilter === 'all' || c.chain === chainFilter));
       lbBody.appendChild(el);
     });
@@ -1212,6 +1233,37 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     });
   }
 
+  // ---- best time to buy
+  const btbEl = document.getElementById('btb');
+  const ago = s => { const m = Math.max(0, Math.round(s / 60)); return m < 60 ? m + 'm' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; };
+  function renderBuy(st) {
+    if (!st) return;
+    const rec = st.record || { done: 0, wins: 0, recent: [] };
+    const recHtml = rec.done ? `Past picks: <b>${rec.wins} of ${rec.done}</b> higher after 1h <span class="rec">${rec.recent.map(r => `<i class="${r.win ? 'w' : ''}" title="$${esc(r.symbol)} ${fmtPct(r.ret * 100)}"></i>`).join('')}</span>` : `Track record: building${rec.open ? ` · ${rec.open} pick${rec.open > 1 ? 's' : ''} being scored` : ''}`;
+    const foot = `<div class="btb-foot"><span>${recHtml}</span><span class="fine">Model estimate · not financial advice</span></div>`;
+    const p = st.pick, c = p && board.find(x => x.key === p.key);
+    let html;
+    if (p && c && p.setup) {
+      const su = p.setup, P = p.price ?? c.price;
+      const lo = su.stop, hi = su.target, nowPct = Math.max(4, Math.min(96, (P - lo) / (hi - lo) * 100));
+      html = `<div class="btb-who" data-key="${esc(c.key)}"><span class="eyebrow">🎯 Best time to buy</span>${coinImg(c)}
+          <span class="tk">$${esc(c.tk)}<small>Peak #${prk(c)} · picked ${ago(nowSec() - p.since)} ago · <span class="${(p.pnl ?? 0) >= 0 ? 'up' : 'dn'}">${p.pnl != null ? fmtPct(p.pnl * 100) : '–'}</span> since</small></span>
+          <span class="pct">${Math.round(su.p * 100)}%<small>chance higher in 1h</small></span></div>
+        <div class="ladder"><div class="bar" style="--now:${nowPct}%"><i style="left:${nowPct}%"></i></div>
+          <div class="lv"><span><small>Stop</small><b class="dn">${fmtPct((lo / P - 1) * 100)}</b></span><span><small>Now</small><b>${fmtPrice(P)}</b></span><span><small>Target</small><b class="up">${fmtPct((hi / P - 1) * 100)}</b></span></div>
+          <div class="meta">Reward : risk <b>${su.rr.toFixed(1)} : 1</b> · entry ${fmtPrice(p.entry)}</div></div>
+        <ul class="checks">${su.stages.map(x => `<li class="${x.pass ? '' : 'no'}"><b>${x.pass ? '✓' : '✕'}</b>${esc(x.label)}<span>${esc(x.detail)}</span></li>`).join('')}</ul>${foot}`;
+      btbEl.classList.remove('none');
+    } else {
+      const cl = st.closest, cc = cl && board.find(x => x.key === cl.key);
+      html = `<div class="btb-empty"><span class="eyebrow">🎯 Best time to buy</span><b>No setup passes all 5 checks</b>${cc ? `<span>Closest ${coinImg(cc)} <b>$${esc(cc.tk)}</b> ${cl.passes}/5 · needs: ${esc(cl.waiting.join(', ').toLowerCase())}</span>` : ''}</div>${foot}`;
+      btbEl.classList.add('none');
+    }
+    if (btbEl._h !== html) { btbEl._h = html; btbEl.innerHTML = html; }
+  }
+  btbEl.addEventListener('click', e => { if (e.target.closest('a')) return; const k = e.target.closest('[data-key]'); if (k) jumpTo(k.dataset.key); });
+  let buyState = null;
+
   // ---- Parabolic: the coins going vertical, with the evidence
   const paraEl = document.getElementById('para'), paraCards = document.getElementById('paraCards');
   function paraCard(c, m, near) {
@@ -1221,17 +1273,17 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const pace = p.accel != null ? `${p.accel >= 10 ? Math.round(p.accel) : p.accel.toFixed(1)}×` : '–';
     const v5 = m.cells?.volume?.[5]?.x;
     return `<article class="pcard${near ? ' near' : ''}" data-key="${esc(c.key)}">
-      <div class="top">${coinImg(c)}<div class="tk">$${esc(c.tk)}<small>Peak #${prk(c)} · ${CHAIN_LABEL[c.chain] || ''}${near ? ' · close' : ''}</small></div>
-        <div class="big">${fmtPct(p.r60 * 100)}<small>in 1 hour</small></div></div>
+      <div class="top">${coinImg(c)}<div class="tk">$${esc(c.tk)}<small>Peak #${prk(c)} · ${CHAIN_LABEL[c.chain] || ''}</small></div>
+        <div class="big">${fmtPct(p.r60 * 100)}<small>1h</small></div></div>
       ${(p.curve || []).filter(x => x > 0).length > 4 ? sparkSvg(p.curve, 320, 86, { stroke: near ? '#f0b44c' : '#ff8a3d', mid: true }).replace('<svg ', '<svg class="curve" ') : ''}
       <dl class="pfacts">
         <div><dt>Last 15 min</dt><dd>${p.r15 != null ? fmtPct(p.r15 * 100) : p.r5 != null ? fmtPct(p.r5 * 100) + ' <span>(5m)</span>' : '–'}</dd></div>
-        <div><dt>Pace</dt><dd>${pace} <span>the hour's pace</span></dd></div>
-        <div><dt>From 3h low</dt><dd>${p.fromLow != null ? (p.fromLow + 1).toFixed(1) + '×' : '–'} <span>${p.minsSinceLow != null ? 'in ' + p.minsSinceLow + ' min' : ''}</span></dd></div>
-        <div><dt>Volume 5m</dt><dd>${v5 != null ? (v5 >= 10 ? Math.round(v5) : v5.toFixed(1)) + '×' : '–'} <span>normal</span></dd></div>
+        <div><dt>Speeding up</dt><dd>${pace}</dd></div>
+        <div><dt>From 3h low</dt><dd>${p.fromLow != null ? (p.fromLow + 1).toFixed(1) + '×' : '–'} <span>${p.minsSinceLow != null ? p.minsSinceLow + 'm' : ''}</span></dd></div>
+        <div><dt>Volume</dt><dd>${v5 != null ? (v5 >= 10 ? Math.round(v5) : v5.toFixed(1)) + '×' : '–'}</dd></div>
       </dl>
-      ${stretchPos != null ? `<div class="stretch"><span>Stretch</span><span class="bar"><i style="left:${stretchPos}%"></i></span><b>${fmtPct(p.stretch * 100)}</b><span>above 20-min avg · ${stretchWord}</span></div>` : ''}
-      <div class="pfoot"><span>MC ${fmtUsd(c.mc)}</span><span>LP ${fmtUsd(c.liq)}</span><span>Vol ${fmtUsd(c.vol24)}</span>${tg ? `<a href="${esc(tg)}" target="_blank" rel="noopener">JOIN ↗</a>` : ''}${dx ? `<a href="${esc(dx)}" target="_blank" rel="noopener"${tg ? ' style="margin-left:0"' : ''}>DexScreener ↗</a>` : ''}</div>
+      ${stretchPos != null ? `<div class="stretch" title="How far price is above its 20-minute average"><span>Stretch</span><span class="bar"><i style="left:${stretchPos}%"></i></span><b>${fmtPct(p.stretch * 100)}</b></div>` : ''}
+      <div class="pfoot"><span>MC ${fmtUsd(c.mc)}</span><span>LP ${fmtUsd(c.liq)}</span>${tg ? `<a href="${esc(tg)}" target="_blank" rel="noopener">JOIN ↗</a>` : ''}${dx ? `<a href="${esc(dx)}" target="_blank" rel="noopener"${tg ? ' style="margin-left:0"' : ''}>DexScreener ↗</a>` : ''}</div>
     </article>`;
   }
   function renderParabolic(rows) {
@@ -1243,7 +1295,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     if (!hot.length) {
       const best = rows.filter(r => r.m.parabolic?.r60 != null).sort((a, b) => r60(b) - r60(a))[0];
       const bp = best?.m.parabolic, pace = bp?.accel == null ? '' : bp.accel < 0 ? ', but it is falling over the last 15 minutes' : `, with the last 15 minutes at ${bp.accel.toFixed(1)}× the hour's pace`;
-      const msg = `<div class="para-empty"><span>Nothing is parabolic right now.${!near.length && best ? ` The biggest hourly gain is <b>$${esc(best.c.tk)}</b> at ${fmtPct(bp.r60 * 100)}${pace}.` : near.length ? ' Closest to it:' : ''}</span></div>`;
+      const msg = `<div class="para-empty"><span>🧊 Nothing parabolic right now${!near.length && best ? ` · biggest 1h: <b>$${esc(best.c.tk)}</b> ${fmtPct(bp.r60 * 100)}` : near.length ? ' · closest:' : ''}</span></div>`;
       html = msg + (near.length ? `<div class="para-cards" style="grid-column:1/-1">${near.slice(0, 3).map(r => paraCard(r.c, r.m, true)).join('')}</div>` : '');
     }
     if (paraCards._h !== html) { paraCards._h = html; paraCards.innerHTML = html; }
@@ -1287,18 +1339,23 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     prevDropped = names;
   }
 
-  // one call renders every momentum view
-  function updateMomentum() {
+  // every momentum view; a change in the momentum order also re-lays the ridge and the chart wall
+  let wallSig = '';
+  function renderViews() {
     const rows = board.map(c => ({ c, m: mo(c) }));
-    renderTiles(rows); renderLeaderboard(rows); renderParabolic(rows); renderTrending();
+    renderNut(rows); renderLeaderboard(); renderParabolic(rows); renderTrending(); renderBuy(buyState);
     if (BROADCAST) renderTicker();
+  }
+  function updateMomentum() {
+    rankByMomentum();
+    if (mOrder.map(c => c.key).join() !== wallSig) layoutWall(true);
+    else { renderViews(); peaksTarget(); }
   }
   function renderTicker() {
     document.getElementById('tickerCta').textContent = 'LIVE BOARD · ' + location.host.replace(/^www\./, '');
     const items = board.map(c => `<span><i>#${prk(c)}</i><b>$${esc(c.tk)}</b>${fmtPrice(c.price)} <span class="${(c.ch1h || 0) >= 0 ? 'up' : 'dn'}">${c.ch1h == null ? '' : fmtPct(c.ch1h) + ' 1h'}</span>${c.mo?.score != null ? ` · momentum ${c.mo.score}` : ''}</span>`).join('');
     document.getElementById('tickerTrack').innerHTML = items + items;
   }
-  pmTiles.addEventListener('click', e => { const t = e.target.closest('[data-key]'); if (t) jumpTo(t.dataset.key); });
 
   /* ---------- summit eruption: plays when a new coin takes #1 ---------- */
   const eruptEl = document.getElementById('erupt'), eruptCard = document.getElementById('eruptCard');
@@ -1311,7 +1368,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const icon = safeUrl(c.icon);
     eruptCard.innerHTML = `
       <img class="peak-mark" src="assets/peak-mark.png" alt="">
-      <div class="kicker">New #1 on Peak Trending</div>
+      <div class="kicker">New #1 in momentum</div>
       <div class="cash">$${esc(c.tk)}</div>
       <div class="who">${icon ? `<img class="coin" src="${esc(icon)}" alt="" referrerpolicy="no-referrer">` : `<span class="coin">${esc(c.tk.slice(0, 1))}</span>`}<span>${esc(c.name)} takes the summit</span></div>
       <div class="nums">${c.price ? `<span>Price<b>${fmtPrice(c.price)}</b></span>` : ''}${c.ch1h ? `<span>1h<b class="${c.ch1h >= 0 ? 'up' : 'dn'}">${fmtPct(c.ch1h)}</b></span>` : ''}${c.mc ? `<span>Mcap<b>${fmtUsd(c.mc)}</b></span>` : ''}</div>`;
@@ -1364,7 +1421,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       else { eruptEl.hidden = true; eruptEl.classList.remove('go'); ectx.clearRect(0, 0, EW, EH); setTimeout(nextEruption, 400); }
     })(t0);
   }
-  document.getElementById('previewErupt').addEventListener('click', () => { if (board[0]) erupt(board[0]); });
+  document.getElementById('previewErupt').addEventListener('click', () => { const c = mOrder[0] || board[0]; if (c) erupt(c); });
 
   /* ---------- status bar ---------- */
   const cdEl = document.getElementById('cd'), cdWrap = document.getElementById('cdWrap');
@@ -1412,8 +1469,12 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     try {
       const r = await fetch(`/api/candles?chain=${encodeURIComponent(c.chainId)}&pool=${encodeURIComponent(c.pool)}`);
       if (!r.ok) throw new Error(r.status);
-      const { candles } = await r.json();
-      if (!candles.length) { c.chartState = 'No trades yet'; loadSeries(c); return; }
+      const { candles, pending } = await r.json();
+      if (!candles.length) {
+        if (pending) { c.candlesAt = Date.now() - CANDLE_MS + 6000; c.chartState = 'Loading chart…'; }
+        else c.chartState = 'No trades yet';
+        loadSeries(c); return;
+      }
       // keep any live bars newer than the history we just got
       const lastT = candles[candles.length - 1].time;
       c.bars1 = candles.concat(c.bars1.filter(b => b.time > lastT));
@@ -1457,9 +1518,11 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     if (orderChanged) { if (!first) logRankChanges(prevKeys); layoutWall(); }
     else { board.forEach(c => paintCard(c, true)); updateMomentum(); peaksTarget(); }
     droppedList = Array.isArray(j.dropped) ? j.dropped : [];
+    buyState = j.buy || null;
+    renderBuy(buyState);
     renderTrending();
     boardEvents();
-    if (!first && board[0] && board[0].key !== prevTop) erupt(board[0]);
+
     // stagger candle loads so GeckoTerminal's free limit is respected
     board.filter(c => Date.now() - c.candlesAt > CANDLE_MS).slice(0, 4).forEach(loadCandles);
   }
@@ -1549,11 +1612,33 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       demoTracker.recordScore(c.key, c.mo.score, simNow);
       c.mo.history = demoTracker.history(c.key).scores.slice(-60).map(p => [p.t, p.s]);
     }
+    // demo version of the server's sticky buy pick and its track record
+    let demoPick = null; const demoLog = [];
+    function demoBuy() {
+      const now = simNow, pb = c => c.mo?.buy;
+      const cands = board.filter(c => pb(c)?.eligible).sort((a, b) => pb(b).p - pb(a).p);
+      const cur = demoPick && board.find(c => c.key === demoPick.key);
+      let keep = !!(cur && pb(cur) && cur.price > demoPick.stop && pb(cur).p >= 0.48 && pb(cur).passes >= 4);
+      if (keep && cands[0] && cands[0] !== cur && pb(cands[0]).p >= pb(cur).p + (now - demoPick.since < 900 ? 0.08 : 0.03)) keep = false;
+      if (!keep) {
+        demoPick = null;
+        if (cands[0]) { const c = cands[0]; demoPick = { key: c.key, since: now, entry: c.price, stop: pb(c).stop }; demoLog.push({ key: c.key, symbol: c.tk, entry: c.price, at: now }); }
+      }
+      for (const l of demoLog) if (l.result == null && now - l.at >= 3600) { const c = universe.find(x => x.key === l.key); l.exit = c.price; l.result = c.price > l.entry ? 'win' : 'loss'; }
+      const done = demoLog.filter(l => l.result);
+      const record = { done: done.length, wins: done.filter(l => l.result === 'win').length, open: demoLog.length - done.length, recent: done.slice(-8).map(l => ({ symbol: l.symbol, ret: l.exit / l.entry - 1, win: l.result === 'win' })) };
+      if (demoPick) { const c = board.find(x => x.key === demoPick.key); buyState = { pick: { ...demoPick, price: c.price, setup: pb(c), pnl: c.price / demoPick.entry - 1 }, record }; }
+      else {
+        const near = board.filter(pb).sort((a, b) => (pb(b).passes - pb(a).passes) || (pb(b).p - pb(a).p))[0];
+        buyState = { pick: null, closest: near ? { key: near.key, symbol: near.tk, passes: pb(near).passes, waiting: pb(near).stages.filter(x => !x.pass).map(x => x.label) } : null, record };
+      }
+    }
     const universe = ROSTER.map(makeCoin);
     board = universe.slice(0, 10);
     let bench = universe.slice(10);
     board.forEach((c, i) => { c.rank = i; c.prevRank = i; c.score = 100 - i * 6 + R() * 4; });
     universe.forEach(demoMomentum);
+    demoBuy();
     layoutWall();
     simNow -= 900;
     logEvent(`Board loaded · <b>10</b> coins across Solana, Robinhood, Arc`); simNow += 420;
@@ -1576,7 +1661,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
         paintCard(c, true);
       }
       peaksTarget();
-      if (++demoTicks % 3 === 0) { board.forEach(demoMomentum); updateMomentum(); boardEvents(); }
+      if (++demoTicks % 3 === 0) { board.forEach(demoMomentum); demoBuy(); updateMomentum(); boardEvents(); }
     }, TICK_MS);
 
     let untilRerank = 15, count = 0;
@@ -1599,7 +1684,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
         logRankChanges(prevKeys);
         const top = board[0].score; board.forEach(c => c.score = c.score - top + 100);
         layoutWall();
-        if (board[0].key !== prevTop) setTimeout(() => erupt(board[0]), 500);
+
       }
       cdEl.textContent = '0:' + String(untilRerank).padStart(2, '0');
     }, 1000);

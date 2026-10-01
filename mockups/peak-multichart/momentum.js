@@ -12,6 +12,10 @@
  *   Flow     10%  share of buys vs sells over 5m and 1h, and how fast buys are coming in vs the hour's pace
  *   Holders  15%  holder growth over 1h / 6h (holder counts refresh roughly every 15 minutes at the source)
  *
+ * Best time to buy: five checks (safe to trade, trend intact, good entry, buyers present, worth the risk). A coin
+ * that passes all five gets an estimated chance of being higher an hour later. The estimate is a weighted model,
+ * not a measured probability; the server tracks how real picks turn out so the track record can be shown next to it.
+ *
  * Parabolic: up 40%+ in the last hour and still steepening (the last 15 minutes climbing faster per minute than
  * the hour as a whole), or up 100%+ in the hour and still up 8%+ in 15 minutes. "Approaching" is the step before.
  * Missing parts drop out and the rest are re-weighted.
@@ -264,7 +268,45 @@
       holdersNow: hs.length ? hs[hs.length - 1].n : null,
       buys5: b5, buys1h: b1h, buyPace,
     };
+    // ---- best time to buy: five checks, then an estimated chance of being higher in an hour
+    const buy = (() => {
+      const ageMin = bars.length ? (now - bars[0].time) / 60 : (coin.pairCreatedAt ? (now * 1000 - coin.pairCreatedAt) / 60000 : 0);
+      const r180 = ret[180] != null ? Math.exp(ret[180]) - 1 : null;
+      const low30 = bars.filter(b => b.time >= now - 30 * 60).reduce((m, b) => Math.min(m, b.low), Infinity);
+      let stop = isFinite(low30) && low30 < P * 0.98 ? low30 : P * (1 - Math.max(0.03, 2 * sigma * Math.sqrt(30)));
+      stop = Math.max(stop, P * 0.75);
+      const riskPct = (P - stop) / P;
+      let target = high1h > P * 1.04 ? high1h : P * (1 + 1.6 * riskPct);
+      const rr = (target - P) / Math.max(P - stop, P * 1e-6);
+      const v5x = volRatio[5] ?? null;
+      const st = [];
+      const safe = liq >= 20000 && ageMin >= 60 && conf >= 0.5;
+      st.push({ key: 'safe', label: 'Safe to trade', pass: safe, detail: liq < 20000 ? 'Liquidity under $20K' : ageMin < 60 ? 'Under 1h old' : conf < 0.5 ? 'Not enough data' : `LP ${Math.round(liq / 1000)}K` });
+      const trendS = clamp(((trend ?? long) + long) / 1.2, -1, 1);
+      const trendOk = trendS >= 0.12 && (r60 ?? 0) > -0.1 && (r180 ?? r60 ?? 0) >= 0;
+      st.push({ key: 'trend', label: 'Trend intact', pass: trendOk, detail: trendOk ? 'Up on 1–6h' : 'No uptrend' });
+      const stretchOk = stretch == null || stretch <= 0.12;
+      const isDip = stretch != null && stretch < 0 && stretch > -0.15 && fromHigh > -0.3;
+      const isBreak = fromHigh > -0.05 && (v5x ?? 0) >= 1.3 && stretchOk;
+      const timingOk = stretchOk && fromHigh > -0.35 && (isDip || isBreak || (stretch ?? 0) <= 0.05);
+      st.push({ key: 'entry', label: 'Good entry', pass: timingOk, detail: !stretchOk ? `Stretched +${Math.round(stretch * 100)}%` : isDip ? 'Dip in uptrend' : isBreak ? 'Breakout on volume' : timingOk ? 'Near its average' : 'Broken down' });
+      const flowOk = (b5 ?? 0.5) >= 0.5 && (buyPace ?? 1) >= 0.7 && (v5x ?? 1) >= 0.5;
+      const flowWhy = (b5 ?? 0.5) < 0.5 ? `${Math.round(b5 * 100)}% buys` : (buyPace ?? 1) < 0.7 ? `Buying slowed ${mult(buyPace)}` : (v5x ?? 1) < 0.5 ? `Volume fading ${mult(v5x)}` : b5 != null ? `${Math.round(b5 * 100)}% buys` : 'No flow data';
+      st.push({ key: 'flow', label: 'Buyers present', pass: flowOk, detail: flowWhy });
+      const rrOk = rr >= 1.5 && riskPct <= 0.25;
+      st.push({ key: 'risk', label: 'Worth the risk', pass: rrOk, detail: `${rr.toFixed(1)} : 1` });
+      const passes = st.filter(x => x.pass).length;
+      const timingS = isDip ? 1 : isBreak ? 0.8 : timingOk ? 0.5 : 0;
+      const flowS = clamp(((b5 ?? 0.5) - 0.5) * 4 + ((buyPace ?? 1) - 1) * 0.3, -1, 1);
+      const holdS = holderDelta[60] ? tanh(holderDelta[60].pct / 5) : 0;
+      let p = 0.45 + 0.08 * trendS + 0.06 * timingS + 0.05 * flowS + 0.03 * tanh((rr - 1.5) / 1.5) + 0.02 * holdS;
+      if (sigma > 0.05) p -= 0.03;
+      p = clamp(p, 0.3, 0.72);
+      return { eligible: passes === 5 && p >= 0.51, p, passes, stages: st, entry: P, stop, target, rr, riskPct, upPct: target / P - 1 };
+    })();
+
     return {
+      buy,
       score: sc, raw, phase, phaseLabel: PHASES[phase], reasons, risks, confidence: conf, short, long,
       parts, cells, dScore5, dScore15, upHours, hoursSeen: hours.length, fromHigh, sigma, parabolic, spark,
     };
