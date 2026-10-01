@@ -116,8 +116,17 @@ async function gemfinderSubmit(listing, logoPath, env = process.env) {
       await page.goto('https://gemfinder.cc/mycoin', {waitUntil: 'domcontentloaded', timeout: 60000}).catch(() => {});
     }
     await context.storageState({path: statePath}).catch(() => {});
-    // My coins lists ours newest first; the card links to /gem/<id>.
-    const url = await page.evaluate(name => [...document.querySelectorAll('a[href*="/gem/"]')].find(a => a.textContent.includes(name))?.href ?? null, listing.name);
+    // My coins lists ours newest first; the card links to /gem/<id>. The page sometimes fails to load: try it a few times.
+    const find = () => page.evaluate(({name, symbol}) => {
+      const has = t => [name, symbol].filter(Boolean).some(w => t.toLowerCase().includes(String(w).toLowerCase()));
+      return [...document.querySelectorAll('a[href*="/gem/"]')].find(a => has(a.textContent || ''))?.href ?? null;
+    }, {name: listing.name, symbol: listing.symbol}).catch(() => null);
+    let url = await find();
+    for (let i = 0; !url && i < 3; i++) {
+      await page.waitForTimeout(4000);
+      await page.goto('https://gemfinder.cc/mycoin', {waitUntil: 'domcontentloaded', timeout: 60000}).catch(() => {});
+      url = await find();
+    }
     return url ? {submitted: true, url} : {submitted: false};
   } finally { await browser.close(); }
 }
