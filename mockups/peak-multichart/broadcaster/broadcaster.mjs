@@ -93,8 +93,11 @@ function ffmpegArgs() {
     // with the tee output, ffmpeg otherwise sends an empty H.264 header first and players like Telegram's stay black
     '-flags', '+global_header'];
   if (process.env.RECORD_SECONDS) enc.push('-t', process.env.RECORD_SECONDS);
+  const head = ['-hide_banner', '-loglevel', 'warning', '-stats_period', '60', ...enc];
+  // one RTMP target: plain FLV straight out, the way OBS sends it; several targets share one encode through tee
+  if (rtmp.length === 1 && !files.length) return [...head, '-f', 'flv', '-flvflags', 'no_duration_filesize', rtmp[0]];
   const outs = [...rtmp.map(u => `[f=flv:onfail=ignore]${u}`), ...files.map(f => `[f=mp4:movflags=+faststart]${f}`)];
-  return ['-hide_banner', '-loglevel', 'warning', ...enc, '-f', 'tee', outs.join('|')];
+  return [...head, '-f', 'tee', outs.join('|')];
 }
 function startStream() {
   if (!STREAM_URLS.length) return;
