@@ -3,7 +3,7 @@ import {join} from 'node:path';
 import {btcConfig, btcWhoAmI} from './bitcointalk.mjs';
 import {cmcConfig, cmcFindPost, cmcHealth} from './cmc.mjs';
 import {chromium} from 'playwright';
-import {hasStickySession, proxySettings, rotateProxySession, setProxyDown} from './reddit.mjs';
+import {hasStickySession, proxyIsDown, proxySettings, rotateProxySession, setProxyDown} from './reddit.mjs';
 import {coinscopeHealth, freshcoinsHealth, gemfinderFind, gemfinderHealth, top100Health} from './listingsites.mjs';
 
 /** How often every source is checked. The CMC and GemFinder checks also keep their logins fresh. */
@@ -32,7 +32,8 @@ export async function sourceChecks(env = process.env, retryMs = 10000) {
       r = await probeProxy(env.DIRECTORY_PROXY);
       if (r.ok) { r = {ok: true, detail: `${r.detail}; switched to a fresh session (${id}) after the previous IP stopped answering`}; console.log(`Proxy: rotated to session ${id}`); }
     }
-    setProxyDown(!r.ok);
+    // Going direct runs its full window (it ends by itself); a passing test doesn't cut it short.
+    if (!r.ok) setProxyDown(true);
     return r.ok ? r : {ok: false, detail: `${r.detail}; sites are running without the proxy until it answers again`};
   });
   await add('cmc', env.CMC_COOKIES || env.CMC_EMAIL, () => cmcHealth(cmcConfig(env)));
@@ -49,6 +50,22 @@ export async function sourceChecks(env = process.env, retryMs = 10000) {
   await add('gemfinder', env.GEMFINDER_EMAIL, () => gemfinderHealth(env));
   await add('freshcoins', env.FRESHCOINS_COOKIES, () => freshcoinsHealth(env));
   await add('coinscope', env.COINSCOPE_REFRESH_TOKEN, () => coinscopeHealth(env));
+  // The proxy answered a test but the sites behind it still can't connect through it (dying sticky IPs): when that
+  // happens to two or more of them, everything goes direct for a while and those sites are checked again that way.
+  const proxied = ['cmc', 'top100token', 'gemfinder', 'freshcoins'];
+  const tunnel = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY|ERR_TIMED_OUT|Timeout \d+ms exceeded/;
+  const stuck = checks.filter(c => proxied.includes(c.source) && !c.ok && tunnel.test(c.detail));
+  if (env.DIRECTORY_PROXY && !proxyIsDown() && stuck.length >= 2) {
+    setProxyDown(true);
+    console.log(`Proxy: ${stuck.map(c => c.source).join(', ')} could not connect through it; going direct for 40 min`);
+    const again = {cmc: () => cmcHealth(cmcConfig(env)), top100token: () => top100Health(), gemfinder: () => gemfinderHealth(env), freshcoins: () => freshcoinsHealth(env)};
+    for (const c of stuck) {
+      const r = await safe(again[c.source]);
+      Object.assign(c, r.ok ? {ok: true, detail: `${r.detail} (direct: the proxy could not connect)`} : r);
+    }
+    const p = checks.find(c => c.source === 'proxy');
+    if (p) Object.assign(p, {ok: false, detail: `answers tests but sites can't connect through it (${stuck.length} failed); running direct for 40 min`});
+  }
   return checks;
 }
 
