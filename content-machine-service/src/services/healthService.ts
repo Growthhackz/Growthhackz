@@ -100,6 +100,7 @@ const NAMES: Record<string, string> = {
   telegraph: 'Telegraph',
   wurk: 'WURK social boost',
   worker: 'Companion worker',
+  proxy: 'Residential proxy (IPRoyal)',
 };
 
 /** What a person does when automatic fixing gave up (the 🔴 message). */
@@ -116,6 +117,7 @@ const MANUAL: Record<string, string> = {
   telegraph: 'Clear TELEGRAPH_TOKEN so a new one is created.',
   wurk: 'Top up the WURK wallet with USDC (or check WURK_LIVE_PAYMENTS_ENABLED).',
   worker: 'Redeploy content-machine-worker on Railway.',
+  proxy: 'Check the IPRoyal account behind DIRECTORY_PROXY (data balance / plan). Until it answers, CMC and the listing sites run without it from Railway, which they may block.',
 };
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

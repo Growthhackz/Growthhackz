@@ -2,6 +2,8 @@ import {access} from 'node:fs/promises';
 import {join} from 'node:path';
 import {btcConfig, btcWhoAmI} from './bitcointalk.mjs';
 import {cmcConfig, cmcFindPost, cmcHealth} from './cmc.mjs';
+import {chromium} from 'playwright';
+import {hasStickySession, proxySettings, rotateProxySession, setProxyDown} from './reddit.mjs';
 import {coinscopeHealth, freshcoinsHealth, gemfinderFind, gemfinderHealth, top100Health} from './listingsites.mjs';
 
 /** How often every source is checked. The CMC and GemFinder checks also keep their logins fresh. */
@@ -21,6 +23,18 @@ export async function sourceChecks(env = process.env, retryMs = 10000) {
     if (!r.ok) { await new Promise(res => setTimeout(res, retryMs)); r = await safe(fn); }
     checks.push({source, ...r});
   };
+  // The residential proxy first: when it isn't answering, every site after this runs without it until it is back.
+  await add('proxy', env.DIRECTORY_PROXY, async () => {
+    let r = await probeProxy(env.DIRECTORY_PROXY);
+    // A sticky session whose home IP went offline: take a fresh session (fresh IP), up to twice.
+    for (let i = 0; !r.ok && i < 2 && hasStickySession(env.DIRECTORY_PROXY); i++) {
+      const id = rotateProxySession();
+      r = await probeProxy(env.DIRECTORY_PROXY);
+      if (r.ok) { r = {ok: true, detail: `${r.detail}; switched to a fresh session (${id}) after the previous IP stopped answering`}; console.log(`Proxy: rotated to session ${id}`); }
+    }
+    setProxyDown(!r.ok);
+    return r.ok ? r : {ok: false, detail: `${r.detail}; sites are running without the proxy until it answers again`};
+  });
   await add('cmc', env.CMC_COOKIES || env.CMC_EMAIL, () => cmcHealth(cmcConfig(env)));
   await add('bitcointalk', env.BTCTALK_COOKIES, async () => {
     const who = await btcWhoAmI(btcConfig(env));
@@ -61,4 +75,17 @@ export async function verifyCycle(client, env = process.env) {
   const r = c.job.kind === 'cmc_community' ? await cmcFindPost(c.target.text, cmcConfig(env)) : await gemfinderFind(c.target.listing, env);
   console.log(`Verify ${c.job.kind} (${c.job.order_id}): ${r.url ? `found ${r.url}` : r.absent ? 'not on our account; it will be posted again' : `could not tell (${r.note ?? r.detail})`}`);
   await client.request(`verify/${c.job.id}/result`, {url: r.url ?? null, absent: r.absent === true, note: r.note ?? r.detail ?? null});
+}
+
+/** One tiny page through the proxy: does it answer, and from which IP. */
+export async function probeProxy(raw) {
+  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: proxySettings(raw)});
+  try {
+    const page = await browser.newPage();
+    await page.goto('https://ipv4.icanhazip.com', {waitUntil: 'domcontentloaded', timeout: 25000});
+    const ip = (await page.locator('body').innerText()).trim();
+    return /^\d+\.\d+\.\d+\.\d+$/.test(ip) ? {ok: true, detail: `answering (exit IP ${ip})`} : {ok: false, detail: `not answering properly (${ip.slice(0, 80)})`};
+  } catch (e) {
+    return {ok: false, detail: `not answering: ${String(e?.message || e).split('\n')[0].slice(0, 120)} (out of data on the IPRoyal plan, or an outage)`};
+  } finally { await browser.close(); }
 }

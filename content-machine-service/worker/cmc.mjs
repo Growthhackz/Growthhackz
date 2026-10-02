@@ -3,7 +3,7 @@ import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {chromium} from 'playwright';
-import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {browserContext, installCookieSession, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
 import {withLock} from './lock.mjs';
 
 /** A cookie export from a browser logged in to CoinMarketCap skips the login (and its human check). */
@@ -133,6 +133,7 @@ export const cmcHealth = (cfg = cmcConfig()) => withLock('cmc', async () => {
   const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(cfg.proxy)});
   try {
     const context = await browser.newContext(browserContext(existsSync(cfg.statePath) ? {storageState: cfg.statePath} : {}));
+    await textOnly(context);
     const page = await context.newPage();
     const profile = `${cfg.origin}/community/profile/${cfg.handle}/`;
     await page.goto(profile, {waitUntil: 'domcontentloaded', timeout: 60000});
@@ -161,6 +162,7 @@ export const cmcFindPost = (text, cfg = cmcConfig()) => withLock('cmc', async ()
   const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, proxy: redditProxy(cfg.proxy)});
   try {
     const context = await browser.newContext(browserContext({storageState: cfg.statePath}));
+    await textOnly(context);
     const page = await context.newPage();
     const payloads = [];
     page.on('response', async r => { if (/gravity/i.test(r.url())) { try { payloads.push(await r.json()); } catch {} } });
