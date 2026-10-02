@@ -16,13 +16,16 @@ describe('source health', () => {
 
     const report = (checks: unknown) => t.api('POST', '/v1/health/report', { checks });
     const broken = { source: 'gemfinder', ok: false, detail: 'login failed' };
-    // First reports: working sources are recorded quietly; a broken one is caught and worked on.
-    await report([{ source: 'cmc', ok: true, detail: 'logged in' }, broken]);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain('🟡 Caught: <b>GemFinder</b>: login failed. Working on it');
-    // Still broken on the second attempt: nothing new to say.
+    // A one-off failure that clears on the next check (a proxy blip) is never announced.
+    await report([{ source: 'cmc', ok: true, detail: 'logged in' }, { source: 'freshcoins', ok: false, detail: 'ERR_TUNNEL_CONNECTION_FAILED' }]);
+    await report([{ source: 'freshcoins', ok: true, detail: 'logged in' }]);
+    expect(sent).toHaveLength(0);
+    // Broken twice in a row: caught and worked on.
+    await report([broken]);
+    expect(sent).toHaveLength(0);
     await report([broken]);
     expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('🟡 Caught: <b>GemFinder</b>: login failed. Working on it');
     // Third failed attempt: escalated to a person, with what to do. Only once.
     await report([broken]);
     expect(sent).toHaveLength(2);
@@ -30,14 +33,15 @@ describe('source health', () => {
     expect(sent[1]).toContain('GEMFINDER_EMAIL');
     await report([broken]);
     expect(sent).toHaveLength(2);
-    // CMC breaks, GemFinder recovers: one message with both.
+    // CMC breaks (twice), GemFinder recovers: one message with both.
+    await report([{ source: 'cmc', ok: false, detail: 'human check on the profile page' }]);
     await report([{ source: 'cmc', ok: false, detail: 'human check on the profile page' }, { source: 'gemfinder', ok: true, detail: 'logged in' }]);
     expect(sent).toHaveLength(3);
     expect(sent[2]).toContain('🟡 Caught: <b>CoinMarketCap</b>: human check on the profile page');
     expect(sent[2]).toContain('✅ Fixed: <b>GemFinder</b> is working again.');
 
     const sources = (await t.api('GET', '/v1/health/sources')).body.sources;
-    expect(sources.cmc).toMatchObject({ ok: false, by: 'worker', stage: 'fixing', fails: 1 });
+    expect(sources.cmc).toMatchObject({ ok: false, by: 'worker', stage: 'fixing', fails: 2 });
     expect(sources.gemfinder).toMatchObject({ ok: true, stage: 'ok', fails: 0 });
     expect((await report([{ source: 'Bad Name!', ok: true }])).status).toBe(400);
     // The ops agent's messages go through the same bot (admin only).
@@ -67,6 +71,9 @@ describe('source health', () => {
     expect(sources.sticker_bot).toMatchObject({ ok: true, detail: '@peakstickersbot' });
     expect(sources.worker.ok).toBe(true);
     expect(sources.wurk).toMatchObject({ ok: false, detail: expect.stringContaining('7.50 USDC') });
+    // Announced on the second failed check (the API rechecks every 5 min while something is broken).
+    expect(sent.join('\n')).not.toContain('WURK');
+    await t.api('POST', '/v1/health/run');
     expect(sent.join('\n')).toContain('🟡 Caught: <b>WURK social boost</b>');
   });
 });

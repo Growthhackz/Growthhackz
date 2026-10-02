@@ -21,6 +21,8 @@ export interface SourceCheck {
   fails?: number;
   /** ok → fixing (being retried automatically) → escalated (needs a person). */
   stage?: 'ok' | 'fixing' | 'escalated';
+  /** A "caught" message went out for this outage (so its recovery is announced too). */
+  announced?: boolean;
 }
 
 const KEY = 'source_health';
@@ -28,6 +30,8 @@ const API_RUN_KEY = 'source_health_api_at';
 export const HEALTH_INTERVAL_MS = 30 * 60_000;
 /** While something is broken it is rechecked (and re-logged-in) this often. */
 export const FIXING_INTERVAL_MS = 5 * 60_000;
+/** Failed checks in a row before admins hear about it: a one-off blip (proxy, slow page) that clears on the next check stays quiet. */
+export const ANNOUNCE_AFTER = 2;
 /** Failed fix attempts in a row before a person is asked. */
 export const ESCALATE_AFTER = 3;
 /** The worker polls for work every few seconds; this long without a claim means it is down. */
@@ -62,12 +66,16 @@ export async function recordChecks(ctx: ServiceContext, input: unknown, by: Sour
     const fails = c.ok ? 0 : (before?.fails ?? 0) + 1;
     let next: SourceCheck['stage'] = c.ok ? 'ok' : stage === 'escalated' ? 'escalated' : fails >= ESCALATE_AFTER ? 'escalated' : 'fixing';
     const name = `<b>${esc(NAMES[c.source] ?? c.source)}</b>`;
-    if (c.ok && stage !== 'ok') lines.push(`✅ Fixed: ${name} is working again.`);
-    else if (!c.ok && stage === 'ok') lines.push(`🟡 Caught: ${name}: ${esc(c.detail || 'not working')}. Working on it (rechecking and re-logging in every ${FIXING_INTERVAL_MS / 60_000} min).`);
+    let announced = c.ok ? false : !!before?.announced;
+    if (c.ok && stage !== 'ok' && before?.announced) lines.push(`✅ Fixed: ${name} is working again.`);
+    else if (!c.ok && !announced && fails >= ANNOUNCE_AFTER) {
+      lines.push(`🟡 Caught: ${name}: ${esc(c.detail || 'not working')}. Working on it (rechecking and re-logging in every ${FIXING_INTERVAL_MS / 60_000} min).`);
+      announced = true;
+    }
     if (!c.ok && next === 'escalated' && stage !== 'escalated')
       lines.push(`🔴 Need you: ${name} still fails after ${fails} automatic attempts: ${esc(c.detail || 'not working')}. ${esc(MANUAL[c.source] ?? 'Check the service logs.')}`);
     if (c.ok) next = 'ok';
-    all[c.source] = { ...c, checked_at: new Date(nowMs(ctx)).toISOString(), by, fails, stage: next };
+    all[c.source] = { ...c, checked_at: new Date(nowMs(ctx)).toISOString(), by, fails, stage: next, announced };
   }
   setRawSetting(ctx, KEY, JSON.stringify(all));
   if (lines.length) await notifyAdmins(ctx, lines);
