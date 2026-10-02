@@ -3,7 +3,7 @@ import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {chromium} from 'playwright';
-import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {browserContext, installCookieSession, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
 import {withLock} from './lock.mjs';
 
 /**
@@ -364,7 +364,9 @@ const health = async (fn) => { try { return await fn(); } catch (e) { return {ok
 export const top100Health = () => health(async () => {
   const browser = await launch();
   try {
-    const page = await (await browser.newContext(browserContext())).newPage();
+    const ctx = await browser.newContext(browserContext());
+    await textOnly(ctx);
+    const page = await ctx.newPage();
     await page.goto('https://top100token.com/submit', {waitUntil: 'domcontentloaded', timeout: 60000});
     await page.waitForTimeout(4000);
     return (await page.locator('select').count()) ? {ok: true, detail: 'submit form loads'} : {ok: false, detail: `submit form did not load (${(await page.title()).slice(0, 80)})`};
@@ -378,6 +380,7 @@ export const gemfinderHealth = (env = process.env) => withLock('gemfinder', () =
   const browser = await launch();
   try {
     const context = await browser.newContext(browserContext(existsSync(statePath) ? {storageState: statePath} : {}));
+    await textOnly(context);
     const page = await context.newPage();
     await page.goto('https://gemfinder.cc/addcoin', {waitUntil: 'domcontentloaded', timeout: 60000});
     if (!page.url().includes('/addcoin')) {
@@ -404,6 +407,7 @@ export const freshcoinsHealth = (env = process.env) => withLock('freshcoins', ()
   const browser = await launch();
   try {
     const context = await browser.newContext(browserContext({storageState: statePath}));
+    await textOnly(context);
     const page = await context.newPage();
     await page.goto('https://www.freshcoins.io/add-coin', {waitUntil: 'domcontentloaded', timeout: 60000});
     await page.getByPlaceholder('Enter coin name').waitFor({timeout: 20000}).catch(() => {});
@@ -431,7 +435,9 @@ export const gemfinderFind = (listing, env = process.env) => withLock('gemfinder
   if (!existsSync(statePath)) return {note: 'no saved GemFinder session'};
   const browser = await launch();
   try {
-    const page = await (await browser.newContext(browserContext({storageState: statePath}))).newPage();
+    const ctx = await browser.newContext(browserContext({storageState: statePath}));
+    await textOnly(ctx);
+    const page = await ctx.newPage();
     await page.goto('https://gemfinder.cc/mycoin', {waitUntil: 'domcontentloaded', timeout: 60000});
     await page.waitForTimeout(3000);
     const r = await page.evaluate(({name, symbol}) => {

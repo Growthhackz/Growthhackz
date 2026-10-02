@@ -1,6 +1,6 @@
-import {createHash} from 'node:crypto';
+import {createHash, randomBytes} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
-import {dirname} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import {chromium} from 'playwright';
 
 /** Nothing was submitted (login failed, CAPTCHA, rate limit, form missing): the job can safely be retried later. */
@@ -26,9 +26,52 @@ export const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 export const browserContext = (extra = {}) => ({userAgent: BROWSER_UA, locale: 'en-US', viewport: {width: 1366, height: 900}, ...extra});
 
 /** REDDIT_PROXY (http://user:pass@host:port): Reddit blocks datacenter networks, so only Reddit traffic goes through it. */
-export function redditProxy(raw = process.env.REDDIT_PROXY) {
-  if (!raw) return undefined;
+/**
+ * Proxy circuit breaker: while the residential proxy is not answering (out of data, provider outage), browsers go
+ * direct instead of failing every site. The health round probes the proxy and opens or closes this.
+ */
+let proxyDownUntil = 0;
+export const setProxyDown = (down, forMs = 40 * 60_000) => { proxyDownUntil = down ? Date.now() + forMs : 0; };
+export const proxyIsDown = () => Date.now() < proxyDownUntil;
+
+/**
+ * Sticky sessions (IPRoyal `_session-<id>` in the password) pin one residential IP; when that home connection drops,
+ * every request times out until the session expires. A fresh session id gets a fresh IP: the health round rotates
+ * it when the proxy stops answering, and the new id is kept in DIRECTORY_STATE_DIR so restarts keep it.
+ */
+let sessionOverride = null;
+const sessionFile = () => join(resolve(process.env.DIRECTORY_STATE_DIR || '.'), 'proxy-session.json');
+try { sessionOverride = JSON.parse(readFileSync(sessionFile(), 'utf8')).session ?? null; } catch {}
+export const hasStickySession = raw => /_session-[A-Za-z0-9]+/.test(decodeURIComponent(new URL(raw).password || ''));
+/** The proxy URL with the current session id (the rotated one, if any). */
+export function effectiveProxy(raw) {
+  if (!raw || !sessionOverride) return raw;
   const u = new URL(raw);
+  u.password = encodeURIComponent(decodeURIComponent(u.password).replace(/_session-[A-Za-z0-9]+/, `_session-${sessionOverride}`));
+  return u.href;
+}
+/** Switches to a fresh session id (a fresh residential IP) and remembers it. */
+export function rotateProxySession() {
+  sessionOverride = randomBytes(6).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).padEnd(8, 'x');
+  try { mkdirSync(dirname(sessionFile()), {recursive: true}); writeFileSync(sessionFile(), JSON.stringify({session: sessionOverride, at: new Date().toISOString()})); } catch {}
+  return sessionOverride;
+}
+
+/** Playwright proxy settings for a proxy URL, ignoring the circuit breaker (used to probe the proxy itself). */
+export function proxySettings(raw) {
+  if (!raw) return undefined;
+  const u = new URL(effectiveProxy(raw));
+  return {server: `${u.protocol}//${u.host}`, ...(u.username ? {username: decodeURIComponent(u.username), password: decodeURIComponent(u.password)} : {})};
+}
+
+/** Skip images, video and fonts: checks and lookups need the page's text and forms, not its media (saves proxy data). */
+export async function textOnly(context) {
+  await context.route('**/*', r => (['image', 'media', 'font'].includes(r.request().resourceType()) ? r.abort() : r.continue()));
+}
+
+export function redditProxy(raw = process.env.REDDIT_PROXY) {
+  if (!raw || proxyIsDown()) return undefined;
+  const u = new URL(effectiveProxy(raw));
   return {server: `${u.protocol}//${u.host}`, ...(u.username ? {username: decodeURIComponent(u.username), password: decodeURIComponent(u.password)} : {})};
 }
 
