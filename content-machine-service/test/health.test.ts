@@ -3,7 +3,7 @@ import { json, makeApp } from './helpers.js';
 
 describe('source health', () => {
   it('stores worker checks and DMs admins only when a source breaks or recovers', async () => {
-    const t = makeApp();
+    const t = makeApp({ ADMIN_NOTIFY: 'all' });
     const sent: string[] = [];
     t.http.on('api.telegram.org/botSTK/sendMessage', (_u, init) => {
       const b = JSON.parse(String(init.body));
@@ -51,7 +51,7 @@ describe('source health', () => {
   });
 
   it('checks the API keys, bot, worker and WURK wallet, flagging a low balance', async () => {
-    const t = makeApp({ SOCIAL_ACTIVITY_URL: 'http://social.internal:4010', SOCIAL_ACTIVITY_TOKEN: 'sat' });
+    const t = makeApp({ SOCIAL_ACTIVITY_URL: 'http://social.internal:4010', SOCIAL_ACTIVITY_TOKEN: 'sat', ADMIN_NOTIFY: 'all' });
     const sent: string[] = [];
     t.http
       .on('generativelanguage.googleapis.com/', () => json({ models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }] }))
@@ -75,5 +75,30 @@ describe('source health', () => {
     expect(sent.join('\n')).not.toContain('WURK');
     await t.api('POST', '/v1/health/run');
     expect(sent.join('\n')).toContain('🟡 Caught: <b>WURK social boost</b>');
+  });
+
+  it('by default only messages admins when a person is needed, once, and never about the proxy alone', async () => {
+    const t = makeApp();
+    const sent: string[] = [];
+    t.http.on('api.telegram.org/botSTK/sendMessage', (_u, init) => {
+      sent.push(JSON.parse(String(init.body)).text);
+      return json({ ok: true, result: {} });
+    });
+    await t.setSetting('TELEGRAM_BOT_TOKEN', 'STK');
+    await t.setSetting('STICKER_OWNER_ID', '777');
+    const report = (checks: unknown) => t.api('POST', '/v1/health/report', { checks });
+    const broken = [{ source: 'gemfinder', ok: false, detail: 'login failed' }, { source: 'proxy', ok: false, detail: 'not answering' }];
+    for (let i = 0; i < 5; i++) await report(broken);
+    // No 🟡 caught, no proxy message; one 🔴 for GemFinder.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('🔴 Need you: <b>GemFinder</b>');
+    expect(sent[0]).not.toContain('proxy');
+    await report([{ source: 'gemfinder', ok: true, detail: 'logged in' }]);
+    expect(sent).toHaveLength(1); // ✅ fixed is not sent
+    // The same 🔴 line again (e.g. from the ops agent) within 12 hours is dropped.
+    expect((await t.api('POST', '/v1/ops/notify', { lines: ['🔴 Need you: X'] })).body.sent).toBe(true);
+    expect((await t.api('POST', '/v1/ops/notify', { lines: ['🔴 Need you: X'] })).body.sent).toBe(false);
+    expect((await t.api('POST', '/v1/ops/notify', { lines: ['🟡 Caught: Y'] })).body.sent).toBe(false);
+    expect(sent).toHaveLength(2);
   });
 });

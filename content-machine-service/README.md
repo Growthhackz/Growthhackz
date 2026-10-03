@@ -261,7 +261,7 @@ Gemini, Telegraph, Telegram and Binance have not been exercised with real creden
 
 ## Self-healing
 
-Problems are fixed automatically where that is safe; admins get one Telegram line per step (`ASSIST_CHAT_ID`, else `STICKER_OWNER_ID`): 🟡 caught and being fixed, ✅ fixed, 🔴 needs a person (with what to do).
+Problems are fixed automatically where that is safe. Admins (`ASSIST_CHAT_ID`, else `STICKER_OWNER_ID`) get a Telegram message only when a person is needed (🔴, with what to do), and the same message at most once every 12 hours. 🟡 caught and ✅ fixed are written to the API log only; `ADMIN_NOTIFY=all` sends them too. The proxy never alerts on its own: the worker goes direct, and a site alerts if it breaks.
 
 - **Sources:** a failed health check is rechecked every 5 minutes instead of 30; the CMC and GemFinder checks log in again and save the session. After 3 failed attempts in a row the source is escalated (🔴).
 - **Content steps** (copy, images, memes, sticker art, renders): a step that failed its attempts gets one more run after 10 minutes, with everything that failed only because of it. If retries used up the order's generation allowance it gets a one-time top-up (`HEAL_BUDGET_CENTS`, default 150). A second failure is escalated.

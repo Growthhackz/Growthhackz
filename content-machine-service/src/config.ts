@@ -74,6 +74,8 @@ const EnvSchema = z.object({
   /** Failed content steps get one automatic retry; uncertain posts are checked on the account and re-posted if absent. */
   SELF_HEAL_ENABLED: bool.default('true'),
   /** One-time extra generation allowance (cents) for an order whose retries used up its budget. */
+  /** Admin Telegram messages: 'problems' sends only 🔴 (a person is needed); 'all' also sends 🟡 caught and ✅ fixed. */
+  ADMIN_NOTIFY: z.enum(['problems', 'all']).default('problems'),
   HEAL_BUDGET_CENTS: z.coerce.number().int().min(0).max(1000).default(150),
   /** Alert when the WURK wallet holds less than this (USDC). */
   WURK_LOW_BALANCE_USDC: z.coerce.number().min(0).default(20),
