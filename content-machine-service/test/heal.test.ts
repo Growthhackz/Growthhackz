@@ -110,6 +110,14 @@ describe('self-healing', () => {
     expect(all).toContain('🟡 Caught: $MFROG');
     expect(all).toContain('🔴 Need you: $MFROG');
     expect(all.split('🔴 Need you: $MFROG (trending:heal-1): Campaign image').length - 1).toBe(1);
+    // Once the cause is fixed, an admin can give the failed step a fresh set of attempts (it publishes nothing).
+    const o = (await t.api('GET', '/v1/orders')).body.orders[0];
+    const img = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs.find((j: any) => j.kind === 'campaign_image');
+    expect(img).toMatchObject({ status: 'failed', attempts: 3 });
+    expect((await t.api('POST', `/v1/jobs/${img.id}/retry`, {})).status).toBe(409);
+    const r = await t.api('POST', `/v1/jobs/${img.id}/retry`, { reset_attempts: true });
+    expect(r.status).toBe(200);
+    expect(r.body.jobs.find((j: any) => j.kind === 'campaign_image')).toMatchObject({ status: 'queued', attempts: 0 });
   });
 });
 
