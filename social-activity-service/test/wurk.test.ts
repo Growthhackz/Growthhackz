@@ -16,7 +16,7 @@ const PRICES: Record<string, string> = {
   '/solana/xraid/small': '1000000',
 };
 
-type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '500' | 'no-json';
+type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | 'no-json';
 
 /** A fake WURK: 402 with a v2 challenge when unpaid; job JSON when PAYMENT-SIGNATURE is present. */
 function fakeWurk() {
@@ -54,6 +54,15 @@ function fakeWurk() {
     if (b === '409-stale') {
       state.paid[route] = 'ok'; // the next, freshly quoted payment goes through
       return new Response(JSON.stringify({ message: 'The requested payment differs from its sealed component manifest.', errorCode: 'X402_REWARD_SOURCE_INVALID' }), { status: 409 });
+    }
+    if (b === '409-kept') {
+      // Seen live (Oct 1 and 3): WURK settles the USDC, then refuses the job.
+      state.paid[route] = 'ok';
+      const settle = { success: true, transaction: 'txKept', network: SOLANA_MAINNET };
+      return new Response(JSON.stringify({ message: 'The requested payment differs from its sealed component manifest.', errorCode: 'X402_REWARD_SOURCE_INVALID' }), {
+        status: 409,
+        headers: { 'payment-response': Buffer.from(JSON.stringify(settle)).toString('base64') },
+      });
     }
     if (b === '500') return new Response('upstream', { status: 500 });
     if (b === 'no-json') return new Response('ok', { status: 200 });
@@ -469,6 +478,34 @@ describe('WURK fulfillment', () => {
     detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
     expect(detail.status).toBe('in_progress');
     expect(detail.components[0].payments.map((x: any) => x.status)).toEqual(['failed', 'settled']);
+    expect(signed).toHaveLength(2);
+  });
+
+  it('a refusal that kept the USDC is never paid again, and holds paid requests of that kind for 2 hours', async () => {
+    const { ctx, api, clock, signed, wurk } = setup();
+    wurk.state.paid['/solana/xraid/small'] = '409-kept';
+    const make = async (n: number) => {
+      const p = (await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: `https://x.com/a/status/${n}` })).body;
+      await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: `kept${n}` });
+      return p.id as string;
+    };
+    const first = await make(1);
+    await processWurk(ctx);
+    let detail = (await api('GET', `/v1/wurk/packages/${first}`)).body;
+    expect(detail.components[0]).toMatchObject({ status: 'reconcile_required', lastError: expect.stringContaining('WURK kept the payment (transaction txKept)') });
+    expect(signed).toHaveLength(1);
+    // The next order's raid waits instead of paying into it.
+    const second = await make(2);
+    clock.advance(10 * 60_000);
+    await processWurk(ctx);
+    detail = (await api('GET', `/v1/wurk/packages/${second}`)).body;
+    expect(detail.components[0]).toMatchObject({ status: 'queued', lastError: expect.stringContaining('holding paid requests') });
+    expect(signed).toHaveLength(1);
+    // After the hold it goes through; the first is still left for reconciling, never re-paid.
+    clock.advance(2 * 3600_000);
+    await processWurk(ctx);
+    expect((await api('GET', `/v1/wurk/packages/${second}`)).body.status).toBe('in_progress');
+    expect((await api('GET', `/v1/wurk/packages/${first}`)).body.components[0].status).toBe('reconcile_required');
     expect(signed).toHaveLength(2);
   });
 

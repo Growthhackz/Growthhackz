@@ -360,6 +360,14 @@ export async function runComponent(ctx: ServiceContext, componentId: string): Pr
     return true;
   }
 
+  // WURK's paid endpoint for this kind misbehaved recently (kept a payment, refused or errored after paying):
+  // wait it out instead of paying again into it. Doesn't use up an attempt.
+  const held = holdUntil(ctx, c.kind);
+  if (held) {
+    setComponent(ctx, c.id, { status: 'queued', attempts: Math.max(0, c.attempts - 1), scheduled_for: held, last_error: `WURK ${c.kind} is failing after payment; holding paid requests until ${held}` });
+    return true;
+  }
+
   try {
     assertApprovedUrl(ctx.config, c.request_url);
   } catch (err) {
@@ -476,6 +484,9 @@ export async function runComponent(ctx: ServiceContext, componentId: string): Pr
     audit(ctx, { packageId: pkg.id, componentId: c.id, actor: 'system', action: 'component.paid', detail: { jobId: body.jobId, amountUsdc: fromMicros(quote.amountMicros), transaction: settlement.transaction } });
     return true;
   }
+  // A settlement header with a transaction means the USDC moved, whatever the status says: never pay again for it.
+  if (!paid.ok && settlement.transaction)
+    return ambiguous(ctx, c, paymentId, paid.status, `WURK kept the payment (transaction ${settlement.transaction}) but answered ${paid.status}: ${text.slice(0, 200)}. Ask WURK for the job or a refund.`);
   if (paid.status === 402 || paid.status === 400 || paid.status === 409) {
     // x402 settles only after the resource succeeds; a definite refusal means the signed payment was not used.
     run(ctx.db, "UPDATE wurk_payments SET status = 'failed', error = :e, updated_at = :t WHERE id = :id", { id: paymentId, e: `refused ${paid.status}`, t: nowIso(ctx) });
@@ -498,6 +509,20 @@ function safeStatusUrl(ctx: ServiceContext, v: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/** How long paid requests of one kind wait after WURK failed one after payment (a 5xx, or a refusal that kept the USDC). */
+export const PAID_FAILURE_HOLD_MS = 2 * 3600_000;
+
+function holdUntil(ctx: ServiceContext, kind: string): string | null {
+  const since = new Date(Date.parse(nowIso(ctx)) - PAID_FAILURE_HOLD_MS).toISOString();
+  const last = get<{ t: string | null }>(
+    ctx.db,
+    `SELECT MAX(p.updated_at) AS t FROM wurk_payments p JOIN wurk_components c ON c.id = p.component_id
+     WHERE c.kind = :k AND p.updated_at > :since AND (p.response_status >= 500 OR (p.response_status >= 400 AND p.transaction_id IS NOT NULL))`,
+    { k: kind, since },
+  )?.t;
+  return last ? new Date(Date.parse(last) + PAID_FAILURE_HOLD_MS).toISOString() : null;
 }
 
 function retryLater(ctx: ServiceContext, c: WurkComponentRow, reason: string): boolean {
