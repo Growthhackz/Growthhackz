@@ -1,7 +1,7 @@
 # Companion worker: renders media (ffmpeg + sharp), posts to Binance Square and Reddit (Chromium).
 # Railway: set the service root to content-machine-service/worker/ and attach a volume at /data.
 FROM node:22-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core git tini && rm -rf /var/lib/apt/lists/*
 # Official Binance Square scripts, pinned. Override with --build-arg BINANCE_SKILLS_REF=<commit>.
 ARG BINANCE_SKILLS_REF=9960c675387bd27f8866645b83693c1fa87242f6
 RUN git clone https://github.com/binance/binance-skills-hub.git /opt/binance-skills-hub \
@@ -15,4 +15,6 @@ ENV BINANCE_SQUARE_SKILL_DIR=/opt/binance-skills-hub/skills/binance/square-post 
     DIRECTORY_STATE_DIR=/data \
     DIRECTORY_DEBUG_DIR=/data/debug \
     FFMPEG_PATH=ffmpeg
+# tini reaps exited browser processes (node as PID 1 does not), so they never pile up until spawns fail with EAGAIN.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "worker.mjs"]

@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, channelOf, DIRECTORY_HOSTS, deadlineMs, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, channelOf, DIRECTORY_HOSTS, deadlineMs, IRREVERSIBLE, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -322,8 +322,8 @@ export function getJob(ctx: ServiceContext, id: string): JobRow {
 
 /** Re-queues blocked/failed work. Uncertain publications must be reconciled instead. */
 /**
- * `resetAttempts` (admin, after fixing the cause) is only allowed for blocked work: blocked means nothing was sent,
- * so a fresh set of attempts can't double-post. `confirmNotPosted` (admin) retries an uncertain publication after
+ * `resetAttempts` (admin, after fixing the cause) is only allowed where nothing was sent: blocked work, or a failed
+ * content step (a render or generation publishes nothing), so a fresh set of attempts can't double-post. `confirmNotPosted` (admin) retries an uncertain publication after
  * someone has checked that it did not go out.
  */
 export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false, confirmNotPosted = false) {
@@ -331,7 +331,8 @@ export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false,
   if (j.status === 'uncertain' && confirmNotPosted) resetAttempts = true;
   else if (!['blocked', 'failed'].includes(j.status))
     throw new ConflictError('Only blocked or failed work can be retried. Uncertain publications require reconciliation.');
-  if (resetAttempts && !['blocked', 'uncertain'].includes(j.status)) throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
+  const nothingSent = ['blocked', 'uncertain'].includes(j.status) || (j.status === 'failed' && !IRREVERSIBLE.includes(j.kind));
+  if (resetAttempts && !nothingSent) throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
   if (j.attempts >= MAX_ATTEMPTS && !resetAttempts) throw new ConflictError('Three-attempt limit reached; inspect the provider before proceeding.');
   run(
     ctx.db,
