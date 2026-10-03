@@ -28,7 +28,7 @@ const meme = (id: string, i: number) => ({
 
 describe('self-healing', () => {
   it('retries a failed content step (and what failed because of it) once, and reports caught → fixed', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: 'meme_pack' });
+    const t = makeApp({ TRENDING_CHANNELS: 'meme_pack', ADMIN_NOTIFY: 'all' });
     const sent: string[] = [];
     let memeImagesWork = false;
     t.http
@@ -84,7 +84,7 @@ describe('self-healing', () => {
   });
 
   it('asks a person when the automatic retry fails too, once', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', ADMIN_NOTIFY: 'all' });
     const sent: string[] = [];
     t.http
       .on('api.dexscreener.com/', () => json([]))
@@ -123,7 +123,7 @@ describe('self-healing', () => {
 
 describe('self-healing: uncertain publications', () => {
   it('re-posts an uncertain post that is not on our account, records one that is, and asks a person if the account never loads', async () => {
-    const t = makeApp();
+    const t = makeApp({ ADMIN_NOTIFY: 'all' });
     const sent: string[] = [];
     t.http
       .on('api.dexscreener.com/', () => json([]))

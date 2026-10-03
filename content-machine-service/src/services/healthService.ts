@@ -67,12 +67,13 @@ export async function recordChecks(ctx: ServiceContext, input: unknown, by: Sour
     let next: SourceCheck['stage'] = c.ok ? 'ok' : stage === 'escalated' ? 'escalated' : fails >= ESCALATE_AFTER ? 'escalated' : 'fixing';
     const name = `<b>${esc(NAMES[c.source] ?? c.source)}</b>`;
     let announced = c.ok ? false : !!before?.announced;
-    if (c.ok && stage !== 'ok' && before?.announced) lines.push(`✅ Fixed: ${name} is working again.`);
+    const quiet = QUIET.includes(c.source);
+    if (quiet) { /* logged in /v1/health/sources only */ } else if (c.ok && stage !== 'ok' && before?.announced) lines.push(`✅ Fixed: ${name} is working again.`);
     else if (!c.ok && !announced && fails >= ANNOUNCE_AFTER) {
       lines.push(`🟡 Caught: ${name}: ${esc(c.detail || 'not working')}. Working on it (rechecking and re-logging in every ${FIXING_INTERVAL_MS / 60_000} min).`);
       announced = true;
     }
-    if (!c.ok && next === 'escalated' && stage !== 'escalated')
+    if (!quiet && !c.ok && next === 'escalated' && stage !== 'escalated')
       lines.push(`🔴 Need you: ${name} still fails after ${fails} automatic attempts: ${esc(c.detail || 'not working')}. ${esc(MANUAL[c.source] ?? 'Check the service logs.')}`);
     if (c.ok) next = 'ok';
     all[c.source] = { ...c, checked_at: new Date(nowMs(ctx)).toISOString(), by, fails, stage: next, announced };
@@ -86,6 +87,9 @@ export async function recordChecks(ctx: ServiceContext, input: unknown, by: Sour
 export function anyFixing(ctx: ServiceContext, by: SourceCheck['by']): boolean {
   return Object.values(sourceHealth(ctx)).some((c) => c.by === by && !c.ok);
 }
+
+/** Never messaged on their own: the worker goes direct when the proxy is down, and the sites alert if they break. */
+const QUIET = ['proxy'];
 
 const NAMES: Record<string, string> = {
   cmc: 'CoinMarketCap',
@@ -122,9 +126,23 @@ const MANUAL: Record<string, string> = {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** One Telegram message to the admins (ASSIST_CHAT_ID, else STICKER_OWNER_ID). Never throws. */
+const SENT_KEY = 'admin_notify_sent';
+const REPEAT_AFTER_MS = 12 * 3600_000;
+
+/**
+ * Telegram to the admins. By default only 🔴 lines go out (something a person has to do); 🟡 caught / ✅ fixed are
+ * logged only (ADMIN_NOTIFY=all sends them too). The same 🔴 line is not sent again within 12 hours.
+ */
 export async function notifyAdmins(ctx: ServiceContext, lines: string[]): Promise<boolean> {
   const chat = setting(ctx, 'ASSIST_CHAT_ID') || setting(ctx, 'STICKER_OWNER_ID');
+  for (const l of lines) ctx.log.info({ notice: l }, 'admin notice');
+  const t = nowMs(ctx);
+  const sent: Record<string, number> = JSON.parse(rawSetting(ctx, SENT_KEY) ?? '{}');
+  for (const [k, at] of Object.entries(sent)) if (t - at > REPEAT_AFTER_MS) delete sent[k];
+  lines = lines.filter((l) => ctx.config.ADMIN_NOTIFY === 'all' || l.startsWith('🔴')).filter((l) => !sent[l]);
   if (!chat || !lines.length) return false;
+  for (const l of lines) if (l.startsWith('🔴')) sent[l] = t;
+  setRawSetting(ctx, SENT_KEY, JSON.stringify(sent));
   try {
     await telegram(ctx, 'sendMessage', { chat_id: chat, text: ['<b>Content machine</b>', ...lines].join('\n'), parse_mode: 'HTML', disable_web_page_preview: true });
     return true;
