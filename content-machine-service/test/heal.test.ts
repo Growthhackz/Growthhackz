@@ -169,3 +169,51 @@ describe('self-healing: uncertain publications', () => {
     expect(sent.at(-1)).toContain('✅ Fixed: $MFROG (ver-1): CoinMarketCap community post was unconfirmed; found it on our account');
   });
 });
+
+describe('self-healing: outages', () => {
+  it('waits out a multi-hour network outage instead of failing the order (JUGS, Oct 4)', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'meme_pack' });
+    const sent: string[] = [];
+    let networkUp = false;
+    t.http
+      .on('api.dexscreener.com/', () => json([]))
+      .on('cdn.example.com/logo.png', () => new Response(pngBytes(), { headers: { 'content-type': 'image/png' } }))
+      .on('generativelanguage.googleapis.com/', (_u, init) => {
+        if (!networkUp) throw new TypeError('fetch failed');
+        const body = JSON.parse(String(init.body));
+        const parts = body.contents[0].parts;
+        if (body.generationConfig?.responseModalities)
+          return json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] });
+        const text: string = parts[0].text;
+        if (text.includes('SELECTED_TEMPLATES')) {
+          const ids = JSON.parse(text.split('SELECTED_TEMPLATES: ')[1]!.split('\n')[0]!).map((x: any) => x.template_id);
+          return json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ memes: ids.map(meme), self_review: {}, approved_for_render: true }) }] } }] });
+        }
+        return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] });
+      })
+      .on('api.telegram.org/botSTK/sendMessage', (_u, init) => {
+        sent.push(JSON.parse(String(init.body)).text);
+        return json({ ok: true, result: {} });
+      });
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    await t.setSetting('TELEGRAM_BOT_TOKEN', 'STK');
+    await t.setSetting('STICKER_OWNER_ID', '777');
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'outage-1' })).body;
+    const job = async (k: string) => (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs.find((j: any) => j.kind === k);
+    // 2.5 hours with no connection, ticking every 2 minutes.
+    for (let i = 0; i < 75; i++) {
+      t.clock.advance(2 * 60_000);
+      await t.api('POST', '/v1/tick');
+    }
+    expect(await job('copy')).toMatchObject({ status: 'queued', error: expect.stringContaining('network or timeout') });
+    expect((await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.some((e: any) => e.type === 'order.completed')).toBe(false);
+    // Connection back: everything goes through, within the order's normal allowance, and nobody was paged.
+    networkUp = true;
+    for (let i = 0; i < 40; i++) {
+      t.clock.advance(2 * 60_000);
+      await t.api('POST', '/v1/tick');
+    }
+    for (const k of ['copy', 'campaign_image', 'meme_plan', 'meme_pack']) expect((await job(k)).status).toBe('delivered');
+    expect(sent.join('\n')).not.toContain('🔴');
+  });
+});

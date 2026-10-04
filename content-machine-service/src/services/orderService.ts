@@ -201,14 +201,20 @@ export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   const existing = get<{ id: string }>(ctx.db, 'SELECT id FROM orders WHERE order_id = :o', { o: `trending:${purchase_id}` });
   if (existing) return { order: loadOrder(ctx, existing.id), created: false };
   // Earlier trending purchases of the same token make this a repeat: new posts, boost and stickers only.
-  const prior = earlierTrendingOrders(ctx, rest.chain, rest.contract_address).length;
-  const purchase_number = prior + 1;
+  const earlier = earlierTrendingOrders(ctx, rest.chain, rest.contract_address);
+  const purchase_number = earlier.length + 1;
+  // One-time items (Telegraph, Bitcointalk, listing sites) an earlier purchase never delivered (it failed, e.g. in
+  // an outage) are owed: a repeat includes them too, so the token isn't left without them.
+  const jobsBefore = earlier.flatMap((o) => o.jobs);
+  const done = new Set(jobsBefore.filter((j) => j.status === 'delivered' || j.status === 'submitted').map((j) => channelOf(j.kind)));
+  const ordered = new Set(jobsBefore.filter((j) => j.status !== 'skipped').map((j) => channelOf(j.kind)));
+  const owed = trendingChannels(ctx).filter((c) => c !== 'call_channel' && ordered.has(c) && !done.has(c));
   // Trending orders include the campaign art, stickers and the five-meme pack: about $1.40 of generation at list rates.
   return createOrder(ctx, {
     budget_cents: 250,
     ...rest,
     order_id: `trending:${purchase_id}`,
-    channels: purchase_number > 1 ? repeatChannels(ctx) : trendingChannels(ctx, channels),
+    channels: purchase_number > 1 ? [...new Set([...repeatChannels(ctx), ...owed])] : trendingChannels(ctx, channels),
     purchase_number,
   });
 }

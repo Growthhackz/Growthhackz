@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError } from '../lib/errors.js';
 import { fromMicros } from '../lib/money.js';
 import type { ServiceContext } from '../services/context.js';
 import { quoteOnly } from './diagnostics.js';
-import { COMPONENT_STATUSES, PRESETS, TRENDING_PACKAGE, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
+import { COMPONENT_STATUSES, PRESETS, TRENDING_ENGAGEMENT, TRENDING_PACKAGE, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
 import {
   auditTrail,
   componentsOf,
@@ -107,6 +107,7 @@ const LABELS: Record<ComponentKind, string> = {
   tg_batch_1: `${WURK_PACKAGE.tgBatch} Telegram members (first batch)`,
   tg_batch_2: `${WURK_PACKAGE.tgBatch} Telegram members (second batch)`,
   small_raid: 'Engagement on your X post (25 likes, 10 reposts, 10 comments, 70 views)',
+  engagement: `${TRENDING_ENGAGEMENT.likes} likes, ${TRENDING_ENGAGEMENT.reposts} reposts and ${TRENDING_ENGAGEMENT.comments} comments on your X post`,
   x_followers: `${TRENDING_PACKAGE.followers} X followers`,
   tg_members: `${TRENDING_PACKAGE.tgMembers} Telegram members`,
 };

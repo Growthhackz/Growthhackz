@@ -158,4 +158,21 @@ describe('repeat purchases of the same token', () => {
     const third = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'rep-3' })).body;
     expect(third.project.purchase_number).toBe(3);
   });
+
+  it('owes a repeat purchase the one-time items an earlier purchase never delivered (JUGS, Oct 4)', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph,bitcointalk,top100token,meme_pack' });
+    // First purchase during an outage: nothing could be generated (no Gemini key), so it all failed.
+    const first = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'owed-1' })).body;
+    expect(first.project.channels).toEqual(expect.arrayContaining(['telegraph', 'bitcointalk', 'top100token']));
+    for (let i = 0; i < 5; i++) await t.api('POST', '/v1/tick');
+    t.clock.advance(7 * 3600_000); // copy's deadline passes; everything built on it fails
+    await t.api('POST', '/v1/tick');
+    const one = (await t.api('GET', `/v1/orders/${first.id}`)).body;
+    expect(one.jobs.find((j: any) => j.kind === 'telegraph').status).toBe('failed');
+    // Second purchase: the repeat package plus what is still owed.
+    const second = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'owed-2' })).body;
+    expect(second.project.purchase_number).toBe(2);
+    expect(second.project.channels).toEqual(expect.arrayContaining(['binance', 'cmc_community', 'meme_pack', 'social_boost', 'telegraph', 'bitcointalk', 'top100token']));
+    expect(second.project.channels).not.toContain('call_channel');
+  });
 });

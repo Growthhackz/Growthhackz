@@ -24,6 +24,7 @@ import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
 import { findRaidPost } from '../providers/xProfile.js';
 import { researchProject } from '../providers/research.js';
+import { release, reservedFor } from '../providers/budget.js';
 import { isPaused } from './pauseService.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { socialActivity } from '../providers/socialActivity.js';
@@ -80,11 +81,20 @@ function skipStickerPack(ctx: ServiceContext, j: Leased, o: Order) {
     }
 }
 
+/** Errors that mean "couldn't reach it right now", not "it refused": network, timeouts, 5xx, rate limits. */
+export const OUTAGE = /network or timeout|took longer than|\((5\d\d|429)\)|unreachable|fetch failed/i;
+/** How often a step waiting out an outage tries again. */
+export const OUTAGE_RETRY_MS = 2 * 60_000;
+
 function fail(ctx: ServiceContext, job: Leased, err: unknown) {
   const blocked = isBlocking(err);
   const uncertain = IRREVERSIBLE.includes(job.kind) && !blocked;
-  // The social service being briefly unavailable (e.g. redeploying) retries until the item's deadline.
-  const transient = job.kind === 'social_boost' && err instanceof UpstreamError;
+  // An outage (network down, provider overloaded, a call that never returned) is not the step's fault: content
+  // steps and the social boost wait it out until the item's deadline instead of spending their three attempts.
+  // Publications never do this (a failure there may mean it went out).
+  const transient =
+    err instanceof UpstreamError && (job.kind === 'social_boost' || (!IRREVERSIBLE.includes(job.kind) && OUTAGE.test(err.message)));
+  if (transient) release(ctx, job.order_id, reservedFor(job.kind));
   const status = uncertain ? 'uncertain' : blocked ? 'blocked' : transient || job.attempts < MAX_ATTEMPTS ? 'queued' : 'failed';
   const message = err instanceof AppError ? err.message : 'Processing interrupted. Check the provider and retry safely.';
   if (!(err instanceof AppError)) ctx.log.error({ job: job.id, kind: job.kind, err: String(err) }, 'job failed unexpectedly');
@@ -97,7 +107,7 @@ function fail(ctx: ServiceContext, job: Leased, err: unknown) {
     {
       status,
       error: message,
-      available: nowMs(ctx) + Math.min(300_000, 15_000 * 2 ** job.attempts),
+      available: nowMs(ctx) + (transient ? OUTAGE_RETRY_MS : Math.min(300_000, 15_000 * 2 ** job.attempts)),
       // Missing setup, budget or a transient outage is not the job's fault, so it doesn't spend a retry.
       refund: blocked || transient,
       t: nowMs(ctx),

@@ -104,7 +104,7 @@ describe('trending orchestration', () => {
     expect(jobOf(now, 'social_boost').status).toBe('delivered');
     expect(jobOf(now, 'social_boost').result).toMatchObject({ package_id: 'wpk_1', url: 'https://wurk.fun/custom/job9', cost_usdc: 1 });
     const report = (await t.api('GET', `/v1/orders/by-external-id/trending:orch-1/report`)).body;
-    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X raid, followers and Telegram members (WURK)', url: 'https://wurk.fun/custom/job9' });
+    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X likes, reposts and comments, followers and Telegram members (WURK)', url: 'https://wurk.fun/custom/job9' });
   });
 
   it('keeps content, publications and stickers moving when the social service is down', async () => {
@@ -216,11 +216,11 @@ describe('trending orchestration', () => {
     expect(report.complete).toBe(false);
     expect(report.failures.find((f: any) => f.source === 'social_boost')).toMatchObject({ status: 'needs checking', error: expect.stringContaining('Wallet holds') });
 
-    // Copy's deadline (2h) passes: it fails, and everything built on it fails immediately.
-    t.clock.advance(2 * 60 * 60_000);
+    // Copy's deadline (6h) passes: it fails, and everything built on it fails immediately.
+    t.clock.advance(6 * 60 * 60_000);
     await t.api('POST', '/v1/tick');
     now = (await t.api('GET', `/v1/orders/${o.id}`)).body;
-    expect(jobOf(now, 'copy').error).toMatch(/^Timed out after 2h \(blocked: /);
+    expect(jobOf(now, 'copy').error).toMatch(/^Timed out after 6h \(blocked: /);
     expect(jobOf(now, 'campaign_image').error).toBe('Not started: copy failed');
     expect(jobOf(now, 'binance').error).toBe('Not started: campaign_image failed');
     expect(jobOf(now, 'sticker_publish').error).toBe('Not started: stickers failed');
