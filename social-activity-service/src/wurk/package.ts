@@ -5,13 +5,14 @@ import { toMicros } from '../lib/money.js';
 export const SOLANA_MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-export const COMPONENT_KINDS = ['verified_followers', 'post_mix', 'tg_batch_1', 'tg_batch_2', 'small_raid'] as const;
+export const COMPONENT_KINDS = ['verified_followers', 'post_mix', 'tg_batch_1', 'tg_batch_2', 'small_raid', 'x_followers', 'tg_members'] as const;
 
 /**
- * `small_raid`: WURK's $1 preset raid on one X post (25 likes, 10 reposts, 10 comments, 70 views), the current
- * default for trending orders. `full`: the four-purchase package below, kept to switch in later.
+ * `trending`: the trending-order default, the $1 small raid plus TRENDING_PACKAGE's followers and Telegram members.
+ * `small_raid`: WURK's $1 preset raid on one X post (25 likes, 10 reposts, 10 comments, 70 views) on its own.
+ * `full`: the four-purchase package below, kept to switch in later.
  */
-export const PRESETS = ['small_raid', 'full'] as const;
+export const PRESETS = ['trending', 'small_raid', 'full'] as const;
 export type Preset = (typeof PRESETS)[number];
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 
@@ -39,8 +40,14 @@ export const WURK_PACKAGE = {
   tgBatch: 15,
 } as const;
 
+/** Trending preset on top of the small raid: standard (not verified) followers and Telegram members, $0.03 each. */
+export const TRENDING_PACKAGE = {
+  followers: 50,
+  tgMembers: 50,
+} as const;
+
 /** WURK routes this service may pay for. Anything else is refused before signing. */
-export const APPROVED_ROUTES = ['/solana/xfollowers/xverified', '/solana/xraid/custom', '/solana/tgmembers', '/solana/xraid/small'];
+export const APPROVED_ROUTES = ['/solana/xfollowers/xverified', '/solana/xraid/custom', '/solana/tgmembers', '/solana/xraid/small', '/solana/xfollowers'];
 
 export interface WurkTargets {
   /** Empty for presets that don't use it (small_raid needs only the post). */
@@ -90,22 +97,42 @@ export interface ComponentPlan {
 }
 
 export function packageCeilingMicros(config: Config, preset: Preset): number {
+  if (preset === 'trending') return toMicros(config.WURK_TRENDING_MAX_USDC);
   return toMicros(preset === 'small_raid' ? config.WURK_MAX_SMALL_RAID_USDC : config.WURK_PACKAGE_MAX_USDC);
 }
 
 export function componentPlans(config: Config, t: WurkTargets, preset: Preset = 'full'): ComponentPlan[] {
   const base = config.WURK_BASE_URL.replace(/\/$/, '');
-  if (preset === 'small_raid')
-    return [
-      {
-        kind: 'small_raid',
-        url: `${base}/solana/xraid/small?${new URLSearchParams({ url: t.xPostUrl })}`,
-        quantities: { likes: 25, reposts: 10, comments: 10, views: 70 },
-        ceilingMicros: toMicros(config.WURK_MAX_SMALL_RAID_USDC),
-      },
-    ];
+  const raid: ComponentPlan = {
+    kind: 'small_raid',
+    url: `${base}/solana/xraid/small?${new URLSearchParams({ url: t.xPostUrl })}`,
+    quantities: { likes: 25, reposts: 10, comments: 10, views: 70 },
+    ceilingMicros: toMicros(config.WURK_MAX_SMALL_RAID_USDC),
+  };
+  if (preset === 'small_raid') return [raid];
   const q = (path: string, params: Record<string, string | number>) =>
     `${base}${path}?${new URLSearchParams(Object.entries(params).map(([k, v]): [string, string] => [k, String(v)])).toString()}`;
+  if (preset === 'trending')
+    return [
+      raid,
+      {
+        kind: 'x_followers',
+        url: q('/solana/xfollowers', { handle: t.xHandle, amount: TRENDING_PACKAGE.followers }),
+        quantities: { followers: TRENDING_PACKAGE.followers },
+        ceilingMicros: toMicros(config.WURK_MAX_X_FOLLOWERS_USDC),
+      },
+      // No Telegram on the order: the members are left out and the rest still runs.
+      ...(t.tgUrl
+        ? [
+            {
+              kind: 'tg_members' as const,
+              url: q('/solana/tgmembers', { join: t.tgUrl, amount: TRENDING_PACKAGE.tgMembers }),
+              quantities: { members: TRENDING_PACKAGE.tgMembers },
+              ceilingMicros: toMicros(config.WURK_MAX_TG_MEMBERS_USDC),
+            },
+          ]
+        : []),
+    ];
   // WURK documents `join` as the tgmembers invite-link parameter.
   const tg = q('/solana/tgmembers', { join: t.tgUrl, amount: WURK_PACKAGE.tgBatch });
   return [

@@ -12,7 +12,7 @@ const input = {
   channels: ['cmc_community', 'press_1888', 'bitcointalk'],
 };
 
-async function setup() {
+async function setup(copy: Record<string, unknown> = liveCopy, channels = input.channels) {
   const t = makeApp();
   t.http
     .on('api.dexscreener.com/', () =>
@@ -21,16 +21,33 @@ async function setup() {
     .on('generativelanguage.googleapis.com/', (_u, init) =>
       JSON.parse(String(init.body)).generationConfig?.responseModalities
         ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
-        : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+        : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(copy) }] } }] }),
     )
     .on('coinmarketcap.com/community/post/379681088', () =>
       new Response(`<html><body>${'x'.repeat(200)}<p>${liveCopy.social_post}</p></body></html>`, { headers: { 'content-type': 'text/html' } }),
     );
   await t.setSetting('GEMINI_API_KEY', 'G');
-  const o = (await t.api('POST', '/v1/orders', input)).body;
+  const o = (await t.api('POST', '/v1/orders', { ...input, channels })).body;
   for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
   return { t, o };
 }
+
+describe('Community Spotlight (CoinMarketCap and Binance Square)', () => {
+  const spotlight = {
+    ...liveCopy,
+    spotlight_post: 'Moon Frog is a pond-themed community built around a cheerful frog who dreams of the moon. 🐸\n\nCome say hi to the Moon Frog crew in their Telegram!',
+    spotlight_alt: 'Meet Moon Frog, a lighthearted project starring a frog with lunar ambitions. 🌙\n\nCheck out what the Moon Frog community is building.',
+  };
+
+  it('posts the spotlight on CMC with its Telegram link, and the reworded spotlight on Binance under the same title', async () => {
+    const { t } = await setup(spotlight, ['cmc_community', 'binance']);
+    const cmc = (await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.target;
+    expect(cmc.text).toBe(`Community Spotlight: Moon Frog ($MFROG)\n\n${spotlight.spotlight_post}\n\nTelegram: https://t.me/moonfrog`);
+    const binance = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body.target;
+    expect(binance.title).toBe('Community Spotlight: Moon Frog ($MFROG)');
+    expect(binance.text).toBe(`${spotlight.spotlight_alt}\n\nFollow Moon Frog on X: @moonfrog`);
+  });
+});
 
 describe('CoinMarketCap community post', () => {
   it('hands the worker the social post and image, then verifies the public post page', async () => {
@@ -149,7 +166,8 @@ describe('Binance Square URLs', () => {
     const b = (await t.api('POST', '/v1/orders', { ...input, order_id: 'dist-bin', channels: ['binance'] })).body;
     for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
     const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body;
-    expect(c.target.text).toContain('Find Moon Frog on Telegram: @moonfrog');
+    expect(c.target.text).toContain('Follow Moon Frog on X: @moonfrog');
+    expect(c.target.text).not.toMatch(/Telegram/);
     expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url: null, note: 'no URL in output' })).body.status).toBe('uncertain');
     const rec = await t.api('POST', `/v1/jobs/${c.job.id}/reconcile`, { url: 'https://app.binance.com/uni-qr/cart/372000959647275?r=WWP7BX5G&l=en' });
     expect(rec.status).toBe(200);

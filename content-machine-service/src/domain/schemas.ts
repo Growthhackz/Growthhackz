@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -11,12 +11,20 @@ export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coin
 export const DIRECTORY_HOSTS: Record<string, string[]> = {
   coinsniper: ['coinsniper.net', 'www.coinsniper.net'],
   coinvote: ['coinvote.cc', 'www.coinvote.cc'],
+  top100token: ['top100token.com', 'www.top100token.com'],
+  gemfinder: ['gemfinder.cc', 'www.gemfinder.cc'],
+  freshcoins: ['www.freshcoins.io', 'freshcoins.io'],
+  coinscope: ['www.coinscope.co', 'coinscope.co'],
   press_1888: ['www.1888pressrelease.com', '1888pressrelease.com'],
 };
 /** What the live page's path looks like on each of those sites. */
 export const LISTING_PATHS: Record<string, RegExp> = {
   coinsniper: /\/coins?\//i,
   coinvote: /\/coins?\//i,
+  top100token: /^\/[a-z]+\/[A-Za-z0-9]{20,}\/?$/,
+  gemfinder: /^\/gem\/\d+\/?$/,
+  freshcoins: /^\/coins\/[a-z0-9-]+\/?$/,
+  coinscope: /^\/coin\/[a-z0-9-]+\/?$/,
   press_1888: /-pr-\d+\.html$/i,
 };
 /** Press releases: the worker needs the release text, not a coin listing. */
@@ -24,11 +32,25 @@ export const PRESS_KINDS = ['press_1888'];
 /** Give up waiting for a site's review after this long. */
 export const LISTING_REVIEW_MAX_MS = 7 * 24 * 60 * 60_000;
 
-/** Pipeline kind → subreddit. The `reddit` channel turns on every entry. */
-export const REDDIT_SUBREDDITS: Record<string, string> = {
-  reddit_moonshots: 'moonshots',
-  reddit_solanamemecoins: 'solanamemecoins',
-};
+/** Subreddits the Reddit account has joined, as Reddit spells them. REDDIT_TARGETS picks the ones each order gets. */
+export const SUBREDDITS = [
+  'moonshots',
+  'SolanaMemeCoins',
+  'MemecoinSeason',
+  'Solana_Memes',
+  'SolCoins',
+  'memecoinmoonshots',
+  'pumpfun',
+  'Memecoinhub',
+  'CryptoMoon',
+  'shitcoinmoonshots',
+  'memecoins',
+  'CryptoMarkets',
+  'CryptoMoonShots',
+];
+/** Pipeline kind (reddit_<lowercase name>) → subreddit. The `reddit` channel turns on the REDDIT_TARGETS entries. */
+export const REDDIT_SUBREDDITS: Record<string, string> = Object.fromEntries(SUBREDDITS.map((s) => [`reddit_${s.toLowerCase()}`, s]));
+const REDDIT_KINDS = Object.keys(REDDIT_SUBREDDITS);
 
 /** The channel that switches a pipeline kind on (kinds not listed are always on). */
 /** The five-meme pack (plan, renders, gallery page) is one switchable channel, so it costs nothing when off. */
@@ -79,6 +101,8 @@ export const orderInputSchema = z
     approved_facts: z.array(approvedFactSchema).max(12).default([]),
     telegram_owner_id: z.number().int().positive().optional(),
     channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length).default([]),
+    /** Which trending purchase of this token this is (1 = first). Set by the trending intake. */
+    purchase_number: z.number().int().min(1).max(10_000).default(1),
     budget_cents: z.number().int().min(10).max(500).default(100),
     demo: z.boolean().default(false),
     /**
@@ -125,9 +149,10 @@ export type TrendingPurchase = z.infer<typeof trendingPurchaseSchema>;
 
 /**
  * Three pieces of content, published with the same campaign image:
- * - article (+ headline): Binance Square, Telegraph, Reddit
+ * - article (+ headline): Telegraph, Reddit
  * - social_post: a Telegram-sized post; the Full Send Trenches channel caption
  * - short_post: one X-sized post; the hub summary
+ * - spotlight_post / spotlight_alt: Peak's Community Spotlight on CoinMarketCap / Binance Square
  * meme_captions and trailer_lines are renderer inputs, not posts.
  */
 export const SHORT_POST_MAX = 280;
@@ -149,6 +174,12 @@ export const copySchema = z.object({
   short_post: z.string().min(10).max(SHORT_POST_MAX),
   meme_captions: z.array(z.string().max(100)).length(8),
   trailer_lines: z.array(z.string().max(70)).min(3).max(5),
+  /**
+   * Peak's "Community Spotlight" (CoinMarketCap) and its reworded twin (Binance Square). Optional so older/demo copy
+   * still validates; those fall back to social_post and the article.
+   */
+  spotlight_post: z.string().min(80).max(1200).optional(),
+  spotlight_alt: z.string().min(80).max(1200).optional(),
   /** Bitcointalk thread (optional so older/demo copy still validates; falls back to headline/article). */
   forum_title: z.string().min(5).max(80).optional(),
   forum_post: z.string().min(100).max(3000).optional(),
@@ -179,14 +210,17 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['telegraph', 60],
   ['binance', 65],
   ['call_channel', 75],
-  ['reddit_moonshots', 80],
-  ['reddit_solanamemecoins', 81],
+  ...REDDIT_KINDS.map((k) => [k, 80] as const),
   ['coinsniper', 85],
   ['coinvote', 86],
+  ['top100token', 86],
+  ['gemfinder', 86],
+  ['freshcoins', 86],
+  ['coinscope', 86],
   ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
-  // Peak Meme Creation Kit: plan all five jokes together, render each, then one gallery page.
+  // Peak Meme Creation Kit: plan all five jokes together and render each; they go out in the sticker pack.
   ['meme_plan', 90],
   ['meme_0', 91],
   ['meme_1', 92],
@@ -204,7 +238,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', 'reddit_moonshots', 'reddit_solanamemecoins', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
@@ -215,6 +249,10 @@ export type JobStatus = 'queued' | 'running' | 'submitted' | 'delivered' | 'skip
 export const EXPECTED_RENDER_FILES: Record<string, string[]> = {
   media: ['meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_5', 'meme_6', 'meme_7', 'trailer_square', 'trailer_vertical'],
   stickers: ['sticker_png_0', 'sticker_png_1', 'sticker_png_2', 'sticker_png_3', 'sticker_png_4'],
+};
+/** Sent when they exist: the meme pack's rendered memes, as a second set of stickers in the same pack. */
+export const OPTIONAL_RENDER_FILES: Record<string, string[]> = {
+  stickers: ['sticker_meme_png_0', 'sticker_meme_png_1', 'sticker_meme_png_2', 'sticker_meme_png_3', 'sticker_meme_png_4'],
 };
 
 const HOUR = 60 * 60_000;
@@ -234,10 +272,13 @@ export const DEADLINE_MS: Record<string, number> = {
   binance: 12 * HOUR,
   cmc_community: 12 * HOUR,
   bitcointalk: 12 * HOUR,
-  reddit_moonshots: 12 * HOUR,
-  reddit_solanamemecoins: 12 * HOUR,
+  ...Object.fromEntries(REDDIT_KINDS.map((k) => [k, 12 * HOUR])),
   coinsniper: 8 * 24 * HOUR,
   coinvote: 8 * 24 * HOUR,
+  top100token: 8 * 24 * HOUR,
+  gemfinder: 8 * 24 * HOUR,
+  freshcoins: 8 * 24 * HOUR,
+  coinscope: 8 * 24 * HOUR,
   press_1888: 8 * 24 * HOUR,
   sticker_art_0: 6 * HOUR,
   sticker_art_1: 6 * HOUR,
@@ -272,20 +313,22 @@ export function dependenciesOf(kind: string): string[] {
 
 /** Names used in the order report. Items not listed are internal steps, reported only when they fail. */
 export const SOURCE_LABELS: Record<string, string> = {
-  social_boost: 'X raid (WURK)',
+  social_boost: 'X raid, followers and Telegram members (WURK)',
   hub: 'Project hub',
   telegraph: 'Telegraph article',
   binance: 'Binance Square article',
   call_channel: 'Call channel post',
-  reddit_moonshots: 'Reddit r/moonshots',
-  reddit_solanamemecoins: 'Reddit r/solanamemecoins',
+  ...Object.fromEntries(Object.entries(REDDIT_SUBREDDITS).map(([k, s]) => [k, `Reddit r/${s}`])),
   coinsniper: 'CoinSniper listing',
   coinvote: 'Coinvote listing',
+  top100token: 'Top100Token listing',
+  gemfinder: 'GemFinder listing',
+  freshcoins: 'FreshCoins listing',
+  coinscope: 'Coinscope listing',
   cmc_community: 'CoinMarketCap community post',
   bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',
   sticker_publish: 'Telegram sticker pack',
-  meme_pack: 'Meme pack',
 };
 
 /** Internal steps, named when they fail in the report. */
@@ -306,4 +349,5 @@ export const STEP_LABELS: Record<string, string> = {
   meme_2: 'Meme artwork',
   meme_3: 'Meme artwork',
   meme_4: 'Meme artwork',
+  meme_pack: 'Meme stickers',
 };

@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError } from '../lib/errors.js';
 import { fromMicros } from '../lib/money.js';
 import type { ServiceContext } from '../services/context.js';
 import { quoteOnly } from './diagnostics.js';
-import { COMPONENT_STATUSES, PRESETS, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
+import { COMPONENT_STATUSES, PRESETS, TRENDING_PACKAGE, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
 import {
   auditTrail,
   componentsOf,
@@ -107,6 +107,8 @@ const LABELS: Record<ComponentKind, string> = {
   tg_batch_1: `${WURK_PACKAGE.tgBatch} Telegram members (first batch)`,
   tg_batch_2: `${WURK_PACKAGE.tgBatch} Telegram members (second batch)`,
   small_raid: 'Engagement on your X post (25 likes, 10 reposts, 10 comments, 70 views)',
+  x_followers: `${TRENDING_PACKAGE.followers} X followers`,
+  tg_members: `${TRENDING_PACKAGE.tgMembers} Telegram members`,
 };
 
 const CUSTOMER_STATUS: Record<PackageStatus, string> = {
@@ -164,6 +166,7 @@ export function registerWurkRoutes(app: FastifyInstance, ctx: ServiceContext): v
         postMixUsdc: ctx.config.WURK_MAX_POST_MIX_USDC,
         tgBatchUsdc: ctx.config.WURK_MAX_TG_BATCH_USDC,
         packageUsdc: ctx.config.WURK_PACKAGE_MAX_USDC,
+        trendingPackageUsdc: ctx.config.WURK_TRENDING_MAX_USDC,
         dailyUsdc: ctx.config.WURK_DAILY_MAX_USDC,
       },
       spentTodayUsdc: fromMicros(spentToday(ctx)),

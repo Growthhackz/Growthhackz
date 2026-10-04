@@ -100,3 +100,49 @@ describe('directory listings', () => {
     expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, url: null })).body.status).toBe('uncertain');
   });
 });
+
+describe('order report with listings under review', () => {
+  it('goes out once every listing is submitted with its coin page URL, marked in review; waits while a URL is unknown', async () => {
+    const t = makeApp();
+    t.http
+      .on('api.dexscreener.com/', () =>
+        json([{ chainId: 'solana', url: 'https://dexscreener.com/solana/pair123', baseToken: { address: SOL, name: 'Moon Frog', symbol: 'MFROG' }, liquidity: { usd: 1 } }]),
+      )
+      .on('generativelanguage.googleapis.com/', (_u, init) =>
+        JSON.parse(String(init.body)).generationConfig?.responseModalities
+          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
+          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+      );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    // No website, X or Telegram: sites that require a link get the DEX Screener chart.
+    const o = (await t.api('POST', '/v1/orders', { order_id: 'rev-1', chain: 'solana', contract_address: SOL, channels: ['top100token', 'gemfinder'], test: true })).body;
+    const tick = async () => { for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break; };
+    await tick();
+    const completed = async () => (await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.filter((e: any) => e.type === 'order.completed');
+
+    const a = (await t.api('POST', '/v1/publish/claim', { kinds: ['top100token'] })).body;
+    expect(a.target.listing.chart_url).toBe('https://dexscreener.com/solana/pair123');
+    await t.api('POST', `/v1/publish/${a.job.id}/complete`, { lease: a.job.lease, submitted: true, url: `https://top100token.com/solana/${SOL}` });
+    const b = (await t.api('POST', '/v1/publish/claim', { kinds: ['gemfinder'] })).body;
+    await t.api('POST', `/v1/publish/${b.job.id}/complete`, { lease: b.job.lease, submitted: true, url: null });
+    await tick();
+    expect(await completed()).toHaveLength(0); // GemFinder's page is not known yet
+
+    expect((await t.api('POST', `/v1/listings/${b.job.id}/checked`, { live: true, url: 'https://gemfinder.cc/gem/42' })).body.status).toBe('delivered');
+    await tick();
+    // Peak bot gets each listing's link once: at submission when the page is known ("in review"), else when it is live.
+    expect((await t.api('POST', `/v1/listings/${a.job.id}/checked`, { live: true, url: `https://top100token.com/solana/${SOL}` })).body.status).toBe('delivered');
+    const links = (await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.filter((e: any) => e.type === 'link.published').map((e: any) => [e.data.source, e.data.label]);
+    expect(links).toEqual([
+      ['top100token', 'Top100Token listing (in review)'],
+      ['gemfinder', 'GemFinder listing'],
+    ]);
+    const [done] = await completed();
+    expect(done.data.successes).toEqual(
+      expect.arrayContaining([
+        { source: 'top100token', label: 'Top100Token listing (in review)', url: `https://top100token.com/solana/${SOL}` },
+        { source: 'gemfinder', label: 'GemFinder listing', url: 'https://gemfinder.cc/gem/42' },
+      ]),
+    );
+  });
+});

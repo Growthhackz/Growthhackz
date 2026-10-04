@@ -134,23 +134,34 @@ describe('global pause', () => {
 });
 
 describe('live-test readiness', () => {
-  it('skips the whole sticker pack when there is no logo, and lists problems at /v1/errors', async () => {
+  it('with no logo, invents a mascot from the name for the campaign image and draws the stickers from it; lists problems at /v1/errors', async () => {
     const t = makeApp({ TRENDING_CHANNELS: 'telegraph' }); // hub off: Telegraph is blocked, which /v1/errors must show
+    const imageCalls: any[] = [];
     t.http
       .on('api.dexscreener.com/', () => json([{ chainId: 'solana', baseToken: { address: SOL, name: 'Moon Frog', symbol: 'MFROG' }, liquidity: { usd: 1 } }]))
-      .on('generativelanguage.googleapis.com/', (_u, init) =>
-        JSON.parse(String(init.body)).generationConfig?.responseModalities
-          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
-          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
-      );
+      .on('generativelanguage.googleapis.com/', (_u, init) => {
+        const body = JSON.parse(String(init.body));
+        if (!body.generationConfig?.responseModalities) return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] });
+        imageCalls.push(body.contents[0].parts);
+        return json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] });
+      });
     await t.setSetting('GEMINI_API_KEY', 'G');
     const o = (await t.api('POST', '/v1/trending', purchase)).body;
     for (let i = 0; i < 30; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
     const jobs = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs;
-    const sticker = jobs.filter((j: any) => j.kind.startsWith('sticker') || j.kind === 'stickers');
-    expect(sticker.length).toBe(7);
-    expect(sticker.every((j: any) => j.status === 'skipped')).toBe(true);
-    expect(sticker[0].result.reason).toContain('no logo');
+    const job = (k: string) => jobs.find((j: any) => j.kind === k);
+
+    // Campaign image: text only (no logo to attach), told to invent a mascot that fits the name.
+    const campaign = imageCalls.find((parts) => /campaign image/.test(parts.at(-1).text));
+    expect(campaign).toHaveLength(1);
+    expect(campaign[0].text).toContain('has no logo, so invent its mascot');
+    expect(campaign[0].text).toContain('"Moon Frog"');
+    // Each sticker gets the campaign image as its reference and redraws that mascot.
+    const stickers = imageCalls.filter((parts) => /Telegram sticker/.test(parts.at(-1).text));
+    expect(stickers).toHaveLength(5);
+    expect(stickers.every((parts) => parts[0].inlineData && /campaign artwork/.test(parts[1].text))).toBe(true);
+    for (let i = 0; i < 5; i++) expect(job(`sticker_art_${i}`).status).toBe('delivered');
+    expect(job('stickers').status).toBe('queued'); // waits for the render worker
 
     const errors = (await t.api('GET', '/v1/errors')).body.errors;
     expect(errors.find((e: any) => e.source === 'telegraph')).toMatchObject({ order: 'trending:cb-1', status: 'blocked' });

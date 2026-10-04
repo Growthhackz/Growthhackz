@@ -4,7 +4,7 @@ import {createServer} from 'node:http';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {cmcConfig,findPostId,postToCmc,publishCmc} from './cmc.mjs';
+import {cmcConfig, cmcFindPost,findPostId,postToCmc,publishCmc} from './cmc.mjs';
 import {checkRelease,pressConfig,pressCycle,slug,submitRelease} from './press.mjs';
 import {NotPostedError} from './reddit.mjs';
 
@@ -15,14 +15,15 @@ const body = async req => { const c = []; for await (const x of req) c.push(x); 
 const listen = async server => { await new Promise(r => server.listen(0, '127.0.0.1', r)); return `http://127.0.0.1:${server.address().port}`; };
 
 // ---------------------------------------------------------------- fake CMC
-const cmc = {posts: [], createReturnsId: true, nextId: 9001};
+// overlay: a full-page layer that appears once the composer opens ('onetrust' = CMC's late cookie banner; 'other' = anything else).
+const cmc = {posts: [], createReturnsId: true, nextId: 9001, overlay: null, slowEdit: false};
 const profileHtml = authed => page(authed ? `
-<button>Edit</button>
+<button id="edit"${cmc.slowEdit ? ' style="display:none"' : ''}>Edit</button>${cmc.slowEdit ? "<script>setTimeout(()=>{document.getElementById('edit').style.display=''},4000)</script>" : ''}
 <div><h2>All Posts</h2><div id="search" style="display:inline-block;width:32px"><svg width="16" height="16"></svg></div><div id="compose" style="display:inline-block;width:32px"><svg width="16" height="16"></svg></div></div>
 <div id="composer" style="display:none"><div contenteditable="true" id="ed"></div><input type="file" accept=".jpeg,.jpg,.png,.gif" multiple><button id="post">Post</button></div>
 <script>
 fetch('/gravity/v3/gravity/user/query').then(r=>r.json());
-document.getElementById('compose').onclick=()=>{document.getElementById('composer').style.display='block'};
+document.getElementById('compose').onclick=()=>{document.getElementById('composer').style.display='block';const o=${JSON.stringify(cmc.overlay)};if(o){const d=document.createElement('div');if(o==='onetrust')d.id='onetrust-consent-sdk';d.style.cssText='position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.4)';document.body.appendChild(d)}};
 document.getElementById('post').onclick=()=>fetch('/gravity/v4/gravity/post/create',{method:'POST',body:document.getElementById('ed').innerText});
 </script>` : `
 <button id="open">Log In</button>
@@ -57,6 +58,29 @@ cmc.createReturnsId = false;
 r = await postToCmc({text: 'Second post about Moon Frog'}, null, cmcCfg({password: 'wrong'}));
 assert.equal(r.url, `${cmcOrigin}/community/post/9002/`);
 await assert.rejects(postToCmc(target, null, cmcCfg({statePath: join(dir, 'none.json'), password: 'wrong'})), NotPostedError);
+// CMC's cookie banner showing up over the Post button is cleared and the post goes out.
+cmc.overlay = 'onetrust'; cmc.createReturnsId = true;
+r = await postToCmc({text: 'Third post about Moon Frog'}, null, cmcCfg());
+assert.equal(r.url, `${cmcOrigin}/community/post/9003/`);
+// Anything else covering it: the click never lands, so nothing was sent (safe to retry), not "maybe posted".
+cmc.overlay = 'other';
+const count = cmc.posts.length;
+await assert.rejects(postToCmc({text: 'Fourth post'}, null, cmcCfg()), e => e instanceof NotPostedError && /could not be clicked; nothing was sent|could not be clicked \(/.test(e.message));
+assert.equal(cmc.posts.length, count);
+cmc.overlay = null;
+// Self-healing lookups on our profile: found (link), absent (list loaded, not in it).
+assert.deepEqual(await cmcFindPost('Third post about Moon Frog', cmcCfg()), {url: `${cmcOrigin}/community/post/9003/`});
+// Same title line, different body: matched on the body, so an older post with the same title is never taken for it.
+cmc.posts.unshift({gravityId: '7001', textContent: 'Back in the Spotlight: Moon Frog ($MFROG)\n\nAn older update about the frog and its pond that went out last week.'});
+assert.deepEqual(await cmcFindPost('Back in the Spotlight: Moon Frog ($MFROG)\n\nA brand new update about the frog building every single day.', cmcCfg()), {absent: true});
+assert.deepEqual(await cmcFindPost('Back in the Spotlight: Moon Frog ($MFROG)\n\nAn older update about the frog and its pond that went out last week.', cmcCfg()), {url: `${cmcOrigin}/community/post/7001/`});
+cmc.posts.shift();
+assert.deepEqual(await cmcFindPost('A post that was never made', cmcCfg()), {absent: true});
+// A slow profile page: the Edit button shows after 4 s. Logged in already, so no login (the wrong password would fail it).
+cmc.slowEdit = true;
+r = await postToCmc({text: 'Fifth post about Moon Frog'}, null, cmcCfg({password: 'wrong'}));
+assert.match(r.url, /\/community\/post\/\d+\/$/);
+cmc.slowEdit = false;
 await assert.rejects(postToCmc(target, null, {...cmcCfg(), email: undefined, statePath: join(dir, 'none3.json')}), NotPostedError);
 assert.equal(findPostId({data: {tweetDTOList: [{gravityId: '1', textContent: 'other'}, {gravityId: '2', textContent: 'Second post about'}]}}, 'Second post about Moon'), '2');
 

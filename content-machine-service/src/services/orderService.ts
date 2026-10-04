@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, channelOf, deadlineMs, MAX_ATTEMPTS, orderInputSchema, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, channelOf, DIRECTORY_HOSTS, deadlineMs, IRREVERSIBLE, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -71,7 +71,7 @@ export function recordEvent(ctx: ServiceContext, orderId: string, type: string, 
     t: nowMs(ctx),
   });
   logProblem(ctx, orderId, type, data);
-  const link = type === 'delivery.updated' ? publishedLink(ctx, data) : null;
+  const link = type === 'delivery.updated' ? publishedLink(ctx, orderId, data) : null;
   if (link) {
     const p = JSON.parse(get<{ project: string }>(ctx.db, 'SELECT project FROM orders WHERE id = :id', { id: orderId })?.project ?? '{}');
     recordEvent(ctx, orderId, 'link.published', { ...link, project: { name: p.name ?? null, symbol: p.symbol ?? null } });
@@ -113,16 +113,24 @@ export function recentProblems(ctx: ServiceContext, sinceMs = 0, limit = 100) {
  * A live public URL for one destination, for the core bot to DM the buyer. The sticker pack has its own
  * sticker_pack.ready event, so it isn't repeated here; the hub is only linked when it is public.
  */
-function publishedLink(ctx: ServiceContext, data: unknown): { source: string; label: string; url: string } | null {
+function publishedLink(ctx: ServiceContext, orderId: string, data: unknown): { source: string; label: string; url: string } | null {
   const d = data as { kind?: string; status?: string; result?: { url?: unknown } };
+  // A listing's coin page is known at submission: it goes out then ("in review"), not again when the site approves it.
+  const listing = !!d?.kind && !!DIRECTORY_HOSTS[d.kind];
+  if (listing && d.status === 'submitted') return linkOf(d.kind!, `${SOURCE_LABELS[d.kind!]} (in review)`, d.result?.url);
   if (d?.status !== 'delivered' || !d.kind || d.kind === 'sticker_publish' || !SOURCE_LABELS[d.kind]) return null;
+  if (listing && get(ctx.db, "SELECT 1 AS x FROM events WHERE order_id = :o AND type = 'link.published' AND json_extract(data, '$.source') = :k", { o: orderId, k: d.kind }))
+    return null;
   if (d.kind === 'hub' && !ctx.config.PUBLIC_HUB_ENABLED) return null;
-  const url = d.result?.url;
+  return linkOf(d.kind, SOURCE_LABELS[d.kind]!, d.result?.url);
+}
+
+function linkOf(source: string, label: string, url: unknown): { source: string; label: string; url: string } | null {
   if (typeof url !== 'string' || url.length > 500) return null;
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:' || u.username || u.password) return null;
-    return { source: d.kind, label: SOURCE_LABELS[d.kind]!, url: u.href };
+    return { source, label, url: u.href };
   } catch {
     return null;
   }
@@ -162,7 +170,8 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
       const skipped =
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
         (input.test && channelOf(kind) === null && !['metadata', 'copy', 'campaign_image'].includes(kind)) ||
-        (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!));
+        (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!)) ||
+        (!!REDDIT_SUBREDDITS[kind] && !redditTargets(ctx).includes(kind));
       run(
         ctx.db,
         'INSERT INTO jobs (id, order_id, kind, rank, status, deadline_at, updated_at) VALUES (:id, :o, :kind, :rank, :status, :deadline, :t)',
@@ -174,10 +183,9 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
   });
 }
 
-/** Channels every trending order gets (TRENDING_CHANNELS), plus whatever the buybot asks for. */
+/** Channels every trending order gets (TRENDING_CHANNELS), plus whatever the buybot asks for, minus PAUSED_CHANNELS. */
 export function trendingChannels(ctx: ServiceContext, extra: string[] = []): string[] {
-  const defaults = ctx.config.TRENDING_CHANNELS.split(',').map((c) => c.trim()).filter((c) => (CHANNELS as readonly string[]).includes(c));
-  return [...new Set([...defaults, ...extra, 'call_channel'])];
+  return [...new Set(listed(ctx, [ctx.config.TRENDING_CHANNELS, ...extra, 'call_channel'].join(',')))];
 }
 
 /** Maps a trending purchase to an order with the default trending channels. */
@@ -192,8 +200,44 @@ export function createTrendingOrder(ctx: ServiceContext, body: unknown) {
   // A purchase is one order: a retried webhook gets the existing order even if TRENDING_CHANNELS changed since.
   const existing = get<{ id: string }>(ctx.db, 'SELECT id FROM orders WHERE order_id = :o', { o: `trending:${purchase_id}` });
   if (existing) return { order: loadOrder(ctx, existing.id), created: false };
+  // Earlier trending purchases of the same token make this a repeat: new posts, boost and stickers only.
+  const prior = earlierTrendingOrders(ctx, rest.chain, rest.contract_address).length;
+  const purchase_number = prior + 1;
   // Trending orders include the campaign art, stickers and the five-meme pack: about $1.40 of generation at list rates.
-  return createOrder(ctx, { budget_cents: 250, ...rest, order_id: `trending:${purchase_id}`, channels: trendingChannels(ctx, channels) });
+  return createOrder(ctx, {
+    budget_cents: 250,
+    ...rest,
+    order_id: `trending:${purchase_id}`,
+    channels: purchase_number > 1 ? repeatChannels(ctx) : trendingChannels(ctx, channels),
+    purchase_number,
+  });
+}
+
+/** Trending orders already placed for this token, oldest first (only purchases numbered below `before`, when given). */
+export function earlierTrendingOrders(ctx: ServiceContext, chain: string, contract: string, before?: number): Order[] {
+  const ca = chain === 'solana' ? contract : contract.toLowerCase();
+  // Orders from before purchase numbers existed count as first purchases.
+  return all<{ id: string }>(
+    ctx.db,
+    `SELECT id FROM orders WHERE order_id LIKE 'trending:%' AND json_extract(project, '$.chain') = :chain
+       AND json_extract(project, '$.contract_address') = :ca AND COALESCE(json_extract(project, '$.purchase_number'), 1) < :before
+     ORDER BY COALESCE(json_extract(project, '$.purchase_number'), 1), created_at`,
+    { chain, ca, before: before ?? Number.MAX_SAFE_INTEGER },
+  ).map((r) => loadOrder(ctx, r.id));
+}
+
+const paused = (ctx: ServiceContext) => ctx.config.PAUSED_CHANNELS.split(',').map((c) => c.trim()).filter(Boolean);
+const listed = (ctx: ServiceContext, csv: string) => csv.split(',').map((c) => c.trim()).filter((c) => (CHANNELS as readonly string[]).includes(c) && !paused(ctx).includes(c));
+
+/** What a repeat purchase gets (REPEAT_CHANNELS, minus paused channels). */
+export function repeatChannels(ctx: ServiceContext): string[] {
+  return [...new Set(listed(ctx, ctx.config.REPEAT_CHANNELS))];
+}
+
+/** REDDIT_TARGETS as item kinds. */
+export function redditTargets(ctx: ServiceContext): string[] {
+  const listed = ctx.config.REDDIT_TARGETS.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return Object.entries(REDDIT_SUBREDDITS).filter(([, s]) => listed.includes('all') || listed.includes(s.toLowerCase())).map(([k]) => k);
 }
 
 export function loadOrder(ctx: ServiceContext, id: string): Order {
@@ -278,8 +322,8 @@ export function getJob(ctx: ServiceContext, id: string): JobRow {
 
 /** Re-queues blocked/failed work. Uncertain publications must be reconciled instead. */
 /**
- * `resetAttempts` (admin, after fixing the cause) is only allowed for blocked work: blocked means nothing was sent,
- * so a fresh set of attempts can't double-post. `confirmNotPosted` (admin) retries an uncertain publication after
+ * `resetAttempts` (admin, after fixing the cause) is only allowed where nothing was sent: blocked work, or a failed
+ * content step (a render or generation publishes nothing), so a fresh set of attempts can't double-post. `confirmNotPosted` (admin) retries an uncertain publication after
  * someone has checked that it did not go out.
  */
 export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false, confirmNotPosted = false) {
@@ -287,7 +331,8 @@ export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false,
   if (j.status === 'uncertain' && confirmNotPosted) resetAttempts = true;
   else if (!['blocked', 'failed'].includes(j.status))
     throw new ConflictError('Only blocked or failed work can be retried. Uncertain publications require reconciliation.');
-  if (resetAttempts && !['blocked', 'uncertain'].includes(j.status)) throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
+  const nothingSent = ['blocked', 'uncertain'].includes(j.status) || (j.status === 'failed' && !IRREVERSIBLE.includes(j.kind));
+  if (resetAttempts && !nothingSent) throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
   if (j.attempts >= MAX_ATTEMPTS && !resetAttempts) throw new ConflictError('Three-attempt limit reached; inspect the provider before proceeding.');
   run(
     ctx.db,

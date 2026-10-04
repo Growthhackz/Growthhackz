@@ -76,12 +76,14 @@ A trending purchase (`POST /v1/trending`) becomes one order. Its items run on th
 2a  telegraph · binance · call_channel · coinsniper · coinvote ·           each needs the campaign image
     cmc_community · press_1888 (· reddit, on hold)
 3a  sticker art → stickers → sticker pack                                 needs only the copy
-4   order.completed callback + GET /v1/orders/:id/report                  once every item is final
+4   order.completed callback + GET /v1/orders/:id/report                  once every item is final (listings: once submitted with their URL)
 ```
 
-- **Channels:** every trending order gets `TRENDING_CHANNELS` (default: `telegraph,binance,call_channel,coinsniper,coinvote,cmc_community,press_1888,social_boost`) plus any the buybot sends.
+- **Channels:** every trending order gets `TRENDING_CHANNELS` (default: `telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack`; CoinSniper and Coinvote are off because their submissions don't go through, Reddit is on hold) plus any the buybot sends.
 - **Links:** the copy is written without links. Every post gets the project's Telegram link, and articles (Telegraph, Binance, Reddit, press release) also get X and the website.
-- **Social boost:** calls social-activity-service (`SOCIAL_ACTIVITY_URL`, `SOCIAL_ACTIVITY_TOKEN`) to create a bundled WURK package (`SOCIAL_BOOST_PRESET`: `small_raid` now, `full` saved for later) and marks it paid by the trending purchase. The call is idempotent per order. It is delivered once WURK has accepted the job (the report shows its job link). If the social service is down, the boost keeps retrying until its deadline and nothing else waits on it. With no `x_post_url` in the purchase it is skipped.
+- **Paused channels:** `PAUSED_CHANNELS` (default `call_channel`) switches channels off for every order, even when the buybot asks for them.
+- **Repeat purchases:** a trending purchase for a token that already has trending orders is numbered (`project.purchase_number`) and gets only `REPEAT_CHANNELS` (default: CMC and Binance posts, the social boost and the meme pack) plus five new stickers. Its copy is about the team that keeps marketing and building, and is given the earlier posts so nothing repeats; memes use templates the token hasn't had and avoid its earlier captions; stickers get the next five captions and are added to the token's existing pack (`t.me/addstickers/<TICKER>_by_<bot>`; a new pack once it holds 120). Titles: "Back in the Spotlight", "Still Building", "Full Steam Ahead", …
+- **Social boost:** calls social-activity-service (`SOCIAL_ACTIVITY_URL`, `SOCIAL_ACTIVITY_TOKEN`) to create a bundled WURK package (`SOCIAL_BOOST_PRESET`: `trending` by default, the $1 small raid plus 50 X followers and 50 Telegram members, $4.00; `small_raid` is the raid alone; `full` is saved for later) and marks it paid by the trending purchase. The call is idempotent per order. It is delivered once WURK has accepted the job (the report shows its job link). If the social service is down, the boost keeps retrying until its deadline and nothing else waits on it. With no `x_post_url` in the purchase it is skipped.
 - **Deadlines:** each item fails automatically when its time runs out. It's measured from the order, or from an admin retry.
 
   | Item | Deadline |
@@ -94,7 +96,7 @@ A trending purchase (`POST /v1/trending`) becomes one order. Its items run on th
   | social boost | 24h |
 
   A running item is never cut off mid-run, and `uncertain` items (possibly published) are left for reconciliation. When an item fails, everything that depends on it fails straight away with `Not started: <item> failed` instead of waiting out its own deadline.
-- **Report:** `GET /v1/orders/:id/report` (or `/v1/orders/by-external-id/trending:<purchase_id>/report`) returns three lists: `successes` (source, label, public URL), `failures` (source, label, reason; `unconfirmed` for possibly-published items) and `pending` (status, deadline, current problem). When every item is final, the same report goes to `CALLBACK_URL` as a signed `order.completed` event. An admin retry reopens the order, and it reports again when it finishes.
+- **Report:** `GET /v1/orders/:id/report` (or `/v1/orders/by-external-id/trending:<purchase_id>/report`) returns three lists: `successes` (source, label, public URL), `failures` (source, label, reason; `unconfirmed` for possibly-published items) and `pending` (status, deadline, current problem). When every item is final, the same report goes to `CALLBACK_URL` as a signed `order.completed` event. A listing that was submitted with its coin page URL counts as final for this (the site's review can take days): it is in `successes` labelled "(in review)". An admin retry reopens the order, and it reports again when it finishes.
 
 ## Orders
 
@@ -255,3 +257,32 @@ With `PUBLIC_HUB_ENABLED=true`, `GET /projects/:id` serves the project page as H
 ## Not yet verified live
 
 Gemini, Telegraph, Telegram and Binance have not been exercised with real credentials. The first paid order should be a low-cost acceptance test with connected accounts.
+
+
+## Self-healing
+
+Problems are fixed automatically where that is safe. Admins (`ASSIST_CHAT_ID`, else `STICKER_OWNER_ID`) get a Telegram message only when a person is needed (🔴, with what to do), and the same message at most once every 12 hours. 🟡 caught and ✅ fixed are written to the API log only; `ADMIN_NOTIFY=all` sends them too. The proxy never alerts on its own: the worker goes direct, and a site alerts if it breaks.
+
+- **Sources:** a failed health check is rechecked every 5 minutes instead of 30; the CMC and GemFinder checks log in again and save the session. After 3 failed attempts in a row the source is escalated (🔴).
+- **Content steps** (copy, images, memes, sticker art, renders): a step that failed its attempts gets one more run after 10 minutes, with everything that failed only because of it. If retries used up the order's generation allowance it gets a one-time top-up (`HEAL_BUDGET_CENTS`, default 150). A second failure is escalated.
+- **Uncertain publications** (CMC post, GemFinder listing): 10 minutes later the worker looks on our account. Found: the link is recorded. Our list loaded and it isn't there: it is posted again. The account page didn't load 3 times: escalated.
+- **Worker container:** the worker runs under `tini`, which reaps exited browser processes. If the container still runs out of processes or memory (`EAGAIN`, `ENOMEM`, Chromium crashing at launch, or more than 100 unreaped processes), the worker restarts itself and Railway brings it back. A browser that never started counts as "nothing was sent", so the item is retried rather than left uncertain. A failed render reports its real error. Admins can reset the attempts on a failed content step (`reset_attempts`), because it publishes nothing.
+- **Ops agent:** a scheduled Claude Code session reads `/v1/health/sources` and `/v1/errors` every hour; for a problem the automatic fixes don't cover it changes the code, runs the tests, merges, deploys, checks the result and reports through `POST /v1/ops/notify`.
+- `SELF_HEAL_ENABLED=false` turns the automatic fixes off.
+
+## Keeping sources up (health checks)
+
+Every 30 minutes the worker checks each site it posts to and the API checks its own keys, bots and the WURK wallet (`GET /v1/health/sources`, `POST /v1/health/run`). A failed check is retried once before it counts. Each change between working and broken is sent to `ASSIST_CHAT_ID` (else `STICKER_OWNER_ID`) on Telegram: 🔴 with what to fix, 🟢 when it works again. The CMC and GemFinder checks also log in again when their session lapsed, which keeps those logins fresh between orders.
+
+| Source | What keeps it working | Checked by | When it breaks |
+|---|---|---|---|
+| CoinMarketCap | `CMC_COOKIES` + `CMC_EMAIL` / `CMC_PASSWORD` (the worker re-logs in and saves fresh cookies to `/data`), residential `DIRECTORY_PROXY` | profile shows our Edit button | log in once in a normal browser and export fresh `CMC_COOKIES` (a human check at login is not bypassed) |
+| Bitcointalk | `BTCTALK_COOKIES` (`SMFCookie…`, "stay logged in"; current one expires 2027-11) | logged-in username | export fresh cookies from a logged-in browser |
+| Binance Square | `BINANCE_SQUARE_OPENAPI_KEY` + the Square skill in the image | key and script present | new OpenAPI key |
+| Top100Token | no login | submit form loads | usually Cloudflare; clears by itself |
+| GemFinder | `GEMFINDER_EMAIL` / `GEMFINDER_PASSWORD` | logged in, add-coin form loads | check the password |
+| FreshCoins | `FRESHCOINS_COOKIES` (Google login; `__client` cookie lasts a year) | add-coin form loads | export fresh cookies from a logged-in browser |
+| Coinscope | `COINSCOPE_REFRESH_TOKEN` (Google login) | token mints a login | sign in again and copy the new refresh token |
+| Gemini, sticker bot, Telegraph | API keys / tokens | key works, `getMe`, token valid | replace the key or token |
+| WURK | wallet key + `WURK_LIVE_PAYMENTS_ENABLED`, USDC balance | live and at least `WURK_LOW_BALANCE_USDC` (20) USDC | top up the wallet |
+| Worker | `content-machine-worker` running | polled the API in the last 10 min | redeploy the worker |

@@ -16,7 +16,7 @@ const PRICES: Record<string, string> = {
   '/solana/xraid/small': '1000000',
 };
 
-type PaidBehaviour = 'ok' | 'timeout' | '409' | '500' | 'no-json';
+type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | 'no-json';
 
 /** A fake WURK: 402 with a v2 challenge when unpaid; job JSON when PAYMENT-SIGNATURE is present. */
 function fakeWurk() {
@@ -51,6 +51,19 @@ function fakeWurk() {
     const b = state.paid[route] ?? 'ok';
     if (b === 'timeout') throw new Error('The operation was aborted due to timeout');
     if (b === '409') return new Response(JSON.stringify({ message: 'job already active for this group' }), { status: 409 });
+    if (b === '409-stale') {
+      state.paid[route] = 'ok'; // the next, freshly quoted payment goes through
+      return new Response(JSON.stringify({ message: 'The requested payment differs from its sealed component manifest.', errorCode: 'X402_REWARD_SOURCE_INVALID' }), { status: 409 });
+    }
+    if (b === '409-kept') {
+      // Seen live (Oct 1 and 3): WURK settles the USDC, then refuses the job.
+      state.paid[route] = 'ok';
+      const settle = { success: true, transaction: 'txKept', network: SOLANA_MAINNET };
+      return new Response(JSON.stringify({ message: 'The requested payment differs from its sealed component manifest.', errorCode: 'X402_REWARD_SOURCE_INVALID' }), {
+        status: 409,
+        headers: { 'payment-response': Buffer.from(JSON.stringify(settle)).toString('base64') },
+      });
+    }
     if (b === '500') return new Response('upstream', { status: 500 });
     if (b === 'no-json') return new Response('ok', { status: 200 });
     state.jobs++;
@@ -414,6 +427,86 @@ describe('WURK fulfillment', () => {
     expect(wurk.state.requests.every((r) => r.url.includes('/solana/xraid/small'))).toBe(true);
     const progress = (await api('GET', `/v1/wurk/packages/${created.body.id}/progress`)).body;
     expect(progress.items[0].item).toContain('25 likes');
+  });
+
+  it('trending preset: the $1 raid, 50 followers and 50 Telegram members ($4.00); no Telegram leaves the members out', async () => {
+    const { ctx, api, signed, wurk } = setup();
+    wurk.state.price['/solana/xfollowers'] = '1500000';
+    wurk.state.price['/solana/tgmembers'] = '1500000';
+    const created = await api(
+      'POST',
+      '/v1/wurk/packages',
+      { preset: 'trending', bundled: true, xPost: 'https://x.com/moonfrog/status/7', xProfile: 'https://x.com/moonfrog', telegram: 'https://t.me/moonfrog' },
+      { 'idempotency-key': 'cm-order-7' },
+    );
+    expect(created.status).toBe(201);
+    expect(created.body.costCeilingUsdc).toBe(4);
+    expect(created.body.components.map((c: any) => [c.kind, c.target, c.ceilingUsdc])).toEqual([
+      ['small_raid', 'https://wurkapi.fun/solana/xraid/small?url=https%3A%2F%2Fx.com%2Fmoonfrog%2Fstatus%2F7', 1],
+      ['tg_members', 'https://wurkapi.fun/solana/tgmembers?join=https%3A%2F%2Ft.me%2Fmoonfrog&amount=50', 1.5],
+      ['x_followers', 'https://wurkapi.fun/solana/xfollowers?handle=moonfrog&amount=50', 1.5],
+    ]);
+    await api('POST', `/v1/wurk/packages/${created.body.id}/payment-received`, { paymentRef: 'trending:7' });
+    await processWurk(ctx);
+    expect((await api('GET', `/v1/wurk/packages/${created.body.id}`)).body.status).toBe('in_progress');
+    expect([...signed].sort()).toEqual(['1000000', '1500000', '1500000']);
+    const progress = (await api('GET', `/v1/wurk/packages/${created.body.id}/progress`)).body;
+    expect(progress.items.map((i: any) => i.item)).toEqual(expect.arrayContaining(['50 X followers', '50 Telegram members']));
+
+    // A follower price rise is refused, not paid.
+    wurk.state.price['/solana/xfollowers'] = '1600000';
+    const noTg = (await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xPost: 'https://x.com/moonfrog/status/8' })).body;
+    expect(noTg.components.map((c: any) => c.kind).sort()).toEqual(['small_raid', 'x_followers']);
+    await api('POST', `/v1/wurk/packages/${noTg.id}/payment-received`, { paymentRef: 'trending:8' });
+    await processWurk(ctx);
+    const after = (await api('GET', `/v1/wurk/packages/${noTg.id}`)).body;
+    expect(after.components.find((c: any) => c.kind === 'x_followers').status).toBe('needs_attention');
+    expect(signed).toHaveLength(4);
+  });
+
+  it('a stale-quote refusal (409, nothing paid) is retried with a fresh quote instead of waiting for a person', async () => {
+    const { ctx, api, clock, signed, wurk } = setup();
+    wurk.state.paid['/solana/xraid/small'] = '409-stale';
+    const p = (await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: 'https://x.com/a/status/5' })).body;
+    await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: 'stale' });
+    await processWurk(ctx);
+    let detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.components[0]).toMatchObject({ status: 'queued', lastError: expect.stringContaining('stale quote') });
+    expect(detail.components[0].payments[0].status).toBe('failed');
+    clock.advance(10 * 60_000);
+    await processWurk(ctx);
+    detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('in_progress');
+    expect(detail.components[0].payments.map((x: any) => x.status)).toEqual(['failed', 'settled']);
+    expect(signed).toHaveLength(2);
+  });
+
+  it('a refusal that kept the USDC is never paid again, and holds paid requests of that kind for 2 hours', async () => {
+    const { ctx, api, clock, signed, wurk } = setup();
+    wurk.state.paid['/solana/xraid/small'] = '409-kept';
+    const make = async (n: number) => {
+      const p = (await api('POST', '/v1/wurk/packages', { preset: 'small_raid', bundled: true, xPost: `https://x.com/a/status/${n}` })).body;
+      await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: `kept${n}` });
+      return p.id as string;
+    };
+    const first = await make(1);
+    await processWurk(ctx);
+    let detail = (await api('GET', `/v1/wurk/packages/${first}`)).body;
+    expect(detail.components[0]).toMatchObject({ status: 'reconcile_required', lastError: expect.stringContaining('WURK kept the payment (transaction txKept)') });
+    expect(signed).toHaveLength(1);
+    // The next order's raid waits instead of paying into it.
+    const second = await make(2);
+    clock.advance(10 * 60_000);
+    await processWurk(ctx);
+    detail = (await api('GET', `/v1/wurk/packages/${second}`)).body;
+    expect(detail.components[0]).toMatchObject({ status: 'queued', lastError: expect.stringContaining('holding paid requests') });
+    expect(signed).toHaveLength(1);
+    // After the hold it goes through; the first is still left for reconciling, never re-paid.
+    clock.advance(2 * 3600_000);
+    await processWurk(ctx);
+    expect((await api('GET', `/v1/wurk/packages/${second}`)).body.status).toBe('in_progress');
+    expect((await api('GET', `/v1/wurk/packages/${first}`)).body.components[0].status).toBe('reconcile_required');
+    expect(signed).toHaveLength(2);
   });
 
   it('small_raid refuses a quote above $1; the full preset drops Telegram members when there is no Telegram', async () => {

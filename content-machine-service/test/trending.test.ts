@@ -36,9 +36,19 @@ async function drain(t: ReturnType<typeof makeApp>) {
   for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) return;
 }
 
+describe('paused channels', () => {
+  it('leaves the call channel off by default, even when the buybot asks for it', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph,call_channel' });
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, channels: ['call_channel'] })).body;
+    expect(o.project.channels).toEqual(['telegraph']);
+    expect(o.jobs.find((j: any) => j.kind === 'call_channel').status).toBe('skipped');
+  });
+});
+
+// The call channel is paused by default (PAUSED_CHANNELS); these run with it on.
 describe('trending purchase → call channel', () => {
   it('posts the X-sized post with the campaign image and the project Telegram link', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', PAUSED_CHANNELS: '' });
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_BOT_TOKEN', 'CALL');
@@ -73,7 +83,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('adds extra channels and rejects bad input', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', PAUSED_CHANNELS: '' });
     const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x2', channels: ['telegraph'] });
     expect(r.body.project.channels).toEqual(['call_channel', 'telegraph']);
     const withOwner = await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x3', telegram_owner_id: 42 });
@@ -84,7 +94,7 @@ describe('trending purchase → call channel', () => {
   });
 
   it('blocks without the call bot, and never reposts after an ambiguous failure', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: '', PAUSED_CHANNELS: '' });
     wire(t);
     await t.setSetting('GEMINI_API_KEY', 'G');
     await t.setSetting('CALL_CHANNEL_ID', '@fullsendtrenches');
@@ -117,10 +127,12 @@ describe('trending purchase → call channel', () => {
 });
 
 describe('sticker pack for trending orders', () => {
-  it('uses one bot, a team-owned pack, and tells the buybot where to DM the link', async () => {
+  it('uses one bot, a team-owned pack named after the ticker (memes included), and tells the buybot where to DM the link', async () => {
     const t = makeApp({ TRENDING_CHANNELS: '' });
     wire(t);
-    const sets = new Set<string>();
+    // Another token with the same ticker already has the plain name.
+    const sets = new Map<string, number>([['MFROG_by_Fullsendtrenchesbot', 5]]);
+    let created: any;
     t.http.on('api.telegram.org/botCALL/', async (u, init) => {
       const method = u.pathname.split('/').pop();
       if (method === 'sendPhoto') return json({ ok: true, result: { message_id: 501, chat: { id: -1001, username: 'fullsendtrenches' } } });
@@ -132,12 +144,13 @@ describe('sticker pack for trending orders', () => {
       if (method === 'createNewStickerSet') {
         const b = JSON.parse(String(init.body));
         expect(b.user_id).toBe(777);
-        sets.add(b.name);
+        created = b;
+        sets.set(b.name, b.stickers.length);
         return json({ ok: true, result: true });
       }
       if (method === 'getStickerSet') {
         const { name } = JSON.parse(String(init.body));
-        return sets.has(name) ? json({ ok: true, result: { stickers: [1, 2, 3, 4, 5] } }) : json({ ok: false }, 400);
+        return sets.has(name) ? json({ ok: true, result: { stickers: Array.from({ length: sets.get(name)! }, (_, i) => i) } }) : json({ ok: false }, 400);
       }
       return json({ ok: false }, 404);
     });
@@ -157,13 +170,15 @@ describe('sticker pack for trending orders', () => {
     const o = (await t.api('POST', '/v1/trending', { ...purchase, telegram_owner_id: 42 })).body;
     await drain(t);
     const pngs = Array.from({ length: 5 }, (_, i) => ({ kind: `sticker_png_${i}`, mime: 'image/png', base64: pngBytes(512, 512).toString('base64') }));
+    // Three memes rendered: the worker sends them as a second set of stickers.
+    const memeStickers = Array.from({ length: 3 }, (_, i) => ({ kind: `sticker_meme_png_${i}`, mime: 'image/png', base64: pngBytes(512, 512).toString('base64') }));
     // Media render first (memes/trailers), then stickers.
     for (;;) {
       const c = (await t.api('POST', '/v1/render/claim')).body;
       if (!c) break;
       const files =
         c.job.kind === 'stickers'
-          ? pngs
+          ? [...pngs, ...memeStickers]
           : [
               ...Array.from({ length: 8 }, (_, i) => ({ kind: `meme_${i}`, mime: 'image/png', base64: pngBytes().toString('base64') })),
               ...['trailer_square', 'trailer_vertical'].map((kind) => ({ kind, mime: 'video/mp4', base64: Buffer.from('\0\0\0\x18ftypisom').toString('base64') })),
@@ -175,7 +190,9 @@ describe('sticker pack for trending orders', () => {
     expect(done.status).toBe('delivered');
     const ready = received.find((e) => e.type === 'sticker_pack.ready');
     expect(ready.external_order_id).toBe('trending:trend-77');
-    expect(ready.data.url).toMatch(/^https:\/\/t\.me\/addstickers\/p.+_by_Fullsendtrenchesbot$/);
+    expect(ready.data.url).toBe('https://t.me/addstickers/MFROG2_by_Fullsendtrenchesbot');
+    expect(created.stickers).toHaveLength(8);
+    expect(done.jobs.find((j: any) => j.kind === 'sticker_publish').result).toMatchObject({ name: 'MFROG2_by_Fullsendtrenchesbot', count: 8 });
     expect(received.every((e) => e.external_order_id === 'trending:trend-77')).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import {
   DIRECTORY_HOSTS,
   EXPECTED_RENDER_FILES,
   IRREVERSIBLE,
+  OPTIONAL_RENDER_FILES,
   LISTING_PATHS,
   LISTING_REVIEW_MAX_MS,
   PRESS_KINDS,
@@ -25,12 +26,15 @@ import { researchProject } from '../providers/research.js';
 import { isPaused } from './pauseService.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { socialActivity } from '../providers/socialActivity.js';
-import { createGalleryPage, createPage, type PageLink } from '../providers/telegraph.js';
+import { createPage, type PageLink } from '../providers/telegraph.js';
 import { memeKit, planPack, renderMeme, selectTemplates, type Meme } from '../providers/memes.js';
 import { verifyPublication } from '../providers/verify.js';
 import { hubUrl, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
-import { getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
+import { apiHealthChecks } from './healthService.js';
+import { healOrders } from './healService.js';
+import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
+import { assistKinds, sendAssists } from './assistService.js';
 
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
@@ -38,6 +42,8 @@ const JOB_LEASE_MS = 2 * 60_000;
 const PUBLISH_LEASE_MS = 3 * 60_000;
 const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
+/** Telegram's limit for a static sticker pack. */
+const MAX_PACK_STICKERS = 120;
 
 type Leased = JobRow & { lease: string };
 
@@ -60,7 +66,7 @@ const STICKER_KINDS = ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'stick
 
 /** No logo (supplied or from the DEX): the whole sticker pack is skipped rather than blocking the order. */
 function skipStickerPack(ctx: ServiceContext, j: Leased, o: Order) {
-  const result = { reason: 'The project has no logo, so no sticker pack was made.' };
+  const result = { reason: 'The project has no logo and its campaign image failed, so no sticker pack was made.' };
   finish(ctx, j, result, 'skipped');
   for (const other of o.jobs)
     if (STICKER_KINDS.includes(other.kind) && other.id !== j.id && ['queued', 'blocked'].includes(other.status)) {
@@ -123,6 +129,9 @@ function ready(j: JobRow, o: Order): boolean {
   if (j.kind === 'media') return done('campaign_image');
   if (j.kind === 'stickers') return [0, 1, 2, 3, 4].every((i) => done('sticker_art_' + i));
   if (j.kind === 'sticker_publish') return done('stickers');
+  // No logo: each sticker redraws the mascot from the campaign image, so it waits for that image to settle.
+  if (j.kind.startsWith('sticker_art_') && !o.project.logo_url)
+    return o.jobs.some((x) => x.kind === 'campaign_image' && ['delivered', 'failed', 'skipped'].includes(x.status));
   if (j.kind === 'meme_plan') return true;
   if (MEME_SLOTS.includes(j.kind)) return done('meme_plan');
   // The gallery goes out once every render has finished one way or the other.
@@ -132,8 +141,52 @@ function ready(j: JobRow, o: Order): boolean {
   return true;
 }
 
+/** What a repeat purchase must not repeat: earlier purchases' posts, meme templates and captions, and its sticker pack. */
+export interface TokenHistory {
+  /** 1 for the first trending purchase of the token. */
+  number: number;
+  posts: string[];
+  templates: string[];
+  captions: unknown[];
+  /** The token's sticker pack from an earlier purchase, to add the new stickers to. */
+  pack: string | null;
+  /** An earlier purchase's pack is still being made: wait for it rather than start a second pack. */
+  packPending: boolean;
+}
+
+/** A repeat purchase of a token with no logo: the first purchase's campaign image, whose mascot is in the pack. */
+async function firstMascot(ctx: ServiceContext, o: Order): Promise<{ mime: string; bytes: Buffer } | undefined> {
+  if ((o.project.purchase_number ?? 1) < 2) return undefined;
+  for (const x of earlierTrendingOrders(ctx, o.project.chain, o.project.contract_address, o.project.purchase_number ?? 1)) {
+    const a = x.assets.find((y) => y.kind === 'campaign_image');
+    const bytes = a && (await ctx.assets.get(a.path));
+    if (bytes) return { mime: a.mime, bytes };
+  }
+  return undefined;
+}
+
+export function tokenHistory(ctx: ServiceContext, o: Order): TokenHistory {
+  const number = o.project.purchase_number ?? 1;
+  const prior = number > 1 ? earlierTrendingOrders(ctx, o.project.chain, o.project.contract_address, o.project.purchase_number ?? 1) : [];
+  const result = (x: Order, kind: string) => {
+    const j = x.jobs.find((y) => y.kind === kind && y.status === 'delivered' && y.result);
+    return j ? JSON.parse(j.result!) : null;
+  };
+  const plans = prior.map((x) => result(x, 'meme_plan')).filter(Boolean);
+  return {
+    number,
+    posts: prior.flatMap((x) => [x.copy?.spotlight_post, x.copy?.spotlight_alt, x.copy?.social_post]).filter((t): t is string => !!t),
+    templates: plans.flatMap((pl) => pl.templates ?? []),
+    captions: plans.flatMap((pl) => (pl.memes ?? []).map((m: { selected_caption: unknown }) => m.selected_caption)),
+    pack: prior.map((x) => result(x, 'sticker_publish')?.name).filter((n): n is string => typeof n === 'string').pop() ?? null,
+    packPending: prior.some((x) => x.jobs.some((y) => y.kind === 'sticker_publish' && ['queued', 'running', 'blocked'].includes(y.status))),
+  };
+}
+
+const SOLO_KINDS = ['metadata', 'social_boost'];
+
 /** Atomically leases the next ready job on an order. `render` selects renderer-only kinds. */
-export function claim(ctx: ServiceContext, orderId: string, render = false): { job: Leased; order: Order } | null {
+export function claim(ctx: ServiceContext, orderId: string, render = false, skip: readonly string[] = []): { job: Leased; order: Order } | null {
   expireLeases(ctx);
   const o = loadOrder(ctx, orderId);
   const t = nowMs(ctx);
@@ -144,6 +197,7 @@ export function claim(ctx: ServiceContext, orderId: string, render = false): { j
       RENDER_KINDS.includes(j.kind) === render &&
       // Binance and Reddit wait for the companion worker's publish claim.
       !WORKER_PUBLICATIONS.includes(j.kind) &&
+      !skip.includes(j.kind) &&
       ready(j, o),
   );
   for (const j of candidates) {
@@ -159,17 +213,28 @@ export function claim(ctx: ServiceContext, orderId: string, render = false): { j
   return null;
 }
 
-/** Runs at most one ready in-process job on the order. */
-export async function processOrder(ctx: ServiceContext, orderId: string): Promise<boolean> {
-  const c = claim(ctx, orderId);
-  if (!c) return false;
-  try {
-    await runJob(ctx, c.job, c.order);
-  } catch (err) {
-    fail(ctx, c.job, err);
-  }
+/**
+ * Runs the order's ready in-process jobs, up to PARALLEL_JOBS_PER_ORDER at once (jobs are only ready once what they
+ * need is delivered, so the ones running together are independent). Returns how many ran.
+ */
+export async function processOrder(ctx: ServiceContext, orderId: string): Promise<number> {
+  const first = claim(ctx, orderId);
+  if (!first) return 0;
+  const batch = [first];
+  // Both save the order's project (the boost stores the X post it chose): never alongside anything else.
+  if (!SOLO_KINDS.includes(first.job.kind))
+    for (let c; batch.length < ctx.config.PARALLEL_JOBS_PER_ORDER && (c = claim(ctx, orderId, false, SOLO_KINDS)); ) batch.push(c);
+  await Promise.all(
+    batch.map(async (c) => {
+      try {
+        await runJob(ctx, c.job, c.order);
+      } catch (err) {
+        fail(ctx, c.job, err);
+      }
+    }),
+  );
   touchOrder(ctx, orderId);
-  return true;
+  return batch.length;
 }
 
 async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
@@ -183,7 +248,7 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
       return finish(ctx, j, { source: project.source, fetched_at: new Date(nowMs(ctx)).toISOString() });
     }
     case 'copy': {
-      const copy = await generateCopy(ctx, o);
+      const copy = await generateCopy(ctx, o, tokenHistory(ctx, o));
       run(ctx.db, 'UPDATE orders SET copy = :c WHERE id = :id', { c: copy, id: o.id });
       return finish(ctx, j, {
         formats: ['article', 'social_post', 'short_post', 'meme_captions', 'trailer_lines'],
@@ -203,8 +268,9 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   }
   if (j.kind === 'campaign_image' || j.kind.startsWith('sticker_art_')) {
     if (o.demo) return finish(ctx, j, { demo: true, note: 'Demo uses supplied artwork; no generation charged.' }, 'skipped');
-    if (j.kind.startsWith('sticker_art_') && !p.logo_url) return skipStickerPack(ctx, j, o);
-    const m = await generateImage(ctx, o, j.kind);
+    // No logo: the stickers copy the mascot the campaign image invented; with neither there is nothing to copy.
+    if (j.kind.startsWith('sticker_art_') && !p.logo_url && !o.assets.some((a) => a.kind === 'campaign_image')) return skipStickerPack(ctx, j, o);
+    const m = await generateImage(ctx, o, j.kind, j.kind === 'campaign_image' && !p.logo_url ? await firstMascot(ctx, o) : undefined);
     const ext = m.mime === 'image/jpeg' ? 'jpg' : m.mime.split('/')[1];
     return finish(ctx, j, await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, m.mime, m.bytes));
   }
@@ -246,7 +312,17 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
       });
     }
     case 'sticker_publish': {
-      const pack = await publishStickers(ctx, o);
+      if (tokenHistory(ctx, o).packPending) {
+        // Back in the queue without using an attempt; the earlier purchase's pack is usually minutes away.
+        run(
+          ctx.db,
+          `UPDATE jobs SET status = 'queued', attempts = attempts - 1, lease = NULL, lease_until = NULL, available_at = :a, error = :e, updated_at = :t
+           WHERE id = :id AND lease = :lease`,
+          { a: nowMs(ctx) + 2 * 60_000, e: "Waiting for the token's sticker pack from its earlier purchase", t: nowMs(ctx), id: j.id, lease: j.lease },
+        );
+        return;
+      }
+      const pack = await publishStickers(ctx, j, o);
       finish(ctx, j, pack);
       // Dedicated event so the buybot can DM the pack link to the buyer.
       recordEvent(ctx, o.id, 'sticker_pack.ready', { url: pack.url, name: pack.name, project: { name: o.project.name, symbol: o.project.symbol } });
@@ -264,8 +340,11 @@ const MIN_MEMES = 3;
 async function runMemeJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
   if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
   if (j.kind === 'meme_plan') {
-    const templates = selectTemplates();
-    const memes = await planPack(ctx, o, templates);
+    // A repeat purchase gets templates its token hasn't had (all of them again once the bank runs out) and new jokes.
+    const history = tokenHistory(ctx, o);
+    const fresh = selectTemplates(undefined, history.templates);
+    const templates = fresh.length === 5 ? fresh : selectTemplates();
+    const memes = await planPack(ctx, o, templates, history.captions);
     return finish(ctx, j, { templates: templates.map((t) => t.id), memes });
   }
   const plan = o.jobs.find((x) => x.kind === 'meme_plan' && x.status === 'delivered');
@@ -279,20 +358,10 @@ async function runMemeJob(ctx: ServiceContext, j: Leased, o: Order): Promise<voi
     const asset = await saveAsset(ctx, o.id, j.kind, `${j.kind}.${ext}`, img.mime, img.bytes);
     return finish(ctx, j, { ...asset, template_id: t.id, caption: m.selected_caption });
   }
-  // meme_pack: one Telegraph gallery (opens inside Telegram) with every accepted meme.
-  const accepted = MEME_SLOTS.map((k) => o.assets.find((a) => a.kind === k)).filter((a): a is NonNullable<typeof a> => !!a);
+  // meme_pack: the memes are delivered as the second set of stickers in the order's sticker pack (sticker_publish).
+  const accepted = MEME_SLOTS.filter((k) => o.assets.some((a) => a.kind === k));
   if (accepted.length < MIN_MEMES) throw new UpstreamError(`Only ${accepted.length} of ${MEME_SLOTS.length} memes rendered; the pack needs at least ${MIN_MEMES}.`);
-  const p = o.project;
-  const title = `${p.name} ($${p.symbol}) Meme Pack`;
-  const page = await createGalleryPage(ctx, {
-    title,
-    author: p.name ?? '',
-    intro: `${accepted.length} custom $${p.symbol} memes. Long-press any image to save or share it.`,
-    images: accepted.map((a) => publicAssetUrl(ctx, o.id, a.id)),
-    links: projectLinks(p),
-  });
-  run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: page, id: j.id, lease: j.lease });
-  return finish(ctx, j, { ...(await verifyPublication(ctx, page.url, 'telegraph', title)), count: accepted.length });
+  return finish(ctx, j, { count: accepted.length, delivered_in: 'sticker_pack' });
 }
 
 /** The degen write-up, then the project's Telegram link when it has one. Sent as the campaign image's caption. */
@@ -301,33 +370,87 @@ export function callChannelCaption(_ctx: ServiceContext, o: Order): string {
   return [o.copy!.social_post, p.telegram_url ? `💬 ${p.telegram_url}` : null].filter(Boolean).join('\n\n');
 }
 
-async function publishStickers(ctx: ServiceContext, o: Order) {
+/**
+ * Telegram pack name: the ticker (letters and digits, starting with a letter), a number from the second pack on, then
+ * the `_by_<bot username>` ending Telegram requires for packs made by a bot. At most 64 characters.
+ */
+export function stickerPackName(symbol: string | undefined, name: string | undefined, bot: string, n = 1): string {
+  const suffix = `_by_${bot}`;
+  const tail = n > 1 ? String(n) : '';
+  let base = (symbol || name || '').replace(/[^A-Za-z0-9]/g, '') || 'pack';
+  if (!/^[A-Za-z]/.test(base)) base = `t${base}`;
+  return base.slice(0, 64 - suffix.length - tail.length) + tail + suffix;
+}
+
+/** One pack: the five mascot stickers, then the meme pack's memes (when it ran) as a second set. */
+async function publishStickers(ctx: ServiceContext, j: Leased, o: Order) {
   const p = o.project;
   // Every pack is owned by our team account (STICKER_OWNER_ID), which has started the bot; buyers just get the link.
   const ownerId = Number(setting(ctx, 'STICKER_OWNER_ID'));
   if (!ownerId) throw new SetupRequiredError('Set STICKER_OWNER_ID (a team member who has started the bot).');
   botToken(ctx);
+  const byKind = (prefix: string) => o.assets.filter((a) => a.kind.startsWith(prefix)).sort((a, b) => a.kind.localeCompare(b.kind));
+  const mascot = byKind('sticker_png_');
+  if (mascot.length !== 5) throw new SetupRequiredError('Five normalized 512px sticker PNGs are required.');
+  const pngs = [...mascot, ...byKind('sticker_meme_png_')];
+  const done = (name: string) => ({ url: `https://t.me/addstickers/${name}`, name, count: pngs.length });
   const me = await telegram(ctx, 'getMe', {});
-  const name = `p${o.id.replaceAll('-', '').slice(0, 24)}_by_${me.username}`;
-  let existing: any;
-  try {
-    existing = await telegram(ctx, 'getStickerSet', { name });
-  } catch {
-    // Not created yet.
-  }
-  if (existing?.stickers?.length === 5) return { url: `https://t.me/addstickers/${name}`, name, count: 5 };
-  const pngs = o.assets.filter((a) => a.kind.startsWith('sticker_png_')).sort((a, b) => a.kind.localeCompare(b.kind));
-  if (pngs.length !== 5) throw new SetupRequiredError('Five normalized 512px sticker PNGs are required.');
-  const stickers = [];
-  for (const [i, a] of pngs.entries()) {
+  const find = async (name: string) => {
+    try {
+      return await telegram(ctx, 'getStickerSet', { name });
+    } catch {
+      return null; // Not created yet.
+    }
+  };
+  const sticker = async (i: number) => {
+    const a = pngs[i]!;
     const bytes = await ctx.assets.get(a.path);
     if (!bytes) throw new SetupRequiredError('Sticker asset missing.');
-    stickers.push({ sticker: await uploadStickerFile(ctx, ownerId, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i]] });
+    return { sticker: await uploadStickerFile(ctx, ownerId, bytes, a.name), format: 'static', emoji_list: [STICKER_EMOJI[i % STICKER_EMOJI.length]] };
+  };
+
+  // Repeat purchase: the new stickers join the token's existing pack (a new pack only once that one is full or gone).
+  const pack = tokenHistory(ctx, o).pack;
+  if (pack) {
+    const existing = await find(pack);
+    const count: number = existing?.stickers?.length ?? 0;
+    // The pack's size before this purchase, recorded before the first add so a retry adds only what is missing.
+    const saved = j.result ? JSON.parse(j.result) : {};
+    let base: number | null = saved.name === pack && typeof saved.base === 'number' ? saved.base : null;
+    if (existing && base === null && count + pngs.length <= MAX_PACK_STICKERS) {
+      base = count;
+      run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: { name: pack, base }, id: j.id, lease: j.lease });
+    }
+    if (existing && base !== null) {
+      for (let i = Math.max(0, count - base); i < pngs.length; i++) await telegram(ctx, 'addStickerToSet', { user_id: ownerId, name: pack, sticker: await sticker(i) });
+      const check = await telegram(ctx, 'getStickerSet', { name: pack });
+      if (check.stickers?.length !== base + pngs.length) throw new NotVerifiedError(`Sticker pack ${pack} has ${check.stickers?.length} stickers, expected ${base + pngs.length}; check it before retrying.`);
+      return { url: `https://t.me/addstickers/${pack}`, name: pack, count: base + pngs.length, added: pngs.length };
+    }
   }
+
+  // A name chosen on an earlier attempt is kept, so a retry never makes a second pack.
+  const prev = j.result ? JSON.parse(j.result).name : null;
+  let name: string | null = typeof prev === 'string' && prev.endsWith(`_by_${me.username}`) ? prev : null;
+  if (name) {
+    const existing = await find(name);
+    if (existing?.stickers?.length === pngs.length) return done(name);
+    if (existing) throw new NotVerifiedError(`Sticker pack ${name} exists with ${existing.stickers?.length ?? 0} of ${pngs.length} stickers; check it before retrying.`);
+  } else {
+    // Another token may already have this ticker's pack: number ours.
+    for (let n = 1; n <= 20 && !name; n++) {
+      const candidate = stickerPackName(p.symbol, p.name, me.username, n);
+      if (!(await find(candidate))) name = candidate;
+    }
+    if (!name) throw new UpstreamError(`No free sticker pack name for $${p.symbol}.`);
+    run(ctx.db, 'UPDATE jobs SET result = :r WHERE id = :id AND lease = :lease', { r: { name }, id: j.id, lease: j.lease });
+  }
+  const stickers = [];
+  for (let i = 0; i < pngs.length; i++) stickers.push(await sticker(i));
   await telegram(ctx, 'createNewStickerSet', { user_id: ownerId, name, title: `${(p.name ?? '').slice(0, 48)} Community`, stickers });
   const check = await telegram(ctx, 'getStickerSet', { name });
-  if (check.stickers?.length !== 5) throw new NotVerifiedError('Sticker set creation needs verification.');
-  return { url: `https://t.me/addstickers/${name}`, name, count: 5 };
+  if (check.stickers?.length !== pngs.length) throw new NotVerifiedError('Sticker set creation needs verification.');
+  return done(name);
 }
 
 /** Advances queued in-process work across orders, up to JOBS_PER_TICK jobs. */
@@ -346,8 +469,9 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     let progressed = false;
     for (const r of rows) {
       if (processed >= limit) break;
-      if (await processOrder(ctx, r.order_id)) {
-        processed++;
+      const ran = await processOrder(ctx, r.order_id);
+      if (ran) {
+        processed += ran;
         progressed = true;
         touched.add(r.order_id);
       }
@@ -355,6 +479,13 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     if (!progressed) break;
   }
   await pollSocialBoosts(ctx);
+  if (ctx.config.HEALTH_CHECKS_ENABLED)
+    await apiHealthChecks(ctx).catch((err) => ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'health checks failed'));
+  await sendAssists(ctx);
+  // Self-healing first: a retried item keeps its order open instead of ending it.
+  if (ctx.config.SELF_HEAL_ENABLED) {
+    await healOrders(ctx, WORKER_PUBLICATIONS).catch((err) => ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'self-heal failed'));
+  }
   settleOrders(ctx);
   const callbacks = await deliverCallbacks(ctx);
   return { paused: false, processed, orders: [...touched].map((id) => ({ id, status: getOrder(ctx, id).status })), callbacks };
@@ -396,7 +527,13 @@ function leasedJob(ctx: ServiceContext, jobId: string, lease: unknown, kinds: st
 export async function acceptRender(ctx: ServiceContext, jobId: string, lease: unknown, files: unknown) {
   const j = leasedJob(ctx, jobId, lease, RENDER_KINDS);
   const expected = EXPECTED_RENDER_FILES[j.kind]!;
-  if (!Array.isArray(files) || files.length !== expected.length || expected.some((k) => files.filter((f: RenderFile) => f?.kind === k).length !== 1))
+  const optional = OPTIONAL_RENDER_FILES[j.kind] ?? [];
+  if (
+    !Array.isArray(files) ||
+    expected.some((k) => files.filter((f: RenderFile) => f?.kind === k).length !== 1) ||
+    optional.some((k) => files.filter((f: RenderFile) => f?.kind === k).length > 1) ||
+    files.some((f: RenderFile) => ![...expected, ...optional].includes(f?.kind))
+  )
     throw new ValidationError('Render output is incomplete', { expected });
   const decoded = (files as RenderFile[]).map((f) => {
     const mime = f.kind.startsWith('trailer_') ? 'video/mp4' : 'image/png';
@@ -449,12 +586,33 @@ export function handleOf(url: string | undefined, hosts: RegExp): string | null 
   }
 }
 
-/** Binance Square strips hyperlinks, so the post names the project's handles instead. */
+/** Real project websites only (not video, social or link hosts). */
+const NOT_A_SITE = /(^|\.)(tiktok\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|t\.me|telegram\.me|instagram\.com|facebook\.com|dexscreener\.com|pump\.fun)$/i;
+
+/**
+ * Binance Square: one project reference at most, never Telegram (Square removes posts that steer readers to outside
+ * communities, and strips hyperlinks). The project's own website when it has one, otherwise its X account.
+ */
 export function binanceHandles(p: Order['project']): string {
-  const name = p.name ?? 'the project';
-  const tg = handleOf(p.telegram_url, /^(www\.)?(t\.me|telegram\.me)$/);
+  let site: string | null = null;
+  try {
+    const host = p.website_url ? new URL(p.website_url).hostname.replace(/^www\./, '') : null;
+    site = host && !NOT_A_SITE.test(host) ? host : null;
+  } catch {
+    site = null;
+  }
+  if (site) return `Website: ${site}`;
   const x = handleOf(p.x_url, /^(www\.|mobile\.)?(x|twitter)\.com$/);
-  return [tg && `Find ${name} on Telegram: ${tg}`, x && `Follow ${name} on X: ${x}`].filter(Boolean).join('\n');
+  return x ? `Follow ${p.name ?? 'the project'} on X: ${x}` : '';
+}
+
+/** The article for Binance without any sentence that mentions Telegram. */
+export function binanceArticle(article: string): string {
+  return article
+    .split(/\n+/)
+    .map((para) => (para.match(/[^.!?]+[.!?]*\s*/g) ?? [para]).filter((sentence) => !/telegram|\btg\b/i.test(sentence)).join('').trim())
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /** Binance share links (app.binance.com/uni-qr/cart/<id>, …/square/post/<id>) → the canonical post URL. */
@@ -495,18 +653,35 @@ export function projectLinks(p: Order['project']): PageLink[] {
   ].filter((l): l is PageLink => !!l);
 }
 
+const REPEAT_TITLES = ['Back in the Spotlight', 'Still Building', 'Full Steam Ahead', 'Keeping the Momentum', 'Never Slowing Down'];
+
+/** "Community Spotlight" for a first purchase; a returning project gets a new title each time (numbered after five). */
+export function spotlightTitle(p: Order['project']): string {
+  const n = p.purchase_number ?? 1;
+  const head = n < 2 ? 'Community Spotlight' : REPEAT_TITLES[(n - 2) % REPEAT_TITLES.length]!;
+  return `${head}: ${p.name}${p.symbol ? ` ($${p.symbol})` : ''}${n > REPEAT_TITLES.length + 1 ? ` #${n}` : ''}`;
+}
+
+/** Binance Square post title: the spotlight title, or the article headline for copy made before spotlights. */
+export function binanceTitle(o: Order): string | undefined {
+  return o.copy?.spotlight_alt ? spotlightTitle(o.project) : o.copy?.headline;
+}
+
 /** What the worker should post; built here so the worker stays a thin publisher. */
-function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
+export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   const copy = o.copy!;
-  if (kind === 'binance') return { title: copy.headline, text: [copy.article, binanceHandles(o.project)].filter(Boolean).join('\n\n') };
+  if (kind === 'binance')
+    return { title: binanceTitle(o), text: [binanceArticle(copy.spotlight_alt ?? copy.article), binanceHandles(o.project)].filter(Boolean).join('\n\n') };
   const image = o.assets.find((a) => a.kind === 'campaign_image');
   if (kind === 'bitcointalk') {
     const subject = (copy.forum_title ?? copy.headline).slice(0, 80);
     const body = copy.forum_post ?? copy.article;
     return { subject, message: [body, links(o.project, true)].filter(Boolean).join('\n\n') };
   }
-  if (kind === 'cmc_community')
-    return { text: [copy.social_post, links(o.project, false)].filter(Boolean).join('\n\n'), image_asset_url: image ? `/v1/assets/${image.id}` : null };
+  if (kind === 'cmc_community') {
+    const body = copy.spotlight_post ? [spotlightTitle(o.project), copy.spotlight_post] : [copy.social_post];
+    return { text: [...body, links(o.project, false)].filter(Boolean).join('\n\n'), image_asset_url: image ? `/v1/assets/${image.id}` : null };
+  }
   if (DIRECTORY_HOSTS[kind]) {
     const p = o.project;
     const created = Number(p.market?.pair_created_at) || 0;
@@ -525,6 +700,8 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
         website_url: p.website_url ?? null,
         telegram_url: p.telegram_url,
         x_url: p.x_url ?? null,
+        // The DEX Screener chart: the link of last resort for sites that require one (no website, X or Telegram).
+        chart_url: typeof p.market?.pair_url === 'string' ? p.market.pair_url : `https://dexscreener.com/${p.chain}/${p.contract_address}`,
         launch_date: p.launch_date ?? new Date(created || nowMs(ctx)).toISOString().slice(0, 10),
         // The worker uploads the project logo when there is one, else the campaign image.
         logo_url: p.logo_url ?? null,
@@ -535,7 +712,9 @@ function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
   }
   const parts = [copy.article];
   if (image) parts.unshift(`![${o.project.name}](${publicAssetUrl(ctx, o.id, image.id)})`);
-  const l = links(o.project, true);
+  // Crypto subreddits auto-remove t.me links: Telegram goes as its @handle.
+  const tg = handleOf(o.project.telegram_url, /^(www\.)?(t|telegram)\.me$/);
+  const l = [tg && `Telegram: ${tg}`, o.project.x_url && `X: ${o.project.x_url}`, o.project.website_url && `Website: ${o.project.website_url}`].filter(Boolean).join('\n');
   if (l) parts.push(l);
   return { subreddit: REDDIT_SUBREDDITS[kind], title: copy.headline.slice(0, 300), text: parts.join('\n\n') };
 }
@@ -574,7 +753,11 @@ function pressRelease(o: Order) {
 export function publishClaim(ctx: ServiceContext, kinds: unknown = ['binance']) {
   if (isPaused(ctx)) return null;
   expireLeases(ctx);
-  const wanted = (Array.isArray(kinds) ? kinds : ['binance']).filter((k): k is string => WORKER_PUBLICATIONS.includes(k));
+  // Posts handed to a person (ASSIST_KINDS) are never the worker's.
+  const handed = assistKinds(ctx);
+  // `reddit` stands for every subreddit item.
+  const asked = (Array.isArray(kinds) ? kinds : ['binance']).flatMap((k) => (k === 'reddit' ? Object.keys(REDDIT_SUBREDDITS) : [k]));
+  const wanted = asked.filter((k): k is string => WORKER_PUBLICATIONS.includes(k) && !handed.includes(k));
   if (!wanted.length) return null;
   const rows = all<JobRow>(
     ctx.db,
@@ -610,7 +793,7 @@ function redditResult(ctx: ServiceContext, kind: string, url: string) {
 
 /** The opening words of the CMC post, used to match its public page. */
 function cmcSnippet(o: Order): string | undefined {
-  return o.copy?.social_post.split(/\s+/).slice(0, 12).join(' ');
+  return (o.copy?.spotlight_post ?? o.copy?.social_post)?.split(/\s+/).slice(0, 12).join(' ');
 }
 
 /** Bitcointalk: the worker confirms the thread logged-out; here we check the URL's shape. */
@@ -652,7 +835,7 @@ export async function publishComplete(ctx: ServiceContext, jobId: string, lease:
       if (j.kind === 'binance') {
         const post = binancePostUrl(url) ?? url;
         try {
-          finish(ctx, j, await verifyPublication(ctx, post, 'binance', loadOrder(ctx, j.order_id).copy?.headline));
+          finish(ctx, j, await verifyPublication(ctx, post, 'binance', binanceTitle(loadOrder(ctx, j.order_id))));
         } catch (err) {
           // Binance's public pages challenge server-side fetches; the OpenAPI's own success (with a post URL) stands in.
           const u = safeRemote(post, ['www.binance.com', 'binance.com']);
@@ -688,7 +871,8 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
     ctx.db,
     `UPDATE jobs SET status = 'blocked', error = :error, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
      WHERE id = :id AND lease = :lease`,
-    { error: message, a: nowMs(ctx) + 5 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
+    // Nothing was sent, so try again soon: most of these are a slow page.
+    { error: message, a: nowMs(ctx) + 2 * 60_000, t: nowMs(ctx), id: j.id, lease: j.lease },
   );
   recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'blocked', error: message });
   return { status: 'blocked' };
@@ -750,7 +934,7 @@ export async function reconcile(ctx: ServiceContext, jobId: string, url: unknown
     const post = binancePostUrl(url);
     if (!post) throw new ValidationError('Use the Binance Square post or share link (…/square/post/<id> or app.binance.com/uni-qr/cart/<id>)');
     // Binance challenges server-side fetches; an admin who checked the post is the confirmation.
-    result = await verifyPublication(ctx, post, 'binance', loadOrder(ctx, j.order_id).copy?.headline).catch(() => ({
+    result = await verifyPublication(ctx, post, 'binance', binanceTitle(loadOrder(ctx, j.order_id))).catch(() => ({
       url: post,
       verified_at: new Date(nowMs(ctx)).toISOString(),
       verified_by: 'admin',
@@ -888,7 +1072,7 @@ async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
     ctx,
     'POST',
     '/v1/wurk/packages',
-    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'full' ? { xProfile: p.x_url, telegram: p.telegram_url } : {}) },
+    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'small_raid' ? {} : { xProfile: p.x_url, telegram: p.telegram_url }) },
     { 'idempotency-key': `cm-${o.id}` },
   );
   await socialActivity(ctx, 'POST', `/v1/wurk/packages/${pkg.id}/payment-received`, { paymentRef: o.order_id, actor: 'content-machine' });
@@ -903,6 +1087,7 @@ async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
 }
 
 const BOOST_OK = ['paid_job_created', 'in_progress', 'completed', 'partial'];
+const BOOST_PROBLEMS = ['needs_attention', 'reconcile_required'];
 
 /** Delivered once WURK has accepted and been paid for the job; problems are shown until the deadline fails it. */
 export async function pollSocialBoosts(ctx: ServiceContext): Promise<number> {
@@ -998,10 +1183,15 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
     }
   }
   let completed = 0;
+  // A listing submitted with its coin page URL counts as done for the report: the site's review can take days.
+  const listings = Object.keys(DIRECTORY_HOSTS).map((k) => `'${k}'`).join(', ');
   const pending = all<{ id: string }>(
     ctx.db,
     `SELECT o.id FROM orders o WHERE o.completed_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')}))`,
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')})
+         AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL)
+         -- A paid social boost runs on WURK's schedule; the report doesn't wait for it.
+         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost'))`,
     {},
   );
   for (const { id } of pending) {
@@ -1024,6 +1214,11 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     if (j.status === 'delivered') {
       if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label, url: result.url ?? null });
     } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
+    else if (j.status === 'submitted' && DIRECTORY_HOSTS[j.kind] && result.url) successes.push({ source: j.kind, label: `${label} (in review)`, url: result.url });
+    else if (j.status === 'submitted' && j.kind === 'social_boost') {
+      if (BOOST_PROBLEMS.includes(result.status)) failures.push({ source: j.kind, label, status: 'needs checking', error: j.error ?? `WURK: ${result.status}` });
+      else successes.push({ source: j.kind, label: `${label} (in progress)`, url: result.url ?? null });
+    }
     else if (j.status === 'uncertain')
       failures.push({ source: j.kind, label, status: 'unconfirmed', error: j.error ?? 'May have been published; needs checking before any retry.' });
     else pending.push({ source: j.kind, label, status: j.status, deadline_at: j.deadline_at ? new Date(j.deadline_at).toISOString() : null, note: j.error });

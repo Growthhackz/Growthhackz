@@ -1,2 +1,4 @@
 node_modules/
 .env
+coinsniper-inspect-*
+proxy-session.json

@@ -54,19 +54,37 @@ const drain = async (t: ReturnType<typeof makeApp>) => {
 const jobOf = (o: any, kind: string) => o.jobs.find((j: any) => j.kind === kind);
 
 describe('trending orchestration', () => {
-  it('gives trending orders the default channels and starts the $1 WURK raid independently', async () => {
+  it('gives trending orders the default channels and starts the WURK trending package (raid, followers, Telegram members) independently', async () => {
     const t = makeApp(SOCIAL);
     contentFakes(t);
     const state = { status: 'queued' };
     const seen = socialFake(t, state);
     await t.setSetting('GEMINI_API_KEY', 'G');
     const o = (await t.api('POST', '/v1/trending', purchase)).body;
-    expect(o.project.channels).toEqual(['binance', 'bitcointalk', 'call_channel', 'cmc_community', 'coinsniper', 'coinvote', 'meme_pack', 'social_boost', 'telegraph']);
+    expect(o.project.channels).toEqual([
+      'binance',
+      'bitcointalk',
+      'cmc_community',
+      'coinscope',
+      'freshcoins',
+      'gemfinder',
+      'meme_pack',
+      'social_boost',
+      'telegraph',
+      'top100token',
+    ]);
     expect(jobOf(o, 'reddit_moonshots').status).toBe('skipped');
 
     await drain(t);
     const create = seen.find((s) => s.url.endsWith('/v1/wurk/packages'))!;
-    expect(create.body).toEqual({ preset: 'small_raid', bundled: true, xPost: purchase.x_post_url, customerRef: 'trending:orch-1' });
+    expect(create.body).toEqual({
+      preset: 'trending',
+      bundled: true,
+      xPost: purchase.x_post_url,
+      customerRef: 'trending:orch-1',
+      xProfile: purchase.x_url,
+      telegram: purchase.telegram_url,
+    });
     expect(create.headers.get('idempotency-key')).toBe(`cm-${o.id}`);
     expect(create.headers.get('authorization')).toBe(`Bearer ${SOCIAL.SOCIAL_ACTIVITY_TOKEN}`);
     expect(seen.find((s) => s.url.endsWith('/payment-received'))!.body).toEqual({ paymentRef: 'trending:orch-1', actor: 'content-machine' });
@@ -86,7 +104,7 @@ describe('trending orchestration', () => {
     expect(jobOf(now, 'social_boost').status).toBe('delivered');
     expect(jobOf(now, 'social_boost').result).toMatchObject({ package_id: 'wpk_1', url: 'https://wurk.fun/custom/job9', cost_usdc: 1 });
     const report = (await t.api('GET', `/v1/orders/by-external-id/trending:orch-1/report`)).body;
-    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X raid (WURK)', url: 'https://wurk.fun/custom/job9' });
+    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X raid, followers and Telegram members (WURK)', url: 'https://wurk.fun/custom/job9' });
   });
 
   it('keeps content, publications and stickers moving when the social service is down', async () => {
@@ -191,12 +209,12 @@ describe('trending orchestration', () => {
     let now = (await t.api('GET', `/v1/orders/${o.id}`)).body;
     expect(jobOf(now, 'copy').status).toBe('blocked');
 
-    // The raid problem is visible while it waits.
+    // The raid problem is visible at once, as something to check.
     t.clock.advance(61_000);
     await t.api('POST', '/v1/tick');
     let report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.complete).toBe(false);
-    expect(report.pending.find((p: any) => p.source === 'social_boost').note).toContain('Wallet holds');
+    expect(report.failures.find((f: any) => f.source === 'social_boost')).toMatchObject({ status: 'needs checking', error: expect.stringContaining('Wallet holds') });
 
     // Copy's deadline (2h) passes: it fails, and everything built on it fails immediately.
     t.clock.advance(2 * 60 * 60_000);
@@ -206,17 +224,14 @@ describe('trending orchestration', () => {
     expect(jobOf(now, 'campaign_image').error).toBe('Not started: copy failed');
     expect(jobOf(now, 'binance').error).toBe('Not started: campaign_image failed');
     expect(jobOf(now, 'sticker_publish').error).toBe('Not started: stickers failed');
+    // The paid boost is still with WURK, but the report no longer waits for it.
     expect(jobOf(now, 'social_boost').status).toBe('submitted');
-    expect(received.some((e) => e.type === 'order.completed')).toBe(false);
-
-    // The raid's own deadline (24h) ends the order.
-    t.clock.advance(22 * 60 * 60_000);
-    await t.api('POST', '/v1/tick');
     report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.complete).toBe(true);
-    expect(report.failures.find((f: any) => f.source === 'social_boost').error).toContain('Timed out after 24h (submitted: Wallet holds');
+    expect(report.failures.find((f: any) => f.source === 'social_boost').error).toContain('Wallet holds');
     expect(report.failures.find((f: any) => f.source === 'copy').label).toBe('Content (article and posts)');
     expect(report.failures.find((f: any) => f.source === 'cmc_community').error).toBe('Not started: campaign_image failed');
+    await t.api('POST', '/v1/tick'); // the completion callback goes out on the next tick
     const done = received.find((e) => e.type === 'order.completed');
     expect(done.external_order_id).toBe('trending:orch-1');
     expect(done.data.failures.length).toBe(report.failures.length);
@@ -237,8 +252,9 @@ describe('trending orchestration', () => {
     await t.api('POST', '/v1/trending', purchase);
     await drain(t);
     const binance = (await t.api('POST', '/v1/publish/claim', { kinds: ['binance'] })).body.target;
-    // Binance Square strips hyperlinks: handles instead.
-    expect(binance.text.endsWith('Find Moon Frog on Telegram: @moonfrog\nFollow Moon Frog on X: @moonfrog')).toBe(true);
+    // Binance Square strips hyperlinks and removes off-platform chat promotion: one website (or X) line, never Telegram.
+    expect(binance.text.endsWith('Website: moonfrog.example')).toBe(true);
+    expect(binance.text).not.toMatch(/Telegram/);
     expect(binance.text).not.toMatch(/https?:\/\//);
     const cmc = (await t.api('POST', '/v1/publish/claim', { kinds: ['cmc_community'] })).body.target;
     expect(cmc.text.endsWith('Telegram: https://t.me/moonfrog')).toBe(true);
