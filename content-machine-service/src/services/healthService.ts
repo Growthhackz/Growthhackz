@@ -152,12 +152,21 @@ export async function notifyAdmins(ctx: ServiceContext, lines: string[]): Promis
   }
 }
 
-const result = async (source: string, fn: () => Promise<string>) => {
-  try {
-    return { source, ok: true, detail: await fn() };
-  } catch (err) {
-    return { source, ok: false, detail: err instanceof Error ? err.message : String(err) };
+/** A dropped connection is tried again (twice more, a few seconds apart) before it counts as a failure. */
+const NETWORK_BLIP = /network or timeout|\((5\d\d|429)\)/;
+export const RETRY_DELAY_MS = 3000;
+const result = async (source: string, fn: () => Promise<string>, delayMs = RETRY_DELAY_MS) => {
+  let detail = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      return { source, ok: true, detail: await fn() };
+    } catch (err) {
+      detail = err instanceof Error ? err.message : String(err);
+      if (!NETWORK_BLIP.test(detail)) break;
+    }
   }
+  return { source, ok: false, detail };
 };
 
 /** The API's own checks, at most every HEALTH_INTERVAL_MS (called from the scheduler's tick). */
