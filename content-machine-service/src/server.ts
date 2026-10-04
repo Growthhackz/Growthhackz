@@ -1,8 +1,10 @@
 import { buildApp } from './app.js';
+import { installResilientLookup } from './lib/dns.js';
 import { loadConfig } from './config.js';
 import { Scheduler } from './workers/scheduler.js';
 
 async function main(): Promise<void> {
+  installResilientLookup();
   const config = loadConfig();
   const { app, ctx } = buildApp({ config });
   const scheduler = new Scheduler(ctx);
