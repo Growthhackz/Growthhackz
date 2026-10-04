@@ -29,6 +29,8 @@ export const COMPONENT_STATUSES = [
   'partial',
   'needs_attention',
   'reconcile_required',
+  /** Dropped by an admin before anything was paid (e.g. replaced by another purchase); ignored by the package. */
+  'cancelled',
 ] as const;
 export type ComponentStatus = (typeof COMPONENT_STATUSES)[number];
 export type PackageStatus = ComponentStatus;

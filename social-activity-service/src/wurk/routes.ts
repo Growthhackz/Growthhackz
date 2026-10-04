@@ -123,6 +123,7 @@ const CUSTOMER_STATUS: Record<PackageStatus, string> = {
   partial: 'Partially delivered',
   needs_attention: 'Being reviewed by our team',
   reconcile_required: 'Being reviewed by our team',
+  cancelled: 'Replaced',
 };
 
 /** Customer-safe view: no costs, wallets, job IDs or provider responses. */
