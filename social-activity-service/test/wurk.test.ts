@@ -16,7 +16,7 @@ const PRICES: Record<string, string> = {
   '/solana/xraid/small': '1000000',
 };
 
-type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | 'no-json';
+type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | '503' | 'no-json';
 
 /** A fake WURK: 402 with a v2 challenge when unpaid; job JSON when PAYMENT-SIGNATURE is present. */
 function fakeWurk() {
@@ -65,6 +65,7 @@ function fakeWurk() {
       });
     }
     if (b === '500') return new Response('upstream', { status: 500 });
+    if (b === '503') return new Response('unavailable', { status: 503 });
     if (b === 'no-json') return new Response('ok', { status: 200 });
     state.jobs++;
     const settle = { success: true, transaction: `tx${state.jobs}`, network: SOLANA_MAINNET };
@@ -480,6 +481,28 @@ describe('WURK fulfillment', () => {
     expect(detail.status).toBe('in_progress');
     expect(detail.components[0].payments.map((x: any) => x.status)).toEqual(['failed', 'settled']);
     expect(signed).toHaveLength(2);
+  });
+
+  it('an unpaid component can be cancelled (replaced); a paid one cannot', async () => {
+    const { ctx, api, wurk } = setup();
+    wurk.state.paid['/solana/xraid/small'] = '503'; // 503 after "payment": left for reconciling
+    wurk.state.price['/solana/xfollowers'] = '1500000';
+    const p = (await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xPost: 'https://x.com/a/status/9' })).body;
+    // Swap the engagement for the old small raid to reproduce JUGS (Oct 4).
+    ctx.db.prepare("UPDATE wurk_components SET kind = 'small_raid', request_url = 'https://wurkapi.fun/solana/xraid/small?url=https%3A%2F%2Fx.com%2Fa%2Fstatus%2F9' WHERE package_id = ? AND kind = 'engagement'").run(p.id);
+    await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: 'cancel-1' });
+    await processWurk(ctx);
+    let detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('reconcile_required');
+    const raid = detail.components.find((c: any) => c.kind === 'small_raid');
+    const followers = detail.components.find((c: any) => c.kind === 'x_followers');
+    expect((await api('POST', `/v1/wurk/components/${followers.id}/status`, { status: 'cancelled', note: 'test' })).status).toBe(409);
+    expect((await api('POST', `/v1/wurk/components/${raid.id}/status`, { status: 'cancelled', note: 'no transfer on-chain; replaced by engagement' })).status).toBe(200);
+    detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('in_progress');
+    expect(detail.components.find((c: any) => c.kind === 'small_raid').payments[0].status).toBe('failed');
+    const progress = (await api('GET', `/v1/wurk/packages/${p.id}/progress`)).body;
+    expect(progress.items.find((i: any) => i.item.startsWith('Engagement')).status).toBe('Replaced');
   });
 
   it('a refusal that kept the USDC is never paid again, and holds paid requests of that kind for 2 hours', async () => {
