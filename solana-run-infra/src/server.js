@@ -13,6 +13,7 @@ import { inspectPool, VENUE_NAMES } from './venues/index.js';
 import { TradeEngine } from './engine.js';
 import { getTokenBalance, getDecimals, toUi } from './tokens.js';
 import { createAuth } from './auth.js';
+import { reclaimableAccounts } from './rent.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE = process.env.WALLET_DIR ?? path.join(__dirname, '..', 'wallets');
@@ -150,6 +151,8 @@ app.patch('/api/wallets/:label', async (req, res) => {
   try {
     const patch = { ...(req.body ?? {}) };
     const cur = normalizeSettings((await readRecord({ label: req.params.label, storeDir: STORE })).settings);
+    // A pool belongs to one venue; switching venue without a new pool clears it.
+    if ('venue' in patch && patch.venue !== cur.venue && !('pool' in patch)) patch.pool = null;
     const next = { ...cur, ...patch };
 
     // Any change to where the wallet trades is checked against the chain first.
@@ -189,10 +192,11 @@ app.get('/api/wallets/:label/balance', async (req, res) => {
     const rec = await readRecord({ label: req.params.label, storeDir: STORE });
     const pubkey = new PublicKey(rec.pubkey);
 
-    const [lamports, legacy, t22] = await Promise.all([
+    const [lamports, legacy, t22, reclaimable] = await Promise.all([
       connection.getBalance(pubkey, 'confirmed'),
       connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
-      connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_2022_PROGRAM_ID })
+      connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_2022_PROGRAM_ID }),
+      reclaimableAccounts(connection, pubkey)
     ]);
 
     const { mint } = normalizeSettings(rec.settings);
@@ -208,7 +212,9 @@ app.get('/api/wallets/:label/balance', async (req, res) => {
       lamports,
       sol: lamports / 1e9,
       tokens,
-      tokenAccounts: legacy.value.length + t22.value.length
+      tokenAccounts: legacy.value.length + t22.value.length,
+      emptyAccounts: reclaimable.length,
+      reclaimableSol: reclaimable.reduce((n, a) => n + a.lamports, 0) / 1e9
     });
   } catch (e) {
     if (notFound(e)) return res.status(404).json({ error: 'no such wallet' });
@@ -239,6 +245,15 @@ app.post('/api/wallets/:label/trade', async (req, res) => {
   } catch (e) {
     if (notFound(e)) return res.status(404).json({ error: 'no such wallet' });
     res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/wallets/:label/reclaim', async (req, res) => {
+  try {
+    res.json(await engine.reclaim(req.params.label));
+  } catch (e) {
+    if (notFound(e)) return res.status(404).json({ error: 'no such wallet' });
+    res.status(500).json({ error: e.message });
   }
 });
 

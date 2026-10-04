@@ -141,3 +141,12 @@ dialog ul { margin: 0; padding-left: 18px; color: var(--muted); }
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
 }
 .login-card label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+
+.venue.meteora { color: #f0a35e; border-color: #7a4a22; }
+.venue.pumpfun { color: #7fd8d0; border-color: #2a6661; }
+button.link {
+  background: none; border: 0; padding: 0; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+button.link:disabled { color: var(--muted); text-decoration: none; }
+input:disabled { opacity: .55; }

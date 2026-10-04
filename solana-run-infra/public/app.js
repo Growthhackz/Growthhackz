@@ -23,7 +23,7 @@ let wallets = [];
 let balances = {};
 let receiver = null;
 let minInterval = 1;
-const VENUE_LABEL = { raydium: 'Raydium', pumpswap: 'PumpSwap' };
+const VENUE_LABEL = { raydium: 'Raydium', pumpswap: 'PumpSwap', meteora: 'Meteora', pumpfun: 'pump.fun' };
 
 const short = (a) => a.slice(0, 4) + '…' + a.slice(-4);
 const fmt = (n, d = 6) => (n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -92,6 +92,15 @@ function render() {
           textContent: `${b.tokenAccounts} token acct${b.tokenAccounts > 1 ? 's' : ''}`
         }));
       }
+      if (b.emptyAccounts > 0) {
+        const reclaim = el('button', {
+          className: 'link small',
+          textContent: `Reclaim ${fmt(b.reclaimableSol, 4)} SOL`,
+          title: `close ${b.emptyAccounts} empty or wrapped-SOL account${b.emptyAccounts > 1 ? 's' : ''} for the rent`
+        });
+        reclaim.onclick = () => reclaimRent(w, reclaim);
+        bal.append(el('div', {}, reclaim));
+      }
     }
 
     const mintCell = el('td');
@@ -157,6 +166,20 @@ $('#create-form').onsubmit = async (e) => {
     toast(err.message, true);
   }
 };
+
+async function reclaimRent(w, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Reclaiming…';
+  try {
+    const r = await api(walletUrl(w.label, '/reclaim'), { method: 'POST' });
+    toast(r.failed.length
+      ? `closed ${r.closed}, ${r.failed.length} could not close (see Log)`
+      : `closed ${r.closed} account${r.closed === 1 ? '' : 's'}, ${fmt(r.reclaimedSol, 6)} SOL back`, r.failed.length > 0);
+  } catch (e) {
+    toast(e.message, true);
+  }
+  await refresh();
+}
 
 async function removeWallet(w, b) {
   if (b && !b.error && b.lamports > 0) return toast('wallet still holds SOL — use Stop with sweep first', true);
@@ -296,16 +319,33 @@ function readRules() {
 
 $('#add-rule').onclick = () => rulesBox.append(ruleRow());
 
+const VENUE_HELP = {
+  raydium: ['Raydium AMM v4, CPMM or CLMM pool address',
+    'Trades go straight to this Raydium pool. The pool type is detected automatically; it must be paired with SOL.'],
+  pumpswap: ["blank = the token's graduated PumpSwap pool",
+    'Trades go straight to the PumpSwap pool. Leave the pool blank to use the canonical pool for the mint.'],
+  meteora: ['Meteora DLMM pool address',
+    'Trades go straight to this Meteora DLMM pool. It must be paired with SOL.'],
+  pumpfun: ['derived from the token mint',
+    "Trades go to the token's pump.fun bonding curve. Once the token graduates, switch this wallet to PumpSwap."]
+};
+
 function syncVenue() {
-  const pump = manageForm.venue.value === 'pumpswap';
-  manageForm.pool.placeholder = pump
-    ? "blank = the token's graduated PumpSwap pool"
-    : 'Raydium AMM v4, CPMM or CLMM pool address';
-  $('#venue-hint').textContent = pump
-    ? 'Trades go straight to the PumpSwap pool. Leave the pool blank to use the canonical pool for the mint.'
-    : 'Trades go straight to this Raydium pool. The pool type is detected automatically; it must be paired with SOL.';
+  const v = manageForm.venue.value;
+  const [placeholder, hint] = VENUE_HELP[v];
+  manageForm.pool.placeholder = placeholder;
+  manageForm.pool.disabled = v === 'pumpfun';
+  if (v === 'pumpfun') manageForm.pool.value = '';
+  manageForm.mint.placeholder = v === 'pumpfun' ? 'token mint (required)' : 'filled in from the pool if left blank';
+  $('#venue-hint').textContent = hint;
 }
 manageForm.venue.onchange = syncVenue;
+
+function syncPriority() {
+  $('#priority-label').textContent = manageForm.priorityMode.value === 'auto'
+    ? 'Max µlamports per CU' : 'µlamports per CU';
+}
+manageForm.priorityMode.onchange = syncPriority;
 
 function openManage(w) {
   managing = w;
@@ -314,8 +354,11 @@ function openManage(w) {
   manageForm.pool.value = w.settings.pool ?? '';
   manageForm.mint.value = w.settings.mint ?? '';
   manageForm.slippageBps.value = w.settings.slippageBps;
+  manageForm.priorityMode.value = w.settings.priorityMode;
   manageForm.priorityMicroLamports.value = w.settings.priorityMicroLamports;
+  manageForm.closeEmptyAccounts.checked = w.settings.closeEmptyAccounts;
   syncVenue();
+  syncPriority();
   manageForm.solFloor.value = (w.settings.solFloorLamports / LAMPORTS).toFixed(3);
   rulesBox.replaceChildren(...w.rules.map(ruleRow));
   manageDialog.showModal();
@@ -326,10 +369,12 @@ manageForm.onsubmit = async (e) => {
   if (!managing) return;
   const patch = {
     venue: manageForm.venue.value,
-    pool: manageForm.pool.value.trim() || null,
+    pool: manageForm.venue.value === 'pumpfun' ? null : (manageForm.pool.value.trim() || null),
     mint: manageForm.mint.value.trim() || null,
     slippageBps: Number(manageForm.slippageBps.value),
+    priorityMode: manageForm.priorityMode.value,
     priorityMicroLamports: Number(manageForm.priorityMicroLamports.value),
+    closeEmptyAccounts: manageForm.closeEmptyAccounts.checked,
     solFloorLamports: Math.round(Number(manageForm.solFloor.value) * LAMPORTS)
   };
   const rules = readRules();
@@ -362,11 +407,23 @@ function logLine(entry) {
     }
     return li;
   }
+  if (entry.type === 'reclaim') {
+    li.append(el('strong', { textContent: `Reclaimed rent: ${entry.closed} closed, ${fmt(entry.reclaimedSol, 6)} SOL` }), ` · ${when}`);
+    for (const f of entry.failed ?? []) {
+      li.append(el('div', { className: 'small error', textContent: `✗ ${short(f.account)}: ${f.error}` }));
+    }
+    return li;
+  }
   const what = entry.ok
     ? `${entry.side} ${fmt(entry.in)} → ${fmt(entry.out)}`
     : `${entry.side} ${entry.amount} ${entry.amountType} failed: ${entry.error}`;
+  const costs = [
+    entry.feeSol != null ? `fee ${fmt(entry.feeSol, 6)} SOL (${entry.cu?.toLocaleString()} CU at ${entry.microLamports?.toLocaleString()} µL)` : null,
+    entry.rentReclaimed ? 'token account closed, rent returned' : null
+  ].filter(Boolean).join(' · ');
   li.append(el('strong', { textContent: what }), ` · ${when}`,
-    el('div', { className: 'muted small', textContent: entry.reason }));
+    el('div', { className: 'muted small', textContent: entry.reason }),
+    costs ? el('div', { className: 'muted small', textContent: costs }) : null);
   if (entry.signature) {
     li.append(el('a', {
       href: `https://solscan.io/tx/${entry.signature}`, target: '_blank', rel: 'noopener',

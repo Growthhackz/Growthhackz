@@ -22,7 +22,15 @@ export function canonicalPool(mint) {
 }
 
 async function state(connection, pool, owner) {
-  const s = await online(connection).swapSolanaState(new PublicKey(pool), owner);
+  let s;
+  try {
+    s = await online(connection).swapSolanaState(new PublicKey(pool), owner);
+  } catch (e) {
+    if (/not found/i.test(e?.message ?? '')) {
+      throw new Error(`no PumpSwap pool at ${pool}; if the token is still on its bonding curve, use the pump.fun venue`);
+    }
+    throw e;
+  }
   const solIsQuote = s.pool.quoteMint.equals(NATIVE_MINT);
   const solIsBase = s.pool.baseMint.equals(NATIVE_MINT);
   if (!solIsQuote && !solIsBase) throw new Error('PumpSwap pool is not paired with SOL');

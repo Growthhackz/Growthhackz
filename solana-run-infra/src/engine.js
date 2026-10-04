@@ -1,8 +1,5 @@
 import { PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
-import {
-  TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
-  createBurnInstruction, createCloseAccountInstruction
-} from '@solana/spl-token';
+import { createBurnInstruction } from '@solana/spl-token';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadWallet, readRecord, mutateRecord, normalizeSettings } from './custody.js';
@@ -11,7 +8,8 @@ import {
 } from './tokens.js';
 import * as venues from './venues/index.js';
 import { validateTrade, evaluateRule, afterRun, conflictingMints } from './rules.js';
-import { closeEmptyTokenAccounts, sweepAll } from './teardown.js';
+import { sweepAll } from './teardown.js';
+import { closeEmptyAccounts } from './rent.js';
 
 const errMsg = (e) => String(e?.message ?? e);
 
@@ -78,12 +76,18 @@ export class TradeEngine {
   // ---- trading ------------------------------------------------------------
 
   // Builds, signs and confirms one swap on the wallet's venue and pool.
-  async #swap(wallet, settings, side, amountIn) {
+  async #swap(wallet, settings, side, amountIn, closeTokenAccount = false) {
     const built = await this.market.buildSwap({
-      connection: this.connection, owner: wallet.publicKey, settings, side, amountIn
+      connection: this.connection, owner: wallet.publicKey, settings, side, amountIn, closeTokenAccount
     });
     const signature = await this.market.sendSwap(this.connection, wallet, built);
-    return { signature, expectedOut: built.expectedOut, pool: built.pool };
+    return {
+      signature,
+      expectedOut: built.expectedOut,
+      pool: built.pool,
+      cost: built.cost,
+      closedAccount: Boolean(built.closedAccount)
+    };
   }
 
   async #execute(label, trade, reason) {
@@ -98,6 +102,7 @@ export class TradeEngine {
     const decimals = await getDecimals(connection, mint);
 
     let raw;
+    let emptiesAccount = false;
     if (side === 'buy') {
       const balance = BigInt(await connection.getBalance(wallet.publicKey, 'confirmed'));
       const floor = BigInt(settings.solFloorLamports);
@@ -121,16 +126,21 @@ export class TradeEngine {
       if (raw > balance) {
         throw new Error(`sell of ${toUi(raw, decimals)} exceeds balance ${toUi(balance, decimals)}`);
       }
+      emptiesAccount = raw === balance;
     }
 
     const base = { type: 'trade', side, amountType, amount, reason, mint, venue: settings.venue };
     try {
-      const res = await this.#swap(wallet, settings, side, raw);
+      const res = await this.#swap(
+        wallet, settings, side, raw, emptiesAccount && settings.closeEmptyAccounts
+      );
       const [inDec, outDec] = side === 'buy' ? [9, decimals] : [decimals, 9];
       // `out` is the quoted amount; the on-chain minimum is enforced by slippage.
       const entry = {
         ...base, ok: true, signature: res.signature, pool: res.pool,
-        in: toUi(raw, inDec), out: toUi(res.expectedOut, outDec)
+        in: toUi(raw, inDec), out: toUi(res.expectedOut, outDec),
+        ...(res.cost ? { feeSol: res.cost.feeLamports / 1e9, cu: res.cost.units, microLamports: res.cost.microLamports } : {}),
+        ...(res.closedAccount ? { rentReclaimed: true } : {})
       };
       await this.log(label, entry);
       return entry;
@@ -143,6 +153,16 @@ export class TradeEngine {
   // Manual trade from the UI or CLI. Works whether or not automation is running.
   trade(label, trade) {
     return this.withLock(label, () => this.#execute(label, trade, 'manual'));
+  }
+
+  // Closes the wallet's empty token accounts (and wrapped SOL) for their rent.
+  reclaim(label) {
+    return this.withLock(label, async () => {
+      const wallet = await this.keypair(label);
+      const res = await closeEmptyAccounts(this.connection, wallet);
+      await this.log(label, { type: 'reclaim', ok: res.failed.length === 0, ...res });
+      return res;
+    });
   }
 
   // ---- automation ---------------------------------------------------------
@@ -281,37 +301,29 @@ export class TradeEngine {
         }
       }
 
-      // Wrapped SOL and (optionally) unsellable dust: empty the account so it can close.
-      const fresh = await getTokenAccounts(connection, wallet.publicKey);
-      for (const a of fresh) {
-        if (a.amount === 0n) continue;
-        const isWsol = a.mint === SOL_MINT;
-        if (!isWsol && !(burnUnsellable && unsold.has(a.mint))) continue;
-        try {
-          const tx = new Transaction();
-          if (!isWsol) {
-            tx.add(createBurnInstruction(
+      // Optionally burn what couldn't be sold, so those accounts can close too.
+      if (burnUnsellable) {
+        for (const a of await getTokenAccounts(connection, wallet.publicKey)) {
+          if (a.amount === 0n || a.mint === SOL_MINT || !unsold.has(a.mint)) continue;
+          try {
+            const tx = new Transaction().add(createBurnInstruction(
               a.pubkey, new PublicKey(a.mint), wallet.publicKey, a.amount, [], a.programId
             ));
+            const sig = await sendAndConfirmTransaction(connection, tx, [wallet], { commitment: 'confirmed' });
+            step('burn', { ok: true, mint: a.mint, signature: sig });
+          } catch (e) {
+            step('burn', { ok: false, mint: a.mint, error: errMsg(e) });
           }
-          // Closing a native (wSOL) account returns its wrapped SOL along with the rent.
-          tx.add(createCloseAccountInstruction(
-            a.pubkey, wallet.publicKey, wallet.publicKey, [], a.programId
-          ));
-          const sig = await sendAndConfirmTransaction(connection, tx, [wallet], { commitment: 'confirmed' });
-          step(isWsol ? 'unwrapSol' : 'burnAndClose', { ok: true, mint: a.mint, signature: sig });
-        } catch (e) {
-          step(isWsol ? 'unwrapSol' : 'burnAndClose', { ok: false, mint: a.mint, error: errMsg(e) });
         }
       }
 
-      const failed = [];
-      const closed = [
-        ...await closeEmptyTokenAccounts({ connection, wallet, programId: TOKEN_PROGRAM_ID, failed }),
-        ...await closeEmptyTokenAccounts({ connection, wallet, programId: TOKEN_2022_PROGRAM_ID, failed })
-      ];
+      // Empty accounts and wrapped SOL, closed in batches for their rent.
+      const res = await closeEmptyAccounts(connection, wallet);
       const left = (await getTokenAccounts(connection, wallet.publicKey)).length;
-      step('closeTokenAccounts', { ok: failed.length === 0 && left === 0, closed: closed.length, failed, stillOpen: left });
+      step('closeTokenAccounts', {
+        ok: res.failed.length === 0 && left === 0,
+        closed: res.closed, failed: res.failed, stillOpen: left, reclaimedSol: res.reclaimedSol
+      });
 
       if (sweep) {
         if (!this.receiver) {
