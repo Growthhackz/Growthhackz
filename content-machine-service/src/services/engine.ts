@@ -19,6 +19,7 @@ import { AppError, ConflictError, isBlocking, NotVerifiedError, SetupRequiredErr
 import { signCallback } from '../lib/crypto.js';
 import { safeRemote } from '../lib/http.js';
 import { uid } from '../lib/ids.js';
+import { withTimeout } from '../lib/timeout.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
 import { findRaidPost } from '../providers/xProfile.js';
@@ -217,6 +218,9 @@ export function claim(ctx: ServiceContext, orderId: string, render = false, skip
  * Runs the order's ready in-process jobs, up to PARALLEL_JOBS_PER_ORDER at once (jobs are only ready once what they
  * need is delivered, so the ones running together are independent). Returns how many ran.
  */
+/** Longest an in-process content step may run before it counts as failed (and is retried). */
+export const JOB_TIME_LIMIT_MS = 10 * 60_000;
+
 export async function processOrder(ctx: ServiceContext, orderId: string): Promise<number> {
   const first = claim(ctx, orderId);
   if (!first) return 0;
@@ -227,7 +231,10 @@ export async function processOrder(ctx: ServiceContext, orderId: string): Promis
   await Promise.all(
     batch.map(async (c) => {
       try {
-        await runJob(ctx, c.job, c.order);
+        // Content steps get a hard limit so one call that never returns can't freeze every order. Publications are
+        // left alone (stopping one midway could double-post); the scheduler's own watchdog covers those.
+        const publishes = IRREVERSIBLE.includes(c.job.kind) || c.job.kind === 'social_boost';
+        await (publishes ? runJob(ctx, c.job, c.order) : withTimeout(runJob(ctx, c.job, c.order), JOB_TIME_LIMIT_MS, STEP_LABELS[c.job.kind] ?? c.job.kind));
       } catch (err) {
         fail(ctx, c.job, err);
       }

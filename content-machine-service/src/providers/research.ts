@@ -1,5 +1,6 @@
 import type { Project } from '../domain/schemas.js';
 import { readLimited, safeRemote } from '../lib/http.js';
+import { withTimeout } from '../lib/timeout.js';
 import { nowMs, type ServiceContext } from '../services/context.js';
 import { xSnapshot, type XSnapshot } from './xProfile.js';
 
@@ -85,7 +86,7 @@ export async function telegramSnapshot(ctx: ServiceContext, url: string | undefi
 
 export async function researchProject(ctx: ServiceContext, p: Project): Promise<Research> {
   const quiet = <T>(what: string, run: () => Promise<T>) =>
-    run().catch((err) => {
+    withTimeout(run(), 30_000, `${what} lookup`).catch((err) => {
       ctx.log.warn({ source: what, err: err instanceof Error ? err.message : String(err) }, 'project research source skipped');
       return undefined;
     });
