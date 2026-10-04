@@ -429,8 +429,9 @@ describe('WURK fulfillment', () => {
     expect(progress.items[0].item).toContain('25 likes');
   });
 
-  it('trending preset: the $1 raid, 50 followers and 50 Telegram members ($4.00); no Telegram leaves the members out', async () => {
+  it('trending preset: 50 likes, 50 reposts and 20 comments, 50 followers and 50 Telegram members ($6.00); no Telegram leaves the members out', async () => {
     const { ctx, api, signed, wurk } = setup();
+    wurk.state.price['/solana/xraid/custom'] = '3000000';
     wurk.state.price['/solana/xfollowers'] = '1500000';
     wurk.state.price['/solana/tgmembers'] = '1500000';
     const created = await api(
@@ -440,23 +441,23 @@ describe('WURK fulfillment', () => {
       { 'idempotency-key': 'cm-order-7' },
     );
     expect(created.status).toBe(201);
-    expect(created.body.costCeilingUsdc).toBe(4);
+    expect(created.body.costCeilingUsdc).toBe(6.5);
     expect(created.body.components.map((c: any) => [c.kind, c.target, c.ceilingUsdc])).toEqual([
-      ['small_raid', 'https://wurkapi.fun/solana/xraid/small?url=https%3A%2F%2Fx.com%2Fmoonfrog%2Fstatus%2F7', 1],
+      ['engagement', 'https://wurkapi.fun/solana/xraid/custom?url=https%3A%2F%2Fx.com%2Fmoonfrog%2Fstatus%2F7&likes=50&reposts=50&comments=20&bookmarks=0', 3.25],
       ['tg_members', 'https://wurkapi.fun/solana/tgmembers?join=https%3A%2F%2Ft.me%2Fmoonfrog&amount=50', 1.5],
       ['x_followers', 'https://wurkapi.fun/solana/xfollowers?handle=moonfrog&amount=50', 1.5],
     ]);
     await api('POST', `/v1/wurk/packages/${created.body.id}/payment-received`, { paymentRef: 'trending:7' });
     await processWurk(ctx);
     expect((await api('GET', `/v1/wurk/packages/${created.body.id}`)).body.status).toBe('in_progress');
-    expect([...signed].sort()).toEqual(['1000000', '1500000', '1500000']);
+    expect([...signed].sort()).toEqual(['1500000', '1500000', '3000000']);
     const progress = (await api('GET', `/v1/wurk/packages/${created.body.id}/progress`)).body;
-    expect(progress.items.map((i: any) => i.item)).toEqual(expect.arrayContaining(['50 X followers', '50 Telegram members']));
+    expect(progress.items.map((i: any) => i.item)).toEqual(expect.arrayContaining(['50 likes, 50 reposts and 20 comments on your X post', '50 X followers', '50 Telegram members']));
 
     // A follower price rise is refused, not paid.
     wurk.state.price['/solana/xfollowers'] = '1600000';
     const noTg = (await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xPost: 'https://x.com/moonfrog/status/8' })).body;
-    expect(noTg.components.map((c: any) => c.kind).sort()).toEqual(['small_raid', 'x_followers']);
+    expect(noTg.components.map((c: any) => c.kind).sort()).toEqual(['engagement', 'x_followers']);
     await api('POST', `/v1/wurk/packages/${noTg.id}/payment-received`, { paymentRef: 'trending:8' });
     await processWurk(ctx);
     const after = (await api('GET', `/v1/wurk/packages/${noTg.id}`)).body;
