@@ -157,3 +157,15 @@ input:disabled { opacity: .55; }
 .clone-new code { font-size: 12px; word-break: break-all; }
 #clone-result p { margin: 6px 0 0; }
 .rule input[data-f=amountMax], .rule input[data-f=triggerMax] { width: 120px; }
+
+.rules-bar, .groups-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rules-bar button, .groups-bar button { padding: 6px 10px; font-size: 13px; }
+.rules-bar label.check { display: flex; gap: 6px; align-items: center; color: var(--muted); min-width: 92px; }
+.groups-bar { border-top: 1px solid var(--line); padding-top: 12px; }
+.groups-bar select { padding: 6px 8px; min-width: 0; max-width: 100%; }
+.groups-save { display: flex; gap: 8px; flex: 1 1 260px; }
+.groups-save input { flex: 1; min-width: 0; padding: 6px 10px; }
+.rule:has([data-f="pick"]:checked) { border-color: var(--accent); }
+.rule label.pick { padding-right: 2px; }
+/* Author display rules (e.g. label.check flex) would otherwise beat [hidden]. */
+.rule [hidden] { display: none !important; }

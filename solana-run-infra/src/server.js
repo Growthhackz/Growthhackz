@@ -14,6 +14,7 @@ import { TradeEngine } from './engine.js';
 import { getTokenBalance, getDecimals, toUi } from './tokens.js';
 import { createAuth } from './auth.js';
 import { reclaimableAccounts } from './rent.js';
+import { RuleGroups } from './rule-groups.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE = process.env.WALLET_DIR ?? path.join(__dirname, '..', 'wallets');
@@ -30,6 +31,8 @@ const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
 const LOOPBACK_BIND = ['127.0.0.1', 'localhost', '::1'].includes(HOST);
 const REMOTE = !LOOPBACK_BIND || EXTRA_HOSTS.length > 0;
 const LOG_DIR = process.env.LOG_DIR ?? path.join(__dirname, '..', 'logs');
+// Kept outside WALLET_DIR: every .json file there is read as a wallet.
+const GROUPS_FILE = process.env.RULE_GROUPS_FILE ?? path.join(__dirname, '..', 'data', 'rule-groups.json');
 const RECEIVER = process.env.RECEIVER_PUBKEY ? new PublicKey(process.env.RECEIVER_PUBKEY) : null;
 
 if (!PASS) throw new Error('set WALLET_PASSPHRASE');
@@ -314,6 +317,35 @@ app.post('/api/wallets/:label/clone', async (req, res) => {
   } catch (e) {
     if (notFound(e)) return res.status(404).json({ error: 'no such wallet' });
     res.status(400).json({ error: e.message });
+  }
+});
+
+// ---- saved rule groups -------------------------------------------------------
+
+const ruleGroups = new RuleGroups(GROUPS_FILE);
+
+app.get('/api/rule-groups', async (_req, res) => {
+  try {
+    res.json(await ruleGroups.list());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/rule-groups/:name', async (req, res) => {
+  try {
+    res.json(await ruleGroups.save(req.params.name, req.body?.rules));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.delete('/api/rule-groups/:name', async (req, res) => {
+  try {
+    if (!await ruleGroups.remove(req.params.name)) return res.status(404).json({ error: 'no such group' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

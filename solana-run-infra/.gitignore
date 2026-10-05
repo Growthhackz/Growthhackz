@@ -3,3 +3,4 @@ wallets/
 state/
 *.csv
 logs/
+data/

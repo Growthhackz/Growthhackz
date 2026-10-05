@@ -119,8 +119,25 @@
         “repeat” is on. Prices are in SOL per token, read from this wallet's pool.
         A token can have scheduled buys or scheduled sells, not both at once.
       </p>
+      <div class="rules-bar" role="toolbar" aria-label="Selected rules">
+        <label class="check small"><input type="checkbox" id="pick-all"> <span id="pick-count">Select</span></label>
+        <button type="button" id="rules-copy" disabled>Copy</button>
+        <button type="button" id="rules-paste" disabled>Paste</button>
+        <button type="button" id="rules-dup" disabled>Duplicate</button>
+        <button type="button" id="rules-del" class="danger" disabled>Delete</button>
+      </div>
       <div id="rules"></div>
       <button type="button" id="add-rule">+ Add rule</button>
+      <div class="groups-bar">
+        <span class="muted small">Saved groups</span>
+        <select id="group-pick" aria-label="Saved group"></select>
+        <button type="button" id="group-insert" disabled>Insert</button>
+        <button type="button" id="group-remove" class="danger" disabled>Delete group</button>
+        <span class="groups-save">
+          <input id="group-name" placeholder="name for selected rules" maxlength="40" aria-label="Group name">
+          <button type="button" id="group-save" disabled>Save group</button>
+        </span>
+      </div>
     </fieldset>
 
     <menu>
@@ -198,7 +215,8 @@
 
 <template id="rule-tpl">
   <div class="rule">
-    <label class="check" title="enabled"><input type="checkbox" data-f="enabled"></label>
+    <label class="check pick" title="select"><input type="checkbox" data-f="pick" aria-label="Select rule"></label>
+    <label class="check small" title="on/off"><input type="checkbox" data-f="enabled"> on</label>
     <select data-f="side">
       <option value="buy">Buy</option>
       <option value="sell">Sell</option>

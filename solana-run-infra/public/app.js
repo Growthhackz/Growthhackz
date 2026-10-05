@@ -304,28 +304,134 @@ function ruleRow(rule = {}) {
   return row;
 }
 
-function readRules() {
-  return $$('.rule', rulesBox).map((row) => {
-    const f = (name) => $(`[data-f="${name}"]`, row);
-    const type = f('triggerType').value;
-    const v = Number(f('triggerValue').value);
-    return {
-      ...(row.dataset.id ? { id: row.dataset.id } : {}),
-      enabled: f('enabled').checked,
-      side: f('side').value,
-      amountType: f('amountType').value,
-      amount: Number(f('amount').value),
-      amountMax: f('amountMax').value === '' ? null : Number(f('amountMax').value),
-      trigger: type === 'interval'
-        ? { type, minutes: v, maxMinutes: f('triggerMax').value === '' ? null : Number(f('triggerMax').value) }
-        : { type, price: v },
-      repeat: f('repeat').checked,
-      maxRuns: f('maxRuns').value === '' ? null : Number(f('maxRuns').value)
-    };
-  });
+// One editor row as a rule (its id kept when it already exists).
+function readRule(row) {
+  const f = (name) => $(`[data-f="${name}"]`, row);
+  const type = f('triggerType').value;
+  const v = Number(f('triggerValue').value);
+  return {
+    ...(row.dataset.id ? { id: row.dataset.id } : {}),
+    enabled: f('enabled').checked,
+    side: f('side').value,
+    amountType: f('amountType').value,
+    amount: Number(f('amount').value),
+    amountMax: f('amountMax').value === '' ? null : Number(f('amountMax').value),
+    trigger: type === 'interval'
+      ? { type, minutes: v, maxMinutes: f('triggerMax').value === '' ? null : Number(f('triggerMax').value) }
+      : { type, price: v },
+    repeat: f('repeat').checked,
+    maxRuns: f('maxRuns').value === '' ? null : Number(f('maxRuns').value)
+  };
 }
 
-$('#add-rule').onclick = () => rulesBox.append(ruleRow());
+function readRules() {
+  return $$('.rule', rulesBox).map(readRule);
+}
+
+// A rule's settings without its identity or run history: what gets copied.
+const settingsOf = ({ id, runs, lastRunAt, nextRunAt, armed, ...rest }) => rest;
+
+$('#add-rule').onclick = () => { rulesBox.append(ruleRow()); syncSelection(); };
+
+// ---- select, copy, paste --------------------------------------------------------
+
+const CLIP_KEY = 'ruleClipboard';
+let ruleClipboard = [];
+try { ruleClipboard = JSON.parse(localStorage.getItem(CLIP_KEY) ?? '[]'); } catch { ruleClipboard = []; }
+
+const pickedRows = () => $$('.rule', rulesBox).filter((r) => $('[data-f="pick"]', r).checked);
+
+function syncSelection() {
+  const rows = $$('.rule', rulesBox);
+  const n = pickedRows().length;
+  $('#pick-count').textContent = n ? `${n} selected` : 'Select';
+  $('#pick-all').checked = rows.length > 0 && n === rows.length;
+  $('#pick-all').indeterminate = n > 0 && n < rows.length;
+  for (const id of ['#rules-copy', '#rules-dup', '#rules-del', '#group-save']) $(id).disabled = n === 0;
+  $('#rules-paste').disabled = ruleClipboard.length === 0;
+  $('#rules-paste').textContent = ruleClipboard.length ? `Paste ${ruleClipboard.length}` : 'Paste';
+}
+rulesBox.addEventListener('change', (e) => { if (e.target.matches('[data-f="pick"]')) syncSelection(); });
+rulesBox.addEventListener('click', (e) => { if (e.target.closest('[data-remove]')) queueMicrotask(syncSelection); });
+
+$('#pick-all').onchange = (e) => {
+  for (const r of $$('.rule', rulesBox)) $('[data-f="pick"]', r).checked = e.target.checked;
+  syncSelection();
+};
+
+// Adds rules to the editor as new rows, selected so they're easy to spot.
+function insertRules(rules) {
+  for (const r of $$('.rule', rulesBox)) $('[data-f="pick"]', r).checked = false;
+  for (const rule of rules) {
+    const row = ruleRow(settingsOf(rule));
+    $('[data-f="pick"]', row).checked = true;
+    rulesBox.append(row);
+  }
+  syncSelection();
+}
+
+$('#rules-copy').onclick = () => {
+  ruleClipboard = pickedRows().map((r) => settingsOf(readRule(r)));
+  try { localStorage.setItem(CLIP_KEY, JSON.stringify(ruleClipboard)); } catch { /* clipboard stays in memory */ }
+  syncSelection();
+  toast(`copied ${ruleClipboard.length} rule${ruleClipboard.length === 1 ? '' : 's'}`);
+};
+$('#rules-paste').onclick = () => {
+  insertRules(ruleClipboard);
+  toast(`pasted ${ruleClipboard.length} rule${ruleClipboard.length === 1 ? '' : 's'}; Save to apply`);
+};
+$('#rules-dup').onclick = () => insertRules(pickedRows().map(readRule));
+$('#rules-del').onclick = () => {
+  for (const r of pickedRows()) r.remove();
+  syncSelection();
+};
+
+// ---- saved groups -------------------------------------------------------------
+
+let ruleGroups = [];
+
+async function loadGroups(keep) {
+  try { ruleGroups = await api('/api/rule-groups'); } catch (e) { ruleGroups = []; toast(e.message, true); }
+  const pick = $('#group-pick');
+  pick.replaceChildren(...(ruleGroups.length
+    ? ruleGroups.map((g) => el('option', { value: g.name, textContent: `${g.name} (${g.rules.length})` }))
+    : [el('option', { value: '', textContent: 'none saved yet' })]));
+  if (keep && ruleGroups.some((g) => g.name === keep)) pick.value = keep;
+  $('#group-insert').disabled = $('#group-remove').disabled = ruleGroups.length === 0;
+}
+
+$('#group-insert').onclick = () => {
+  const g = ruleGroups.find((x) => x.name === $('#group-pick').value);
+  if (!g) return;
+  insertRules(g.rules);
+  toast(`inserted "${g.name}"; Save to apply`);
+};
+
+$('#group-save').onclick = async () => {
+  const name = $('#group-name').value.trim();
+  if (!name) { $('#group-name').focus(); return toast('name the group first', true); }
+  const rules = pickedRows().map((r) => settingsOf(readRule(r)));
+  try {
+    await api(`/api/rule-groups/${encodeURIComponent(name)}`, { method: 'PUT', body: { rules } });
+    $('#group-name').value = '';
+    await loadGroups(name);
+    toast(`saved group "${name}" (${rules.length} rule${rules.length === 1 ? '' : 's'})`);
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
+
+$('#group-remove').onclick = async () => {
+  const name = $('#group-pick').value;
+  if (!name) return;
+  try {
+    await api(`/api/rule-groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    await loadGroups();
+    toast(`deleted group "${name}"`);
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
 
 const VENUE_HELP = {
   raydium: ['Raydium AMM v4, CPMM or CLMM pool address',
@@ -369,6 +475,8 @@ function openManage(w) {
   syncPriority();
   manageForm.solFloor.value = (w.settings.solFloorLamports / LAMPORTS).toFixed(3);
   rulesBox.replaceChildren(...w.rules.map(ruleRow));
+  syncSelection();
+  loadGroups();
   manageDialog.showModal();
 }
 
