@@ -71,10 +71,12 @@ export interface WurkTargets {
 export class TargetError extends Error {}
 
 /** Accepts a profile URL or @handle (optional: defaults to the post's author), one post URL and an optional public t.me link or @handle. */
-export function normalizeTargets(input: { xProfile?: string; xPost: string; telegram?: string }, preset: Preset = 'full'): WurkTargets {
+export function normalizeTargets(input: { xProfile?: string; xPost?: string; telegram?: string }, preset: Preset = 'full'): WurkTargets {
+  if (!input.xPost && preset !== 'trending') throw new TargetError('An X post is required for this package');
+  if (!input.xPost && !input.xProfile) throw new TargetError('An X profile or post is required');
   if (preset === 'small_raid' || preset === 'engagement') {
     try {
-      const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
+      const xPostUrl = normalizeLink('twitter_post', input.xPost!).link;
       return { xHandle: '', xProfileUrl: '', xPostUrl, tgUrl: '' };
     } catch (err) {
       if (err instanceof LinkError) throw new TargetError(err.message);
@@ -82,7 +84,8 @@ export function normalizeTargets(input: { xProfile?: string; xPost: string; tele
     }
   }
   try {
-    const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
+    // No post (the profile has none to boost): trending still buys the followers and Telegram members.
+    const xPostUrl = input.xPost ? normalizeLink('twitter_post', input.xPost).link : '';
     // No profile given: the followers go to the account that wrote the post.
     const raw = (input.xProfile ?? new URL(xPostUrl).pathname.split('/')[1] ?? '').trim();
     const xHandle = /^@?[A-Za-z0-9_]{1,15}$/.test(raw)
@@ -133,7 +136,7 @@ export function componentPlans(config: Config, t: WurkTargets, preset: Preset = 
     `${base}${path}?${new URLSearchParams(Object.entries(params).map(([k, v]): [string, string] => [k, String(v)])).toString()}`;
   if (preset === 'trending')
     return [
-      engagement,
+      ...(t.xPostUrl ? [engagement] : []),
       {
         kind: 'x_followers',
         url: q('/solana/xfollowers', { handle: t.xHandle, amount: TRENDING_PACKAGE.followers }),

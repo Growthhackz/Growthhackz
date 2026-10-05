@@ -194,7 +194,7 @@ export function packageStatus(p: WurkPackageRow, all: WurkComponentRow[]): Packa
 export interface CreatePackageInput {
   preset?: Preset;
   xProfile?: string;
-  xPost: string;
+  xPost?: string;
   telegram?: string;
   customerRef?: string;
   /** Admin test orders skip the retail price requirement. */

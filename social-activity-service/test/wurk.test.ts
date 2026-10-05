@@ -483,6 +483,23 @@ describe('WURK fulfillment', () => {
     expect(signed).toHaveLength(2);
   });
 
+  it('trending without an X post still buys the followers and Telegram members (BABYPIMPIN, Oct 5)', async () => {
+    const { ctx, api, signed, wurk } = setup();
+    wurk.state.price['/solana/xfollowers'] = '1500000';
+    wurk.state.price['/solana/tgmembers'] = '1500000';
+    const p = await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xProfile: 'https://x.com/BabyPimpin21Fla', telegram: 'https://t.me/BabyPimpin21flavorssol' });
+    expect(p.status).toBe(201);
+    expect(p.body.components.map((c: any) => c.kind).sort()).toEqual(['tg_members', 'x_followers']);
+    expect(p.body.targets.xPost).toBeNull();
+    await api('POST', `/v1/wurk/packages/${p.body.id}/payment-received`, { paymentRef: 'nopost-1' });
+    await processWurk(ctx);
+    expect((await api('GET', `/v1/wurk/packages/${p.body.id}`)).body.status).toBe('in_progress');
+    expect(signed).toHaveLength(2);
+    // Presets that are only engagement still need the post; nothing at all to target is refused.
+    expect((await api('POST', '/v1/wurk/packages', { preset: 'engagement', bundled: true, xProfile: 'https://x.com/a' })).status).toBe(400);
+    expect((await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, telegram: 'https://t.me/abcdef' })).status).toBe(400);
+  });
+
   it('an unpaid component can be cancelled (replaced); a paid one cannot', async () => {
     const { ctx, api, wurk } = setup();
     wurk.state.paid['/solana/xraid/small'] = '503'; // 503 after "payment": left for reconciling

@@ -191,6 +191,25 @@ describe('trending orchestration', () => {
     }
   });
 
+  it('still buys the followers and Telegram members when the X profile has no post to boost (BABYPIMPIN, Oct 5)', async () => {
+    const t = makeApp(SOCIAL);
+    contentFakes(t);
+    const seen = socialFake(t, { status: 'queued' });
+    t.http
+      .on('api.x.com/1.1/guest/activate.json', () => json({ guest_token: '123' }))
+      .on('api.x.com/graphql/xmU6X_CKVnQ5lSrCbAmJsg/UserByScreenName', () =>
+        json({ data: { user: { result: { __typename: 'User', rest_id: '77', legacy: { screen_name: 'MoonFrog' } } } } }),
+      )
+      .on('api.x.com/graphql/E3opETHurmVJflFsUBVuUQ/UserTweets', () => json({ data: { user: { result: { timeline: { timeline: { instructions: [] } } } } } }));
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'no-post', x_post_url: undefined })).body;
+    await t.api('POST', '/v1/tick');
+    const order = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+    expect(jobOf(order, 'social_boost').status).toBe('submitted');
+    const create = seen.find((s) => s.url.endsWith('/v1/wurk/packages'))!.body;
+    expect(create.xPost).toBeUndefined();
+    expect(create).toMatchObject({ preset: 'trending', xProfile: 'https://x.com/moonfrog' });
+  });
+
   it('times items out, fails dependents at once, and reports everything when the order is final', async () => {
     const t = makeApp(SOCIAL);
     contentFakes(t);

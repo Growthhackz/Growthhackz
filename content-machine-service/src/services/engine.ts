@@ -1077,19 +1077,23 @@ export function listEvents(ctx: ServiceContext, orderId: string) {
 async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
   if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
   let p = o.project;
+  const preset = ctx.config.SOCIAL_BOOST_PRESET;
   if (!p.x_post_url) {
     // No post supplied: take the pinned (or top recent) post from the project's X profile and store it on the order.
     const found = await findRaidPost(ctx, p.x_url);
-    if (!found) return finish(ctx, j, { reason: p.x_url ? 'No public post found on the X profile to raid.' : 'The order has no X profile or post to raid.' }, 'skipped');
-    p = { ...loadOrder(ctx, o.id).project, x_post_url: found.url, x_post_source: found.source };
-    run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p, id: o.id });
+    if (found) {
+      p = { ...loadOrder(ctx, o.id).project, x_post_url: found.url, x_post_source: found.source };
+      run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p, id: o.id });
+    } else if (!(preset === 'trending' && p.x_url)) {
+      return finish(ctx, j, { reason: p.x_url ? 'No public post found on the X profile to raid.' : 'The order has no X profile or post to raid.' }, 'skipped');
+    }
+    // trending with a profile but no post: the followers and Telegram members still go out (no likes/reposts/comments).
   }
-  const preset = ctx.config.SOCIAL_BOOST_PRESET;
   const pkg = await socialActivity<{ id: string }>(
     ctx,
     'POST',
     '/v1/wurk/packages',
-    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'small_raid' ? {} : { xProfile: p.x_url, telegram: p.telegram_url }) },
+    { preset, bundled: true, ...(p.x_post_url ? { xPost: p.x_post_url } : {}), customerRef: o.order_id, ...(preset === 'small_raid' ? {} : { xProfile: p.x_url, telegram: p.telegram_url }) },
     { 'idempotency-key': `cm-${o.id}` },
   );
   await socialActivity(ctx, 'POST', `/v1/wurk/packages/${pkg.id}/payment-received`, { paymentRef: o.order_id, actor: 'content-machine' });
