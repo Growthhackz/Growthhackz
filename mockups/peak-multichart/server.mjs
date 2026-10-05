@@ -411,7 +411,7 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
-    if (url.pathname === '/' || url.pathname === '/index.html') {
+    if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/trending') {
       // index.html is a page fragment (it is also published as an artifact); give browsers a doctype and a mobile viewport
       const html = String(await readFile(path.join(HERE, 'index.html')));
       const head = /^\s*<!doctype/i.test(html) ? '' : '<!doctype html>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<meta name="theme-color" content="#000000">\n';

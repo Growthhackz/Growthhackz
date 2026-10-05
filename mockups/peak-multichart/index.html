@@ -446,6 +446,13 @@ a { color: inherit; }
 .preview-btn { border: 1px solid var(--line); background: var(--night-2); border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; color: var(--glow-a); cursor: pointer; }
 .preview-btn:hover { border-color: var(--glow-a); }
 
+/* ---------- trending only: /trending (or ?view=trending) shows just every board's top 10 and the blended board ---------- */
+html.solo .hero, html.solo .duo, html.solo .wrap > .row, html.solo .wall, html.solo .ticker, html.solo .foot { display: none !important; }
+html.solo .xb { margin-top: 6px; }
+html.solo #chainSeg { display: none; }
+.solo-link { display: none; font-family: var(--mono); font-size: 11px; color: var(--glow-a); text-decoration: none; border: 1px solid rgba(143,224,75,.35); border-radius: 999px; padding: 5px 10px; white-space: nowrap; }
+html.solo .solo-link { display: inline-block; }
+
 /* ---------- tour: the full page, slowly scrolled top to bottom and back, for the live stream (?tour=1) ---------- */
 html.tour { scrollbar-width: none; cursor: none; }
 html.tour::-webkit-scrollbar, html.tour body::-webkit-scrollbar { display: none; }
@@ -551,6 +558,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       <img class="mark" src="assets/peak-mark.png" alt="Peak" width="44" height="44">
       <div><b>PEAK RIDGE</b><small>Peak Trending · top 10 live</small></div>
     </div>
+    <a class="solo-link" href="/">Full live board ↗</a>
     <div class="seg" role="group" aria-label="Chain filter" id="chainSeg">
       <button type="button" id="ch-all" data-chain="all" aria-pressed="true">All chains</button>
       <button type="button" id="ch-sol" data-chain="sol" aria-pressed="false">Solana</button>
@@ -702,6 +710,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
 
   const BROADCAST = new URLSearchParams(location.search).has('broadcast');
   if (BROADCAST) document.documentElement.classList.add('broadcast');
+  const SOLO = !BROADCAST && (location.pathname.replace(/\/$/, '').endsWith('/trending') || new URLSearchParams(location.search).get('view') === 'trending');
+  if (SOLO) { document.documentElement.classList.add('solo'); document.title = 'Peak Trending Boards'; }
 
   // ?tour=1: drift down the whole page and back up, forever, easing in and out and resting at each end.
   // Optional: &speed=45 (px per second) &rest=8 (seconds at the top and bottom)
