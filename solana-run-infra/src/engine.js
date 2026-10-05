@@ -7,7 +7,7 @@ import {
   SOL_MINT, getDecimals, getTokenBalance, getTokenAccounts, toBaseUnits, toUi
 } from './tokens.js';
 import * as venues from './venues/index.js';
-import { validateTrade, evaluateRule, afterRun, conflictingMints } from './rules.js';
+import { validateTrade, evaluateRule, afterRun, conflictingMints, pickAmount } from './rules.js';
 import { sweepAll } from './teardown.js';
 import { closeEmptyAccounts } from './rent.js';
 
@@ -188,6 +188,7 @@ export class TradeEngine {
       r.runs = next.runs;
       r.lastRunAt = next.lastRunAt;
       r.armed = next.armed;
+      r.nextRunAt = next.nextRunAt ?? null;
       r.enabled = r.enabled && next.enabled;
     });
   }
@@ -241,7 +242,9 @@ export class TradeEngine {
 
             let ok = false;
             try {
-              await this.#execute(label, rule, `rule: ${describeRule(rule)}`);
+              // A ranged rule trades a fresh random amount each time it fires.
+              const amount = pickAmount(rule);
+              await this.#execute(label, { ...rule, amount }, `rule: ${describeRule(rule)}`);
               ok = true;
             } catch (e) {
               console.error(`${label} rule ${rule.id}:`, errMsg(e));
@@ -359,15 +362,16 @@ export class TradeEngine {
 }
 
 export function describeRule(r) {
+  const n = r.amountMax ? `${r.amount}–${r.amountMax}` : `${r.amount}`;
   const amt = {
-    sol: `${r.amount} SOL`,
-    pctSol: `${r.amount}% of SOL`,
-    token: `${r.amount} tokens`,
-    pctToken: `${r.amount}% of tokens`
+    sol: `${n} SOL`,
+    pctSol: `${n}% of SOL`,
+    token: `${n} tokens`,
+    pctToken: `${n}% of tokens`
   }[r.amountType];
   const t = r.trigger;
   const when = t.type === 'interval'
-    ? `every ${t.minutes} min`
+    ? (t.maxMinutes ? `every ${t.minutes}–${t.maxMinutes} min (random)` : `every ${t.minutes} min`)
     : `when price ${t.type === 'priceAbove' ? '≥' : '≤'} ${t.price} SOL`;
   return `${r.side} ${amt} ${when}`;
 }

@@ -134,6 +134,7 @@ function render() {
     const actions = el('td', {}, el('div', { className: 'actions' },
       btn('Trade', () => openTrade(w)),
       btn('Manage', () => openManage(w)),
+      btn('Clone', () => openClone(w)),
       btn('Log', () => openLog(w)),
       btn('Stop', () => openStop(w), 'stop'),
       btn('Delete', () => removeWallet(w, b), 'danger')
@@ -278,10 +279,12 @@ function ruleRow(rule = {}) {
   f('side').value = rule.side ?? 'buy';
   fillUnits(f('amountType'), f('side').value, rule.amountType);
   f('amount').value = rule.amount ?? '';
+  f('amountMax').value = rule.amountMax ?? '';
   f('triggerType').value = rule.trigger?.type ?? 'priceBelow';
   f('triggerValue').value = rule.trigger
     ? (rule.trigger.type === 'interval' ? rule.trigger.minutes : rule.trigger.price)
     : '';
+  f('triggerMax').value = rule.trigger?.maxMinutes ?? '';
   f('repeat').checked = rule.repeat ?? false;
   f('maxRuns').value = rule.maxRuns ?? '';
   f('runs').textContent = rule.runs ? `ran ${rule.runs}×` : '';
@@ -291,6 +294,8 @@ function ruleRow(rule = {}) {
     f('triggerValue').placeholder = isInterval ? `≥ ${minInterval} min` : 'SOL per token';
     f('triggerValue').min = isInterval ? String(minInterval) : '0';
     f('repeat').closest('label').hidden = isInterval;
+    f('triggerMax').hidden = !isInterval;
+    f('toLabel').hidden = !isInterval;
   };
   f('side').onchange = () => fillUnits(f('amountType'), f('side').value, f('amountType').value);
   f('triggerType').onchange = syncTrigger;
@@ -310,7 +315,10 @@ function readRules() {
       side: f('side').value,
       amountType: f('amountType').value,
       amount: Number(f('amount').value),
-      trigger: type === 'interval' ? { type, minutes: v } : { type, price: v },
+      amountMax: f('amountMax').value === '' ? null : Number(f('amountMax').value),
+      trigger: type === 'interval'
+        ? { type, minutes: v, maxMinutes: f('triggerMax').value === '' ? null : Number(f('triggerMax').value) }
+        : { type, price: v },
       repeat: f('repeat').checked,
       maxRuns: f('maxRuns').value === '' ? null : Number(f('maxRuns').value)
     };
@@ -386,6 +394,58 @@ manageForm.onsubmit = async (e) => {
     toast('saved');
   } catch (err) {
     toast(err.message, true);
+  }
+};
+
+// ---- clone ------------------------------------------------------------------
+
+const cloneDialog = $('#clone-dialog');
+const cloneForm = $('#clone-form');
+let cloning = null;
+
+function openClone(w) {
+  cloning = w;
+  $('.dlg-label', cloneDialog).textContent = w.label;
+  cloneForm.reset();
+  cloneForm.prefix.value = `${w.label}-`;
+  $('#clone-result').replaceChildren();
+  const others = wallets.filter((x) => x.label !== w.label);
+  $('#clone-targets').replaceChildren(...(others.length
+    ? others.map((x) => el('label', { className: 'check' },
+      el('input', { type: 'checkbox', value: x.label }),
+      el('span', { textContent: `${x.label} ` }),
+      el('span', { className: 'muted small', textContent: x.settings.mint ? `· ${VENUE_LABEL[x.settings.venue]} ${short(x.settings.mint)}` : '· not set up' })))
+    : [el('p', { className: 'muted small', textContent: 'No other wallets yet.' })]));
+  $('#clone-submit').disabled = false;
+  cloneDialog.showModal();
+}
+
+cloneForm.onsubmit = async (e) => {
+  e.preventDefault();
+  if (!cloning) return;
+  const targets = $$('#clone-targets input:checked').map((i) => i.value);
+  const body = { targets, create: { count: Number(cloneForm.count.value || 0), prefix: cloneForm.prefix.value.trim() } };
+  const submit = $('#clone-submit');
+  submit.disabled = true;
+  try {
+    const r = await api(walletUrl(cloning.label, '/clone'), { method: 'POST', body });
+    const out = [];
+    if (r.updated.length) out.push(el('p', { textContent: `Updated: ${r.updated.join(', ')}` }));
+    if (r.created.length) {
+      out.push(el('p', { textContent: `Created ${r.created.length} wallet${r.created.length > 1 ? 's' : ''}. Fund these addresses:` }));
+      for (const c of r.created) {
+        const code = el('code', { textContent: c.pubkey, title: 'click to copy' });
+        code.onclick = () => navigator.clipboard.writeText(c.pubkey).then(() => toast('address copied'), () => {});
+        out.push(el('div', { className: 'clone-new' }, el('span', { textContent: `${c.label} ` }), code));
+      }
+    }
+    $('#clone-result').replaceChildren(...out);
+    toast('cloned');
+    await refresh();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    submit.disabled = false;
   }
 };
 

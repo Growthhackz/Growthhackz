@@ -8,7 +8,7 @@ import {
   LABEL_RE, createWallet, readRecord, updateSettings, deleteWallet,
   mutateRecord, normalizeSettings
 } from './custody.js';
-import { normalizeRules, scheduleConflict, MIN_INTERVAL_MINUTES } from './rules.js';
+import { normalizeRules, scheduleConflict, cloneRule, MIN_INTERVAL_MINUTES } from './rules.js';
 import { inspectPool, VENUE_NAMES } from './venues/index.js';
 import { TradeEngine } from './engine.js';
 import { getTokenBalance, getDecimals, toUi } from './tokens.js';
@@ -242,6 +242,75 @@ app.put('/api/wallets/:label/rules', async (req, res) => {
 app.post('/api/wallets/:label/trade', async (req, res) => {
   try {
     res.json(await engine.trade(req.params.label, req.body ?? {}));
+  } catch (e) {
+    if (notFound(e)) return res.status(404).json({ error: 'no such wallet' });
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Settings a clone copies. Keys, balances and the running switch stay per wallet.
+const CLONED_SETTINGS = [
+  'venue', 'pool', 'mint', 'slippageBps', 'priorityMode', 'priorityMicroLamports',
+  'closeEmptyAccounts', 'solFloorLamports'
+];
+const MAX_NEW_CLONES = 50;
+
+// Copies this wallet's settings and rules onto existing wallets (overwriting
+// theirs) and/or onto new wallets it creates. Copies start paused.
+app.post('/api/wallets/:label/clone', async (req, res) => {
+  try {
+    const source = req.params.label;
+    const src = await readRecord({ label: source, storeDir: STORE });
+    const body = req.body ?? {};
+
+    const targets = [...new Set(Array.isArray(body.targets) ? body.targets : [])];
+    for (const t of targets) {
+      if (!LABEL_RE.test(t ?? '')) throw new Error(`invalid wallet label: ${t}`);
+      if (t === source) throw new Error('a wallet cannot be cloned onto itself');
+    }
+    const count = Number(body.create?.count ?? 0);
+    if (!Number.isInteger(count) || count < 0 || count > MAX_NEW_CLONES) {
+      throw new Error(`number of new wallets must be 0–${MAX_NEW_CLONES}`);
+    }
+    const prefix = body.create?.prefix || `${source}-`;
+    if (!/^[a-zA-Z0-9_-]{1,28}$/.test(prefix)) {
+      throw new Error('name prefix must be 1-28 chars of [a-zA-Z0-9_-]');
+    }
+    if (targets.length === 0 && count === 0) {
+      throw new Error('pick wallets to copy onto, or a number of new wallets to create');
+    }
+
+    const existing = await allWallets();
+    const taken = new Set(existing.map((w) => w.label));
+    for (const t of targets) if (!taken.has(t)) throw new Error(`no such wallet: ${t}`);
+    const newLabels = [];
+    for (let i = 1; newLabels.length < count; i++) {
+      const l = `${prefix}${i}`;
+      if (!taken.has(l)) newLabels.push(l);
+    }
+
+    const settings = Object.fromEntries(
+      CLONED_SETTINGS.map((k) => [k, normalizeSettings(src.settings)[k]])
+    );
+    const rules = src.rules ?? [];
+    // Check the schedule rule against every wallet as it would be after the copy.
+    const after = existing
+      .map((w) => (targets.includes(w.label) ? { ...w, mint: settings.mint, rules } : w))
+      .concat(newLabels.map((label) => ({ label, mint: settings.mint, rules })));
+    const conflict = scheduleConflict(after);
+    if (conflict) throw new Error(conflict);
+
+    const created = [];
+    for (const label of newLabels) {
+      created.push({ label, pubkey: await createWallet({ label, passphrase: PASS, storeDir: STORE }) });
+    }
+    for (const label of [...targets, ...newLabels]) {
+      await mutateRecord({ label, storeDir: STORE }, (rec) => {
+        rec.settings = { ...normalizeSettings(rec.settings), ...settings, running: false };
+        rec.rules = rules.map(cloneRule);
+      });
+    }
+    res.json({ updated: targets, created });
   } catch (e) {
     if (notFound(e)) return res.status(404).json({ error: 'no such wallet' });
     res.status(400).json({ error: e.message });

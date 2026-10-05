@@ -150,3 +150,10 @@ button.link {
 }
 button.link:disabled { color: var(--muted); text-decoration: none; }
 input:disabled { opacity: .55; }
+
+.clone-targets { display: grid; gap: 6px; max-height: 200px; overflow: auto; }
+.clone-targets label.check { display: flex; gap: 6px; align-items: center; color: var(--text); }
+.clone-new { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.clone-new code { font-size: 12px; word-break: break-all; }
+#clone-result p { margin: 6px 0 0; }
+.rule input[data-f=amountMax], .rule input[data-f=triggerMax] { width: 120px; }

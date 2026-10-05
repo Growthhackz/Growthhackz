@@ -7,15 +7,31 @@ const SELL_AMOUNT_TYPES = ['token', 'pctToken'];
 
 const isPosNum = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
-export function validateTrade({ side, amountType, amount }) {
+// `amountMax`, when set, makes the amount a range: each run picks a random
+// amount between `amount` and `amountMax`.
+export function validateTrade({ side, amountType, amount, amountMax }) {
   if (side !== 'buy' && side !== 'sell') throw new Error('side must be buy or sell');
   const types = side === 'buy' ? BUY_AMOUNT_TYPES : SELL_AMOUNT_TYPES;
   if (!types.includes(amountType)) {
     throw new Error(`${side} amountType must be one of ${types.join(', ')}`);
   }
   if (!isPosNum(amount)) throw new Error('amount must be a positive number');
-  if (amountType.startsWith('pct') && amount > 100) throw new Error('percent must be ≤ 100');
-  return { side, amountType, amount };
+  const hasMax = amountMax != null && amountMax !== '';
+  if (hasMax && (!isPosNum(amountMax) || amountMax < amount)) {
+    throw new Error('the top of an amount range must be at least its bottom');
+  }
+  const top = hasMax ? amountMax : amount;
+  if (amountType.startsWith('pct') && top > 100) throw new Error('percent must be ≤ 100');
+  return { side, amountType, amount, ...(hasMax && amountMax > amount ? { amountMax } : {}) };
+}
+
+const roundTo = (v, dp) => Math.round(v * 10 ** dp) / 10 ** dp;
+
+// The amount for one run of a rule: fixed, or uniform within its range.
+export function pickAmount(rule, rand = Math.random) {
+  if (!rule.amountMax) return rule.amount;
+  const v = rule.amount + rand() * (rule.amountMax - rule.amount);
+  return roundTo(v, rule.amountType === 'token' ? 6 : rule.amountType === 'sol' ? 6 : 2);
 }
 
 function validateTrigger(t) {
@@ -28,7 +44,16 @@ function validateTrigger(t) {
     if (!isPosNum(t.minutes) || t.minutes < MIN_INTERVAL_MINUTES) {
       throw new Error(`interval must be at least ${MIN_INTERVAL_MINUTES} minutes`);
     }
-    return { type: 'interval', minutes: t.minutes };
+    // `maxMinutes` turns the interval into a random gap between the two.
+    const hasMax = t.maxMinutes != null && t.maxMinutes !== '';
+    if (hasMax && (!isPosNum(t.maxMinutes) || t.maxMinutes < t.minutes || t.maxMinutes > 10_080)) {
+      throw new Error('the top of a random interval must be between its bottom and 10080 minutes (7 days)');
+    }
+    return {
+      type: 'interval',
+      minutes: t.minutes,
+      ...(hasMax && t.maxMinutes > t.minutes ? { maxMinutes: t.maxMinutes } : {})
+    };
   }
   throw new Error('trigger type must be priceAbove, priceBelow or interval');
 }
@@ -45,6 +70,8 @@ export function normalizeRule(input, prev) {
     throw new Error('maxRuns must be a positive integer or empty');
   }
   const note = typeof input.note === 'string' ? input.note.slice(0, 80) : '';
+  // A pending random run time only survives if the schedule itself is unchanged.
+  const sameTrigger = prev && JSON.stringify(prev.trigger) === JSON.stringify(trigger);
   return {
     id: prev?.id ?? randomUUID(),
     enabled: input.enabled !== false,
@@ -55,8 +82,17 @@ export function normalizeRule(input, prev) {
     note,
     runs: prev?.runs ?? 0,
     lastRunAt: prev?.lastRunAt ?? null,
+    nextRunAt: sameTrigger ? prev.nextRunAt ?? null : null,
     armed: prev?.armed ?? true
   };
+}
+
+const isRandomInterval = (t) => t.type === 'interval' && t.maxMinutes > t.minutes;
+const randomGapMs = (t, rand) => (t.minutes + rand() * (t.maxMinutes - t.minutes)) * 60_000;
+
+// A copy of a rule for another wallet: same settings, fresh run history.
+export function cloneRule(rule) {
+  return { ...rule, id: randomUUID(), runs: 0, lastRunAt: null, nextRunAt: null, armed: true };
 }
 
 export function normalizeRules(list, prevRules = []) {
@@ -72,13 +108,18 @@ export function normalizeRules(list, prevRules = []) {
 // Decides whether a rule fires now. Returns the rule's next runtime state and
 // whether to trade. Price rules fire when the price crosses the level; with
 // `repeat` they re-arm once the price moves back across it.
-export function evaluateRule(rule, { price, now }) {
+export function evaluateRule(rule, { price, now, rand = Math.random }) {
   if (!rule.enabled) return { fire: false, next: rule };
   if (rule.maxRuns !== null && rule.runs >= rule.maxRuns) {
     return { fire: false, next: { ...rule, enabled: false } };
   }
 
   const t = rule.trigger;
+  if (isRandomInterval(t)) {
+    // First sight of a random schedule: pick when its first run happens.
+    if (rule.nextRunAt == null) return { fire: false, next: { ...rule, nextRunAt: now + randomGapMs(t, rand) } };
+    return { fire: now >= rule.nextRunAt, next: rule };
+  }
   if (t.type === 'interval') {
     const due = rule.lastRunAt == null || now - rule.lastRunAt >= t.minutes * 60_000;
     return { fire: due, next: rule };
@@ -92,7 +133,7 @@ export function evaluateRule(rule, { price, now }) {
 }
 
 // State after a rule's trade finished (successfully or not).
-export function afterRun(rule, { now, ok }) {
+export function afterRun(rule, { now, ok, rand = Math.random }) {
   const runs = ok ? rule.runs + 1 : rule.runs;
   const oneShotPrice = rule.trigger.type !== 'interval' && !rule.repeat;
   const exhausted = rule.maxRuns !== null && runs >= rule.maxRuns;
@@ -100,6 +141,7 @@ export function afterRun(rule, { now, ok }) {
     ...rule,
     runs,
     lastRunAt: now,
+    nextRunAt: isRandomInterval(rule.trigger) ? now + randomGapMs(rule.trigger, rand) : null,
     enabled: rule.enabled && !(ok && (oneShotPrice || exhausted))
   };
 }

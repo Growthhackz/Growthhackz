@@ -164,6 +164,38 @@
   </form>
 </dialog>
 
+<!-- Clone -->
+<dialog id="clone-dialog">
+  <form id="clone-form">
+    <h2>Clone — <span class="dlg-label"></span></h2>
+    <p class="muted small">
+      Copies the venue, pool, token, slippage, fee settings, SOL floor and all rules.
+      Keys and balances stay with each wallet. Copies start paused; switch them on when funded.
+    </p>
+    <fieldset>
+      <legend>Copy onto existing wallets</legend>
+      <p class="muted small">Their current settings and rules are replaced.</p>
+      <div id="clone-targets" class="clone-targets"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Create new wallets</legend>
+      <div class="row">
+        <label>How many
+          <input type="number" name="count" min="0" max="50" step="1" value="0">
+        </label>
+        <label>Name prefix
+          <input name="prefix" pattern="[a-zA-Z0-9_-]{1,28}" spellcheck="false">
+        </label>
+      </div>
+    </fieldset>
+    <div id="clone-result" class="small"></div>
+    <menu>
+      <button type="button" data-close>Close</button>
+      <button type="submit" class="primary" id="clone-submit">Clone</button>
+    </menu>
+  </form>
+</dialog>
+
 <template id="rule-tpl">
   <div class="rule">
     <label class="check" title="enabled"><input type="checkbox" data-f="enabled"></label>
@@ -172,6 +204,8 @@
       <option value="sell">Sell</option>
     </select>
     <input type="number" data-f="amount" min="0" step="any" placeholder="amount" required>
+    <span class="muted small">to</span>
+    <input type="number" data-f="amountMax" min="0" step="any" placeholder="max (random)" title="optional: pick a random amount up to this each run">
     <select data-f="amountType"></select>
     <select data-f="triggerType">
       <option value="priceBelow">when price ≤</option>
@@ -179,6 +213,8 @@
       <option value="interval">every (min)</option>
     </select>
     <input type="number" data-f="triggerValue" min="0" step="any" required>
+    <span class="muted small" data-f="toLabel">to</span>
+    <input type="number" data-f="triggerMax" min="0" step="any" placeholder="max (random)" title="optional: wait a random time up to this between runs">
     <label class="check small" title="price rules: fire again each time price re-crosses">
       <input type="checkbox" data-f="repeat"> repeat
     </label>
