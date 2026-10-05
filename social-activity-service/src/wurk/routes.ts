@@ -90,7 +90,7 @@ function presentPackageAdmin(ctx: ServiceContext, p: WurkPackageRow) {
     preset: p.preset,
     bundled: p.bundled === 1,
     customerRef: p.customer_ref,
-    targets: { xProfile: p.x_handle ? `https://x.com/${p.x_handle}` : null, xPost: p.x_post_url, telegram: p.tg_url || null },
+    targets: { xProfile: p.x_handle ? `https://x.com/${p.x_handle}` : null, xPost: p.x_post_url || null, telegram: p.tg_url || null },
     retailPriceUsd: usd(p.retail_price_micros),
     costCeilingUsdc: usd(p.cost_ceiling_micros),
     costSettledUsdc: comps.reduce((s, c) => s + (c.settled_micros ?? 0), 0) / 1e6,
@@ -201,7 +201,8 @@ export function registerWurkRoutes(app: FastifyInstance, ctx: ServiceContext): v
         .object({
           preset: z.enum(PRESETS).default('full'),
           xProfile: z.string().min(1).max(200).optional(),
-          xPost: z.string().min(1).max(300),
+          /** Optional for `trending`: without a post the likes/reposts/comments are left out and the rest still runs. */
+          xPost: z.string().min(1).max(300).optional(),
           telegram: z.string().min(1).max(200).optional(),
           customerRef: z.string().max(200).optional(),
           test: z.boolean().default(false),
