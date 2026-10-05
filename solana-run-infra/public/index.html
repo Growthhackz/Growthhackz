@@ -11,7 +11,7 @@
   <h1>Wallets</h1>
   <div class="header-actions">
     <form id="create-form">
-      <input name="label" placeholder="label" pattern="[a-zA-Z0-9_-]{1,32}" required>
+      <input name="label" placeholder="label" pattern="[a-zA-Z0-9_\-]{1,32}" required>
       <button type="submit">Add wallet</button>
     </form>
     <button id="stop-all" class="stop">Emergency stop all</button>
@@ -184,7 +184,7 @@
           <input type="number" name="count" min="0" max="50" step="1" value="0">
         </label>
         <label>Name prefix
-          <input name="prefix" pattern="[a-zA-Z0-9_-]{1,28}" spellcheck="false">
+          <input name="prefix" pattern="[a-zA-Z0-9_\-]{1,28}" spellcheck="false">
         </label>
       </div>
     </fieldset>
