@@ -5,14 +5,16 @@ import { toMicros } from '../lib/money.js';
 export const SOLANA_MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-export const COMPONENT_KINDS = ['verified_followers', 'post_mix', 'tg_batch_1', 'tg_batch_2', 'small_raid', 'x_followers', 'tg_members'] as const;
+export const COMPONENT_KINDS = ['verified_followers', 'post_mix', 'tg_batch_1', 'tg_batch_2', 'small_raid', 'x_followers', 'tg_members', 'engagement'] as const;
 
 /**
- * `trending`: the trending-order default, the $1 small raid plus TRENDING_PACKAGE's followers and Telegram members.
+ * `trending`: the trending-order default: TRENDING_ENGAGEMENT on the X post plus TRENDING_PACKAGE's followers and
+ *   Telegram members. (It used WURK's $1 small raid, which kept failing after payment in Oct 2026.)
+ * `engagement`: TRENDING_ENGAGEMENT on one X post on its own.
  * `small_raid`: WURK's $1 preset raid on one X post (25 likes, 10 reposts, 10 comments, 70 views) on its own.
  * `full`: the four-purchase package below, kept to switch in later.
  */
-export const PRESETS = ['trending', 'small_raid', 'full'] as const;
+export const PRESETS = ['trending', 'engagement', 'small_raid', 'full'] as const;
 export type Preset = (typeof PRESETS)[number];
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 
@@ -27,6 +29,8 @@ export const COMPONENT_STATUSES = [
   'partial',
   'needs_attention',
   'reconcile_required',
+  /** Dropped by an admin before anything was paid (e.g. replaced by another purchase); ignored by the package. */
+  'cancelled',
 ] as const;
 export type ComponentStatus = (typeof COMPONENT_STATUSES)[number];
 export type PackageStatus = ComponentStatus;
@@ -40,7 +44,14 @@ export const WURK_PACKAGE = {
   tgBatch: 15,
 } as const;
 
-/** Trending preset on top of the small raid: standard (not verified) followers and Telegram members, $0.03 each. */
+/** Likes, reposts and comments bought directly on the X post (WURK's custom raid, $3.00 at Oct 2026 prices). */
+export const TRENDING_ENGAGEMENT = {
+  likes: 50,
+  reposts: 50,
+  comments: 20,
+} as const;
+
+/** Trending preset on top of the engagement: standard (not verified) followers and Telegram members, $0.03 each. */
 export const TRENDING_PACKAGE = {
   followers: 50,
   tgMembers: 50,
@@ -60,10 +71,12 @@ export interface WurkTargets {
 export class TargetError extends Error {}
 
 /** Accepts a profile URL or @handle (optional: defaults to the post's author), one post URL and an optional public t.me link or @handle. */
-export function normalizeTargets(input: { xProfile?: string; xPost: string; telegram?: string }, preset: Preset = 'full'): WurkTargets {
-  if (preset === 'small_raid') {
+export function normalizeTargets(input: { xProfile?: string; xPost?: string; telegram?: string }, preset: Preset = 'full'): WurkTargets {
+  if (!input.xPost && preset !== 'trending') throw new TargetError('An X post is required for this package');
+  if (!input.xPost && !input.xProfile) throw new TargetError('An X profile or post is required');
+  if (preset === 'small_raid' || preset === 'engagement') {
     try {
-      const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
+      const xPostUrl = normalizeLink('twitter_post', input.xPost!).link;
       return { xHandle: '', xProfileUrl: '', xPostUrl, tgUrl: '' };
     } catch (err) {
       if (err instanceof LinkError) throw new TargetError(err.message);
@@ -71,7 +84,8 @@ export function normalizeTargets(input: { xProfile?: string; xPost: string; tele
     }
   }
   try {
-    const xPostUrl = normalizeLink('twitter_post', input.xPost).link;
+    // No post (the profile has none to boost): trending still buys the followers and Telegram members.
+    const xPostUrl = input.xPost ? normalizeLink('twitter_post', input.xPost).link : '';
     // No profile given: the followers go to the account that wrote the post.
     const raw = (input.xProfile ?? new URL(xPostUrl).pathname.split('/')[1] ?? '').trim();
     const xHandle = /^@?[A-Za-z0-9_]{1,15}$/.test(raw)
@@ -98,6 +112,7 @@ export interface ComponentPlan {
 
 export function packageCeilingMicros(config: Config, preset: Preset): number {
   if (preset === 'trending') return toMicros(config.WURK_TRENDING_MAX_USDC);
+  if (preset === 'engagement') return toMicros(config.WURK_MAX_ENGAGEMENT_USDC);
   return toMicros(preset === 'small_raid' ? config.WURK_MAX_SMALL_RAID_USDC : config.WURK_PACKAGE_MAX_USDC);
 }
 
@@ -110,11 +125,18 @@ export function componentPlans(config: Config, t: WurkTargets, preset: Preset = 
     ceilingMicros: toMicros(config.WURK_MAX_SMALL_RAID_USDC),
   };
   if (preset === 'small_raid') return [raid];
+  const engagement: ComponentPlan = {
+    kind: 'engagement',
+    url: `${base}/solana/xraid/custom?${new URLSearchParams({ url: t.xPostUrl, likes: String(TRENDING_ENGAGEMENT.likes), reposts: String(TRENDING_ENGAGEMENT.reposts), comments: String(TRENDING_ENGAGEMENT.comments), bookmarks: '0' })}`,
+    quantities: { ...TRENDING_ENGAGEMENT },
+    ceilingMicros: toMicros(config.WURK_MAX_ENGAGEMENT_USDC),
+  };
+  if (preset === 'engagement') return [engagement];
   const q = (path: string, params: Record<string, string | number>) =>
     `${base}${path}?${new URLSearchParams(Object.entries(params).map(([k, v]): [string, string] => [k, String(v)])).toString()}`;
   if (preset === 'trending')
     return [
-      raid,
+      ...(t.xPostUrl ? [engagement] : []),
       {
         kind: 'x_followers',
         url: q('/solana/xfollowers', { handle: t.xHandle, amount: TRENDING_PACKAGE.followers }),

@@ -174,8 +174,10 @@ export function spentToday(ctx: ServiceContext): number {
 }
 
 /** Package status rolled up from its components (a paused package keeps its status and reports `paused`). */
-export function packageStatus(p: WurkPackageRow, comps: WurkComponentRow[]): PackageStatus {
+export function packageStatus(p: WurkPackageRow, all: WurkComponentRow[]): PackageStatus {
   if (!p.paid_at) return 'pending_payment';
+  const comps = all.filter((c) => c.status !== 'cancelled');
+  if (!comps.length) return 'cancelled';
   const has = (s: ComponentStatus) => comps.some((c) => c.status === s);
   if (has('reconcile_required')) return 'reconcile_required';
   if (has('needs_attention')) return 'needs_attention';
@@ -192,7 +194,7 @@ export function packageStatus(p: WurkPackageRow, comps: WurkComponentRow[]): Pac
 export interface CreatePackageInput {
   preset?: Preset;
   xProfile?: string;
-  xPost: string;
+  xPost?: string;
   telegram?: string;
   customerRef?: string;
   /** Admin test orders skip the retail price requirement. */
@@ -655,6 +657,16 @@ export function correctStatus(ctx: ServiceContext, componentId: string, status: 
   if (status === 'quoting') throw new ValidationError('quoting is set only by the worker');
   if (['queued', 'scheduled'].includes(status) && paymentsOf(ctx, c.id).some((p) => ['signed', 'settled', 'reconcile_required'].includes(p.status)))
     throw new ConflictError('This component has a payment that may have settled; it cannot be queued to pay again');
+  if (status === 'cancelled') {
+    const pays = paymentsOf(ctx, c.id);
+    if (pays.some((p) => p.status === 'settled' || p.status === 'signed')) throw new ConflictError('This component was paid; reconcile it instead of cancelling');
+    // An unconfirmed payment the admin checked on-chain (the note says so) never settled.
+    run(ctx.db, "UPDATE wurk_payments SET status = 'failed', error = :e, updated_at = :t WHERE component_id = :c AND status = 'reconcile_required'", {
+      c: c.id,
+      e: `Not settled (checked by ${actor}): ${note}`.slice(0, 500),
+      t: nowIso(ctx),
+    });
+  }
   setComponent(ctx, c.id, {
     status,
     completed_at: status === 'completed' ? nowIso(ctx) : c.completed_at,

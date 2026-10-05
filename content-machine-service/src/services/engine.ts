@@ -19,10 +19,12 @@ import { AppError, ConflictError, isBlocking, NotVerifiedError, SetupRequiredErr
 import { signCallback } from '../lib/crypto.js';
 import { safeRemote } from '../lib/http.js';
 import { uid } from '../lib/ids.js';
+import { withTimeout } from '../lib/timeout.js';
 import { enrich } from '../providers/dexscreener.js';
 import { generateCopy, generateImage } from '../providers/gemini.js';
 import { findRaidPost } from '../providers/xProfile.js';
 import { researchProject } from '../providers/research.js';
+import { release, reservedFor } from '../providers/budget.js';
 import { isPaused } from './pauseService.js';
 import { botToken, callChannelToken, sendPhoto, telegram, uploadStickerFile } from '../providers/telegram.js';
 import { socialActivity } from '../providers/socialActivity.js';
@@ -79,11 +81,20 @@ function skipStickerPack(ctx: ServiceContext, j: Leased, o: Order) {
     }
 }
 
+/** Errors that mean "couldn't reach it right now", not "it refused": network, timeouts, 5xx, rate limits. */
+export const OUTAGE = /network or timeout|took longer than|\((5\d\d|429)\)|unreachable|fetch failed/i;
+/** How often a step waiting out an outage tries again. */
+export const OUTAGE_RETRY_MS = 2 * 60_000;
+
 function fail(ctx: ServiceContext, job: Leased, err: unknown) {
   const blocked = isBlocking(err);
   const uncertain = IRREVERSIBLE.includes(job.kind) && !blocked;
-  // The social service being briefly unavailable (e.g. redeploying) retries until the item's deadline.
-  const transient = job.kind === 'social_boost' && err instanceof UpstreamError;
+  // An outage (network down, provider overloaded, a call that never returned) is not the step's fault: content
+  // steps and the social boost wait it out until the item's deadline instead of spending their three attempts.
+  // Publications never do this (a failure there may mean it went out).
+  const transient =
+    err instanceof UpstreamError && (job.kind === 'social_boost' || (!IRREVERSIBLE.includes(job.kind) && OUTAGE.test(err.message)));
+  if (transient) release(ctx, job.order_id, reservedFor(job.kind));
   const status = uncertain ? 'uncertain' : blocked ? 'blocked' : transient || job.attempts < MAX_ATTEMPTS ? 'queued' : 'failed';
   const message = err instanceof AppError ? err.message : 'Processing interrupted. Check the provider and retry safely.';
   if (!(err instanceof AppError)) ctx.log.error({ job: job.id, kind: job.kind, err: String(err) }, 'job failed unexpectedly');
@@ -96,7 +107,7 @@ function fail(ctx: ServiceContext, job: Leased, err: unknown) {
     {
       status,
       error: message,
-      available: nowMs(ctx) + Math.min(300_000, 15_000 * 2 ** job.attempts),
+      available: nowMs(ctx) + (transient ? OUTAGE_RETRY_MS : Math.min(300_000, 15_000 * 2 ** job.attempts)),
       // Missing setup, budget or a transient outage is not the job's fault, so it doesn't spend a retry.
       refund: blocked || transient,
       t: nowMs(ctx),
@@ -217,6 +228,9 @@ export function claim(ctx: ServiceContext, orderId: string, render = false, skip
  * Runs the order's ready in-process jobs, up to PARALLEL_JOBS_PER_ORDER at once (jobs are only ready once what they
  * need is delivered, so the ones running together are independent). Returns how many ran.
  */
+/** Longest an in-process content step may run before it counts as failed (and is retried). */
+export const JOB_TIME_LIMIT_MS = 10 * 60_000;
+
 export async function processOrder(ctx: ServiceContext, orderId: string): Promise<number> {
   const first = claim(ctx, orderId);
   if (!first) return 0;
@@ -227,7 +241,10 @@ export async function processOrder(ctx: ServiceContext, orderId: string): Promis
   await Promise.all(
     batch.map(async (c) => {
       try {
-        await runJob(ctx, c.job, c.order);
+        // Content steps get a hard limit so one call that never returns can't freeze every order. Publications are
+        // left alone (stopping one midway could double-post); the scheduler's own watchdog covers those.
+        const publishes = IRREVERSIBLE.includes(c.job.kind) || c.job.kind === 'social_boost';
+        await (publishes ? runJob(ctx, c.job, c.order) : withTimeout(runJob(ctx, c.job, c.order), JOB_TIME_LIMIT_MS, STEP_LABELS[c.job.kind] ?? c.job.kind));
       } catch (err) {
         fail(ctx, c.job, err);
       }
@@ -1060,19 +1077,23 @@ export function listEvents(ctx: ServiceContext, orderId: string) {
 async function startSocialBoost(ctx: ServiceContext, j: Leased, o: Order) {
   if (o.demo) return finish(ctx, j, { demo: true }, 'skipped');
   let p = o.project;
+  const preset = ctx.config.SOCIAL_BOOST_PRESET;
   if (!p.x_post_url) {
     // No post supplied: take the pinned (or top recent) post from the project's X profile and store it on the order.
     const found = await findRaidPost(ctx, p.x_url);
-    if (!found) return finish(ctx, j, { reason: p.x_url ? 'No public post found on the X profile to raid.' : 'The order has no X profile or post to raid.' }, 'skipped');
-    p = { ...loadOrder(ctx, o.id).project, x_post_url: found.url, x_post_source: found.source };
-    run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p, id: o.id });
+    if (found) {
+      p = { ...loadOrder(ctx, o.id).project, x_post_url: found.url, x_post_source: found.source };
+      run(ctx.db, 'UPDATE orders SET project = :p WHERE id = :id', { p, id: o.id });
+    } else if (!(preset === 'trending' && p.x_url)) {
+      return finish(ctx, j, { reason: p.x_url ? 'No public post found on the X profile to raid.' : 'The order has no X profile or post to raid.' }, 'skipped');
+    }
+    // trending with a profile but no post: the followers and Telegram members still go out (no likes/reposts/comments).
   }
-  const preset = ctx.config.SOCIAL_BOOST_PRESET;
   const pkg = await socialActivity<{ id: string }>(
     ctx,
     'POST',
     '/v1/wurk/packages',
-    { preset, bundled: true, xPost: p.x_post_url, customerRef: o.order_id, ...(preset === 'small_raid' ? {} : { xProfile: p.x_url, telegram: p.telegram_url }) },
+    { preset, bundled: true, ...(p.x_post_url ? { xPost: p.x_post_url } : {}), customerRef: o.order_id, ...(preset === 'small_raid' ? {} : { xProfile: p.x_url, telegram: p.telegram_url }) },
     { 'idempotency-key': `cm-${o.id}` },
   );
   await socialActivity(ctx, 'POST', `/v1/wurk/packages/${pkg.id}/payment-received`, { paymentRef: o.order_id, actor: 'content-machine' });

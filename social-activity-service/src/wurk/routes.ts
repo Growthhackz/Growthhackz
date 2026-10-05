@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError } from '../lib/errors.js';
 import { fromMicros } from '../lib/money.js';
 import type { ServiceContext } from '../services/context.js';
 import { quoteOnly } from './diagnostics.js';
-import { COMPONENT_STATUSES, PRESETS, TRENDING_PACKAGE, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
+import { COMPONENT_STATUSES, PRESETS, TRENDING_ENGAGEMENT, TRENDING_PACKAGE, WURK_PACKAGE, type ComponentKind, type PackageStatus } from './package.js';
 import {
   auditTrail,
   componentsOf,
@@ -90,7 +90,7 @@ function presentPackageAdmin(ctx: ServiceContext, p: WurkPackageRow) {
     preset: p.preset,
     bundled: p.bundled === 1,
     customerRef: p.customer_ref,
-    targets: { xProfile: p.x_handle ? `https://x.com/${p.x_handle}` : null, xPost: p.x_post_url, telegram: p.tg_url || null },
+    targets: { xProfile: p.x_handle ? `https://x.com/${p.x_handle}` : null, xPost: p.x_post_url || null, telegram: p.tg_url || null },
     retailPriceUsd: usd(p.retail_price_micros),
     costCeilingUsdc: usd(p.cost_ceiling_micros),
     costSettledUsdc: comps.reduce((s, c) => s + (c.settled_micros ?? 0), 0) / 1e6,
@@ -107,6 +107,7 @@ const LABELS: Record<ComponentKind, string> = {
   tg_batch_1: `${WURK_PACKAGE.tgBatch} Telegram members (first batch)`,
   tg_batch_2: `${WURK_PACKAGE.tgBatch} Telegram members (second batch)`,
   small_raid: 'Engagement on your X post (25 likes, 10 reposts, 10 comments, 70 views)',
+  engagement: `${TRENDING_ENGAGEMENT.likes} likes, ${TRENDING_ENGAGEMENT.reposts} reposts and ${TRENDING_ENGAGEMENT.comments} comments on your X post`,
   x_followers: `${TRENDING_PACKAGE.followers} X followers`,
   tg_members: `${TRENDING_PACKAGE.tgMembers} Telegram members`,
 };
@@ -122,6 +123,7 @@ const CUSTOMER_STATUS: Record<PackageStatus, string> = {
   partial: 'Partially delivered',
   needs_attention: 'Being reviewed by our team',
   reconcile_required: 'Being reviewed by our team',
+  cancelled: 'Replaced',
 };
 
 /** Customer-safe view: no costs, wallets, job IDs or provider responses. */
@@ -199,7 +201,8 @@ export function registerWurkRoutes(app: FastifyInstance, ctx: ServiceContext): v
         .object({
           preset: z.enum(PRESETS).default('full'),
           xProfile: z.string().min(1).max(200).optional(),
-          xPost: z.string().min(1).max(300),
+          /** Optional for `trending`: without a post the likes/reposts/comments are left out and the rest still runs. */
+          xPost: z.string().min(1).max(300).optional(),
           telegram: z.string().min(1).max(200).optional(),
           customerRef: z.string().max(200).optional(),
           test: z.boolean().default(false),

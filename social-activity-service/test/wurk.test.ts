@@ -16,7 +16,7 @@ const PRICES: Record<string, string> = {
   '/solana/xraid/small': '1000000',
 };
 
-type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | 'no-json';
+type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | '503' | 'no-json';
 
 /** A fake WURK: 402 with a v2 challenge when unpaid; job JSON when PAYMENT-SIGNATURE is present. */
 function fakeWurk() {
@@ -65,6 +65,7 @@ function fakeWurk() {
       });
     }
     if (b === '500') return new Response('upstream', { status: 500 });
+    if (b === '503') return new Response('unavailable', { status: 503 });
     if (b === 'no-json') return new Response('ok', { status: 200 });
     state.jobs++;
     const settle = { success: true, transaction: `tx${state.jobs}`, network: SOLANA_MAINNET };
@@ -429,8 +430,9 @@ describe('WURK fulfillment', () => {
     expect(progress.items[0].item).toContain('25 likes');
   });
 
-  it('trending preset: the $1 raid, 50 followers and 50 Telegram members ($4.00); no Telegram leaves the members out', async () => {
+  it('trending preset: 50 likes, 50 reposts and 20 comments, 50 followers and 50 Telegram members ($6.00); no Telegram leaves the members out', async () => {
     const { ctx, api, signed, wurk } = setup();
+    wurk.state.price['/solana/xraid/custom'] = '3000000';
     wurk.state.price['/solana/xfollowers'] = '1500000';
     wurk.state.price['/solana/tgmembers'] = '1500000';
     const created = await api(
@@ -440,23 +442,23 @@ describe('WURK fulfillment', () => {
       { 'idempotency-key': 'cm-order-7' },
     );
     expect(created.status).toBe(201);
-    expect(created.body.costCeilingUsdc).toBe(4);
+    expect(created.body.costCeilingUsdc).toBe(6.5);
     expect(created.body.components.map((c: any) => [c.kind, c.target, c.ceilingUsdc])).toEqual([
-      ['small_raid', 'https://wurkapi.fun/solana/xraid/small?url=https%3A%2F%2Fx.com%2Fmoonfrog%2Fstatus%2F7', 1],
+      ['engagement', 'https://wurkapi.fun/solana/xraid/custom?url=https%3A%2F%2Fx.com%2Fmoonfrog%2Fstatus%2F7&likes=50&reposts=50&comments=20&bookmarks=0', 3.25],
       ['tg_members', 'https://wurkapi.fun/solana/tgmembers?join=https%3A%2F%2Ft.me%2Fmoonfrog&amount=50', 1.5],
       ['x_followers', 'https://wurkapi.fun/solana/xfollowers?handle=moonfrog&amount=50', 1.5],
     ]);
     await api('POST', `/v1/wurk/packages/${created.body.id}/payment-received`, { paymentRef: 'trending:7' });
     await processWurk(ctx);
     expect((await api('GET', `/v1/wurk/packages/${created.body.id}`)).body.status).toBe('in_progress');
-    expect([...signed].sort()).toEqual(['1000000', '1500000', '1500000']);
+    expect([...signed].sort()).toEqual(['1500000', '1500000', '3000000']);
     const progress = (await api('GET', `/v1/wurk/packages/${created.body.id}/progress`)).body;
-    expect(progress.items.map((i: any) => i.item)).toEqual(expect.arrayContaining(['50 X followers', '50 Telegram members']));
+    expect(progress.items.map((i: any) => i.item)).toEqual(expect.arrayContaining(['50 likes, 50 reposts and 20 comments on your X post', '50 X followers', '50 Telegram members']));
 
     // A follower price rise is refused, not paid.
     wurk.state.price['/solana/xfollowers'] = '1600000';
     const noTg = (await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xPost: 'https://x.com/moonfrog/status/8' })).body;
-    expect(noTg.components.map((c: any) => c.kind).sort()).toEqual(['small_raid', 'x_followers']);
+    expect(noTg.components.map((c: any) => c.kind).sort()).toEqual(['engagement', 'x_followers']);
     await api('POST', `/v1/wurk/packages/${noTg.id}/payment-received`, { paymentRef: 'trending:8' });
     await processWurk(ctx);
     const after = (await api('GET', `/v1/wurk/packages/${noTg.id}`)).body;
@@ -479,6 +481,45 @@ describe('WURK fulfillment', () => {
     expect(detail.status).toBe('in_progress');
     expect(detail.components[0].payments.map((x: any) => x.status)).toEqual(['failed', 'settled']);
     expect(signed).toHaveLength(2);
+  });
+
+  it('trending without an X post still buys the followers and Telegram members (BABYPIMPIN, Oct 5)', async () => {
+    const { ctx, api, signed, wurk } = setup();
+    wurk.state.price['/solana/xfollowers'] = '1500000';
+    wurk.state.price['/solana/tgmembers'] = '1500000';
+    const p = await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xProfile: 'https://x.com/BabyPimpin21Fla', telegram: 'https://t.me/BabyPimpin21flavorssol' });
+    expect(p.status).toBe(201);
+    expect(p.body.components.map((c: any) => c.kind).sort()).toEqual(['tg_members', 'x_followers']);
+    expect(p.body.targets.xPost).toBeNull();
+    await api('POST', `/v1/wurk/packages/${p.body.id}/payment-received`, { paymentRef: 'nopost-1' });
+    await processWurk(ctx);
+    expect((await api('GET', `/v1/wurk/packages/${p.body.id}`)).body.status).toBe('in_progress');
+    expect(signed).toHaveLength(2);
+    // Presets that are only engagement still need the post; nothing at all to target is refused.
+    expect((await api('POST', '/v1/wurk/packages', { preset: 'engagement', bundled: true, xProfile: 'https://x.com/a' })).status).toBe(400);
+    expect((await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, telegram: 'https://t.me/abcdef' })).status).toBe(400);
+  });
+
+  it('an unpaid component can be cancelled (replaced); a paid one cannot', async () => {
+    const { ctx, api, wurk } = setup();
+    wurk.state.paid['/solana/xraid/small'] = '503'; // 503 after "payment": left for reconciling
+    wurk.state.price['/solana/xfollowers'] = '1500000';
+    const p = (await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xPost: 'https://x.com/a/status/9' })).body;
+    // Swap the engagement for the old small raid to reproduce JUGS (Oct 4).
+    ctx.db.prepare("UPDATE wurk_components SET kind = 'small_raid', request_url = 'https://wurkapi.fun/solana/xraid/small?url=https%3A%2F%2Fx.com%2Fa%2Fstatus%2F9' WHERE package_id = ? AND kind = 'engagement'").run(p.id);
+    await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: 'cancel-1' });
+    await processWurk(ctx);
+    let detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('reconcile_required');
+    const raid = detail.components.find((c: any) => c.kind === 'small_raid');
+    const followers = detail.components.find((c: any) => c.kind === 'x_followers');
+    expect((await api('POST', `/v1/wurk/components/${followers.id}/status`, { status: 'cancelled', note: 'test' })).status).toBe(409);
+    expect((await api('POST', `/v1/wurk/components/${raid.id}/status`, { status: 'cancelled', note: 'no transfer on-chain; replaced by engagement' })).status).toBe(200);
+    detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('in_progress');
+    expect(detail.components.find((c: any) => c.kind === 'small_raid').payments[0].status).toBe('failed');
+    const progress = (await api('GET', `/v1/wurk/packages/${p.id}/progress`)).body;
+    expect(progress.items.find((i: any) => i.item.startsWith('Engagement')).status).toBe('Replaced');
   });
 
   it('a refusal that kept the USDC is never paid again, and holds paid requests of that kind for 2 hours', async () => {

@@ -104,7 +104,7 @@ describe('trending orchestration', () => {
     expect(jobOf(now, 'social_boost').status).toBe('delivered');
     expect(jobOf(now, 'social_boost').result).toMatchObject({ package_id: 'wpk_1', url: 'https://wurk.fun/custom/job9', cost_usdc: 1 });
     const report = (await t.api('GET', `/v1/orders/by-external-id/trending:orch-1/report`)).body;
-    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X raid, followers and Telegram members (WURK)', url: 'https://wurk.fun/custom/job9' });
+    expect(report.successes).toContainEqual({ source: 'social_boost', label: 'X likes, reposts and comments, followers and Telegram members (WURK)', url: 'https://wurk.fun/custom/job9' });
   });
 
   it('keeps content, publications and stickers moving when the social service is down', async () => {
@@ -191,6 +191,25 @@ describe('trending orchestration', () => {
     }
   });
 
+  it('still buys the followers and Telegram members when the X profile has no post to boost (BABYPIMPIN, Oct 5)', async () => {
+    const t = makeApp(SOCIAL);
+    contentFakes(t);
+    const seen = socialFake(t, { status: 'queued' });
+    t.http
+      .on('api.x.com/1.1/guest/activate.json', () => json({ guest_token: '123' }))
+      .on('api.x.com/graphql/xmU6X_CKVnQ5lSrCbAmJsg/UserByScreenName', () =>
+        json({ data: { user: { result: { __typename: 'User', rest_id: '77', legacy: { screen_name: 'MoonFrog' } } } } }),
+      )
+      .on('api.x.com/graphql/E3opETHurmVJflFsUBVuUQ/UserTweets', () => json({ data: { user: { result: { timeline: { timeline: { instructions: [] } } } } } }));
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'no-post', x_post_url: undefined })).body;
+    await t.api('POST', '/v1/tick');
+    const order = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+    expect(jobOf(order, 'social_boost').status).toBe('submitted');
+    const create = seen.find((s) => s.url.endsWith('/v1/wurk/packages'))!.body;
+    expect(create.xPost).toBeUndefined();
+    expect(create).toMatchObject({ preset: 'trending', xProfile: 'https://x.com/moonfrog' });
+  });
+
   it('times items out, fails dependents at once, and reports everything when the order is final', async () => {
     const t = makeApp(SOCIAL);
     contentFakes(t);
@@ -216,11 +235,11 @@ describe('trending orchestration', () => {
     expect(report.complete).toBe(false);
     expect(report.failures.find((f: any) => f.source === 'social_boost')).toMatchObject({ status: 'needs checking', error: expect.stringContaining('Wallet holds') });
 
-    // Copy's deadline (2h) passes: it fails, and everything built on it fails immediately.
-    t.clock.advance(2 * 60 * 60_000);
+    // Copy's deadline (6h) passes: it fails, and everything built on it fails immediately.
+    t.clock.advance(6 * 60 * 60_000);
     await t.api('POST', '/v1/tick');
     now = (await t.api('GET', `/v1/orders/${o.id}`)).body;
-    expect(jobOf(now, 'copy').error).toMatch(/^Timed out after 2h \(blocked: /);
+    expect(jobOf(now, 'copy').error).toMatch(/^Timed out after 6h \(blocked: /);
     expect(jobOf(now, 'campaign_image').error).toBe('Not started: copy failed');
     expect(jobOf(now, 'binance').error).toBe('Not started: campaign_image failed');
     expect(jobOf(now, 'sticker_publish').error).toBe('Not started: stickers failed');

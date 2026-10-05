@@ -53,9 +53,14 @@ describe('source health', () => {
   it('checks the API keys, bot, worker and WURK wallet, flagging a low balance', async () => {
     const t = makeApp({ SOCIAL_ACTIVITY_URL: 'http://social.internal:4010', SOCIAL_ACTIVITY_TOKEN: 'sat', ADMIN_NOTIFY: 'all' });
     const sent: string[] = [];
+    let getMeCalls = 0;
     t.http
       .on('generativelanguage.googleapis.com/', () => json({ models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }] }))
-      .on('api.telegram.org/botSTK/getMe', () => json({ ok: true, result: { username: 'peakstickersbot' } }))
+      .on('api.telegram.org/botSTK/getMe', () => {
+        // The first call drops (seen live from Railway); the retry goes through.
+        if (!getMeCalls++) throw new Error('socket hang up');
+        return json({ ok: true, result: { username: 'peakstickersbot' } });
+      })
       .on('api.telegram.org/botSTK/sendMessage', (_u, init) => {
         sent.push(JSON.parse(String(init.body)).text);
         return json({ ok: true, result: {} });

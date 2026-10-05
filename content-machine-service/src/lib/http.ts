@@ -49,8 +49,11 @@ export async function jsonFetch(http: HttpFetch, url: string, init: RequestInit 
   let res: Response;
   try {
     res = await http(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
-  } catch {
-    throw new UpstreamError('Provider request failed (network or timeout)');
+  } catch (err) {
+    // Keep the low-level reason (DNS, refused, reset, timeout) so a network problem can be told apart from a slow API.
+    const e = err as { name?: string; cause?: { code?: string } };
+    const why = e?.cause?.code ?? (e?.name === 'TimeoutError' ? 'timeout' : null);
+    throw new UpstreamError(`Provider request failed (network or timeout${why ? `: ${why}` : ''})`);
   }
   if (!res.ok) throw new UpstreamError(`Provider request failed (${res.status})`);
   try {
