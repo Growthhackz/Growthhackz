@@ -11,6 +11,7 @@ import {
   processOrder,
   publishClaim,
   publishComplete,
+  attachListingProof,
   publishFailed,
   listingCheckClaim,
   listingChecked,
@@ -121,9 +122,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return renderFailed(ctx, req.params.id, b.lease, b.error);
   });
   app.post('/v1/publish/claim', async (req) => publishClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
-  app.post<{ Params: Params }>('/v1/publish/:id/complete', async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown; note?: unknown };
-    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted, b.note);
+  // Listing requests may carry a screenshot of the submission as proof.
+  app.post<{ Params: Params }>('/v1/publish/:id/complete', { bodyLimit: 3_000_000 }, async (req) => {
+    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown; note?: unknown; proof?: unknown; review_url?: unknown };
+    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted, b.note, { proof: b.proof, review_url: b.review_url });
+  });
+  app.post<{ Params: Params }>('/v1/jobs/:id/proof', { bodyLimit: 3_000_000, preHandler: requireAdmin }, async (req) => {
+    const b = (req.body ?? {}) as { proof?: unknown; review_url?: unknown };
+    return attachListingProof(ctx, req.params.id, b.proof, b.review_url);
   });
   /** Directory listings waiting on the site's review: the worker checks whether the coin page is live yet. */
   /** The worker's source checks (logins and forms); the API adds its own and alerts admins on changes. */

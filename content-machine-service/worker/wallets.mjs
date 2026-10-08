@@ -33,6 +33,17 @@ async function debugShot(page, env, name) {
   if (env.DIRECTORY_DEBUG_DIR && page && !page.isClosed()) await page.screenshot({path: `${env.DIRECTORY_DEBUG_DIR}/${name}-${Date.now()}.png`, fullPage: true}).catch(() => {});
 }
 
+/**
+ * Proof that a submission went in, for the report: a viewport screenshot (JPEG, base64) of the page as it stands.
+ * Sites with no public page until their review approves the token have nothing else to link to.
+ */
+export async function proofShot(page, wait = 1500) {
+  if (!page || page.isClosed()) return null;
+  await sleep(wait);
+  const buf = await page.screenshot({type: 'jpeg', quality: 70}).catch(() => null);
+  return buf && buf.length < 1_500_000 ? buf.toString('base64') : null;
+}
+
 // ---------------------------------------------------------------- wallet setup
 
 async function waitForTab(ctx, part, ms = 20000) {
@@ -215,6 +226,25 @@ async function clearOkxPopups(page) {
 
 const OKX_CHAINS = {solana: 'solana', ethereum: 'eth', base: 'base', bsc: 'bsc', polygon: 'polygon', arbitrum: 'arbitrum'};
 
+/** Opens the OKX token page with our wallet connected. */
+async function okxConnect(ctx, id, w, url) {
+  let page = await ctx.newPage();
+  await page.goto(url, {waitUntil: 'domcontentloaded', timeout: 60000});
+  await sleep(4000);
+  // The wallet is injected reliably from the second load on.
+  await page.reload({waitUntil: 'domcontentloaded'});
+  await sleep(7000);
+  await clearOkxPopups(page);
+  await page.getByText('Connect wallet', {exact: true}).first().click({force: true});
+  await sleep(2500);
+  await page.locator('div[class*="index_extension"] button').first().click({timeout: 10000});
+  if (!(await approve(ctx, 'okx', id, page, w))) throw new Error('the wallet showed no connect request');
+  page = siteTab(ctx, 'web3.okx.com') ?? page;
+  await sleep(2000);
+  await clearOkxPopups(page);
+  return page;
+}
+
 export async function okxUpdateSubmit(l, logoPath, env = process.env, {dryRun = false} = {}) {
   const chain = OKX_CHAINS[l.chain];
   if (!chain) throw notSent('okx_wallet', `chain ${l.chain} is not supported`);
@@ -225,20 +255,7 @@ export async function okxUpdateSubmit(l, logoPath, env = process.env, {dryRun = 
   try {
     const url = `https://web3.okx.com/token/${chain}/${l.contract_address}`;
     try {
-      page = await ctx.newPage();
-      await page.goto(url, {waitUntil: 'domcontentloaded', timeout: 60000});
-      await sleep(4000);
-      // The wallet is injected reliably from the second load on.
-      await page.reload({waitUntil: 'domcontentloaded'});
-      await sleep(7000);
-      await clearOkxPopups(page);
-      await page.getByText('Connect wallet', {exact: true}).first().click({force: true});
-      await sleep(2500);
-      await page.locator('div[class*="index_extension"] button').first().click({timeout: 10000});
-      if (!(await approve(ctx, 'okx', id, page, w))) throw new Error('the wallet showed no connect request');
-      page = siteTab(ctx, 'web3.okx.com') ?? page;
-      await sleep(2000);
-      await clearOkxPopups(page);
+      page = await okxConnect(ctx, id, w, url);
       await page.locator('[aria-label="More actions"]').first().click({force: true});
       await sleep(1500);
       await page.getByText('Update info', {exact: true}).first().click();
@@ -285,7 +302,8 @@ export async function okxUpdateSubmit(l, logoPath, env = process.env, {dryRun = 
     const body = r ? await r.json().catch(() => ({})) : {};
     if (r && (r.status() >= 400 || (body.code && String(body.code) !== '0'))) throw new NotPostedError(`okx_wallet rejected the update: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
     if (!r && !/submitted|success|under review|in review/i.test(text)) return {submitted: false};
-    return {submitted: true, url: null, note: 'token info update submitted; OKX reviews it'};
+    // OKX's confirmation shows briefly; the token page is where the update appears once approved.
+    return {submitted: true, url: null, review_url: url, proof: await proofShot(page), note: 'token info update submitted; OKX reviews it'};
   } finally { await close(); }
 }
 
@@ -307,6 +325,41 @@ export async function tokenSupply(l, env = process.env, fetchFn = fetch) {
 
 const noScheme = u => (u ? u.replace(/^https?:\/\//, '') : '');
 
+const BITGET_MANAGE = 'https://web3.bitget.com/en/business/service/token-manage';
+
+/** Our submissions list (signed in with the wallet), showing the token "Under review". */
+async function bitgetReviewShot(page, l) {
+  await page.goto(BITGET_MANAGE, {waitUntil: 'domcontentloaded', timeout: 60000});
+  await page.getByText(l.symbol, {exact: true}).first().waitFor({timeout: 20000}).catch(() => {});
+  return proofShot(page);
+}
+
+/** Opens Bitget's token management page with our wallet connected. */
+async function bitgetConnect(ctx, id, w) {
+  let page = await ctx.newPage();
+  await page.goto(BITGET_MANAGE, {waitUntil: 'domcontentloaded', timeout: 60000});
+  await sleep(4000);
+  await page.reload({waitUntil: 'domcontentloaded'});
+  await sleep(7000);
+  await page.keyboard.press('Escape');
+  if (process.env.WALLET_DEBUG) console.error('[bitget] connect button', await page.locator('.connectWallet:visible').count(), await page.evaluate(() => typeof window.bitkeep));
+  await page.locator('.connectWallet:visible').first().click();
+  if (!(await approve(ctx, 'bitget', id, page, w))) throw new Error('the wallet showed no connect request');
+  page = siteTab(ctx, 'web3.bitget.com') ?? page;
+  // Once the wallet trusts the site, a reload reconnects it; the header then shows our address.
+  for (let i = 0; i < 3 && !(await page.locator('.connectWallet:visible').first().innerText().catch(() => '')).startsWith('0x'); i++) {
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await sleep(6000);
+    if (!(await page.locator('.connectWallet:visible').first().innerText().catch(() => '')).startsWith('0x')) {
+      await page.locator('.connectWallet:visible').first().click().catch(() => {});
+      await approve(ctx, 'bitget', id, page, w);
+      page = siteTab(ctx, 'web3.bitget.com') ?? page;
+    }
+  }
+  if (!(await page.locator('.connectWallet:visible').first().innerText().catch(() => '')).startsWith('0x')) throw new Error('the wallet did not stay connected');
+  return page;
+}
+
 export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = false} = {}) {
   const chain = BITGET_CHAINS[l.chain];
   if (!chain) throw notSent('bitget_wallet', `chain ${l.chain} is not supported`);
@@ -319,27 +372,7 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
   let page;
   try {
     try {
-      page = await ctx.newPage();
-      await page.goto('https://web3.bitget.com/en/business/service/token-manage', {waitUntil: 'domcontentloaded', timeout: 60000});
-      await sleep(4000);
-      await page.reload({waitUntil: 'domcontentloaded'});
-      await sleep(7000);
-      await page.keyboard.press('Escape');
-      if (process.env.WALLET_DEBUG) console.error('[bitget] connect button', await page.locator('.connectWallet:visible').count(), await page.evaluate(() => typeof window.bitkeep));
-      await page.locator('.connectWallet:visible').first().click();
-      if (!(await approve(ctx, 'bitget', id, page, w))) throw new Error('the wallet showed no connect request');
-      page = siteTab(ctx, 'web3.bitget.com') ?? page;
-      // Once the wallet trusts the site, a reload reconnects it; the header then shows our address.
-      for (let i = 0; i < 3 && !(await page.locator('.connectWallet:visible').first().innerText().catch(() => '')).startsWith('0x'); i++) {
-        await page.reload({waitUntil: 'domcontentloaded'});
-        await sleep(6000);
-        if (!(await page.locator('.connectWallet:visible').first().innerText().catch(() => '')).startsWith('0x')) {
-          await page.locator('.connectWallet:visible').first().click().catch(() => {});
-          await approve(ctx, 'bitget', id, page, w);
-          page = siteTab(ctx, 'web3.bitget.com') ?? page;
-        }
-      }
-      if (!(await page.locator('.connectWallet:visible').first().innerText().catch(() => '')).startsWith('0x')) throw new Error('the wallet did not stay connected');
+      page = await bitgetConnect(ctx, id, w);
       await page.getByRole('button', {name: 'Submit Token'}).click();
       await page.locator('#dynamic_rule_name').waitFor({timeout: 20000});
       if (process.env.WALLET_DEBUG) page.on('response', async r => { if (r.request().method() === 'POST' && !/log|track|collect|sentry/i.test(r.url())) console.error('[bitget POST]', r.status(), r.url().slice(0, 120), (await r.text().catch(() => '')).slice(0, 160)); });
@@ -392,18 +425,37 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
     const body = r ? await r.json().catch(() => ({})) : {};
     if (r && (r.status() >= 400 || (body.status !== undefined && body.status !== 0))) throw new NotPostedError(`bitget_wallet rejected the token: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
     if (!r) return {submitted: false};
-    return {submitted: true, url: null, note: 'token submitted; Bitget Wallet reviews it'};
+    return {submitted: true, url: null, review_url: BITGET_MANAGE, proof: await bitgetReviewShot(page, l).catch(() => null), note: 'token submitted; Bitget Wallet reviews it'};
   } finally { await close(); await rm(join(icon, '..'), {recursive: true, force: true}).catch(() => {}); }
 }
 
+/**
+ * Proof for a Bitget submission made earlier: our submissions list, showing its status. (OKX keeps no visible record
+ * of a pending update, so its proof is only the screenshot taken at submit.)
+ */
+export async function reviewProof(site, l, env = process.env) {
+  if (site !== 'bitget_wallet') throw new Error(`no later proof capture for ${site}; it is taken at submit`);
+  const {ctx, id, w, close} = await walletBrowser('bitget', env);
+  try { return {review_url: BITGET_MANAGE, proof: await bitgetReviewShot(await bitgetConnect(ctx, id, w), l)}; }
+  finally { await close(); }
+}
+
+// `node wallets.mjs proof bitget_wallet <out.jpg>`: read-only screenshot of an earlier submission.
 // `node wallets.mjs dry <okx_wallet|bitget_wallet> <logo path>`: JUGS sample, fills the form and stops before Submit.
 // `node wallets.mjs live <site> <logo>` does the same and submits (used to test a site once).
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && ['dry', 'live'].includes(process.argv[2])) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && ['dry', 'live', 'proof'].includes(process.argv[2])) {
   const l = {
     name: 'GoalDaddy', symbol: 'JUGS', chain: 'solana', contract_address: 'APxxh2tWCh95tbHitFJchcdbMsctSBgRS2Zzju9Bpump',
     short_description: 'Dry run: nothing is submitted.', description: 'Dry run.', website_url: null,
     telegram_url: 'https://t.me/GoalDaddyJUGS', x_url: 'https://x.com/goaldaddyllc', launch_date: '2026-10-01',
   };
+  if (process.argv[2] === 'proof') {
+    // Read-only: connects and screenshots what the site shows for an earlier submission; nothing is submitted.
+    const r = await reviewProof(process.argv[3], l, process.env);
+    if (r.proof) await writeFile(process.argv[4] || 'proof.jpg', Buffer.from(r.proof, 'base64'));
+    console.log(JSON.stringify({...r, proof: r.proof ? `${r.proof.length} chars` : null}));
+    process.exit(0);
+  }
   const fn = {okx_wallet: okxUpdateSubmit, bitget_wallet: bitgetSubmit}[process.argv[3]];
   console.log(JSON.stringify(await fn(l, process.argv[4] || null, process.env, {dryRun: process.argv[2] === 'dry'})));
 }

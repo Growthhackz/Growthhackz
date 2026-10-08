@@ -351,7 +351,7 @@ export async function listingSitesCycle(client, {sites = LISTING_SITES, env = pr
     const logo = await logoFile(client, c.target.listing);
     try {
       const r = await sites[c.job.kind].submit(c.target.listing, logo.path, env);
-      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null, note: r.note ?? null});
+      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null, note: r.note ?? null, review_url: r.review_url ?? null, proof: r.proof ?? null});
     } catch (e) {
       if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
       else { console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`); await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)}); }
