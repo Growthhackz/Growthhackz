@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {coincodexBody, coincodexSubmit, NEW_LISTING_SITES} from './newsites.mjs';
+import {coincodexBody, NEW_LISTING_SITES} from './newsites.mjs';
 import {NotPostedError} from './reddit.mjs';
 
 const listing = {
@@ -13,6 +13,8 @@ const env = {LISTING_CONTACT_EMAIL: 'listings@example.com'};
 assert.equal(NEW_LISTING_SITES.coincodex.enabled({}), false);
 assert.equal(NEW_LISTING_SITES.coincodex.enabled({NEW_LISTING_SITES: 'cntoken, coincodex'}), true);
 assert.equal(NEW_LISTING_SITES.blockspot.enabled({NEW_LISTING_SITES: 'coincodex'}), false);
+assert.equal(NEW_LISTING_SITES.okx_wallet.enabled({NEW_LISTING_SITES: 'okx_wallet'}), true);
+assert.equal(NEW_LISTING_SITES.bitget_wallet.enabled({}), false);
 
 // The CoinCodex form answers: new token listing, Meme, the best link as the website, the release date split.
 const body = coincodexBody(listing, env, '123');
@@ -25,17 +27,4 @@ assert.equal(body.get('pageHistory'), '0,1,8');
 assert.throws(() => coincodexBody(listing, {}), NotPostedError);
 assert.throws(() => coincodexBody({...listing, logo_public_url: null}, env), NotPostedError);
 
-// Submit: recorded → done (no link until CoinCodex lists it); a rejected form is "not sent"; dry run sends nothing.
-const posts = [];
-const fake = answer => async (url, init) => {
-  if (!init?.method) return new Response('<input type="hidden" name="fbzx" value="-42">');
-  posts.push(String(init.body));
-  return answer();
-};
-assert.deepEqual(await coincodexSubmit(listing, null, env, {fetchFn: fake(() => new Response('<div>Your response has been recorded.</div>'))}), {submitted: true, url: null, note: 'request recorded; CoinCodex reviews it'});
-assert.match(posts[0], /fbzx=-42/);
-await assert.rejects(() => coincodexSubmit(listing, null, env, {fetchFn: fake(() => new Response('This is a required question', {status: 400}))}), NotPostedError);
-const dry = await coincodexSubmit(listing, null, env, {dryRun: true, fetchFn: fake(() => { throw new Error('must not post'); })});
-assert.equal(dry.dryRun, true);
-assert.equal(posts.length, 2);
-console.log('PASS: new listing sites are off by default; CoinCodex form answers, submit, rejection and dry run.');
+console.log('PASS: new listing sites (and wallet sites) are off by default; CoinCodex form answers.');

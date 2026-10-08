@@ -78,27 +78,57 @@ export function coincodexBody(l, env = process.env, fbzx = '') {
   return f;
 }
 
-export async function coincodexSubmit(l, _logoPath, env = process.env, {dryRun = false, fetchFn = fetch} = {}) {
-  let fbzx = '';
+/** CoinCodex's Google Form, filled in a browser page by page (Google validates each page as a person would see). */
+export async function coincodexSubmit(l, _logoPath, env = process.env, {dryRun = false} = {}) {
+  const answers = Object.fromEntries(coincodexBody(l, env));
+  const browser = await launch();
   try {
-    const page = await fetchFn(`${COINCODEX_FORM}/viewform`, {signal: AbortSignal.timeout(30000)});
-    fbzx = (await page.text()).match(/name="fbzx" value="(-?\d+)"/)?.[1] ?? '';
-  } catch (e) { throw notSent('coincodex', 'could not open the form', e); }
-  const body = coincodexBody(l, env, fbzx);
-  if (dryRun) return {submitted: false, dryRun: true, fields: Object.fromEntries(body)};
-  let r;
-  try {
-    r = await fetchFn(`${COINCODEX_FORM}/formResponse`, {method: 'POST', body, headers: {'content-type': 'application/x-www-form-urlencoded'}, redirect: 'follow', signal: AbortSignal.timeout(30000)});
-  } catch (e) {
-    // No answer: it may or may not have been recorded.
-    throw new Error(`coincodex: no answer from Google Forms (${e.message})`);
-  }
-  const text = await r.text();
-  if (r.status === 400 || /freebirdFormviewerViewItemsItemErrorMessage|This is a required question/.test(text))
-    throw new NotPostedError(`coincodex rejected the form: HTTP ${r.status} (a required answer is missing or invalid)`);
-  if (!r.ok || !/Your response has been recorded|freebirdFormviewerViewResponseConfirmationMessage/.test(text)) throw new Error(`coincodex: unexpected answer HTTP ${r.status}`);
-  // CoinCodex reviews requests by e-mail; the coin page exists only once they list it.
-  return {submitted: true, url: null, note: 'request recorded; CoinCodex reviews it'};
+    const page = await (await browser.newContext(browserContext())).newPage();
+    const exact = t => new RegExp(`^\\s*${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\*?\\s*$`);
+    const byTitle = title => page.locator('[role=listitem]').filter({has: page.locator('[role=heading]', {hasText: exact(title)})}).first();
+    const text = async (title, v) => {
+      if (!v) return;
+      try { await byTitle(title).locator('input[type=text], input[type=url], input[type=email], textarea').first().fill(v, {timeout: 10000}); }
+      catch (e) { throw new Error(`field "${title}": ${String(e.message).split('\n')[0]}`); }
+    };
+    const next = async () => { await page.getByRole('button', {name: 'Next'}).click(); await page.waitForTimeout(2500); };
+    const problems = async () => (await page.locator('[role=alert]:visible').allInnerTexts().catch(() => [])).map(t => t.trim()).filter(Boolean).join('; ');
+    try {
+      await page.goto(`${COINCODEX_FORM}/viewform`, {waitUntil: 'domcontentloaded', timeout: 60000});
+      await page.waitForTimeout(3000);
+      await page.getByRole('radio', {name: 'New Coin/Token listing'}).click();
+      await next();
+      await text('Asset name', answers[CC.name]);
+      await text('Asset ticker', answers[CC.ticker]);
+      await text('Logo', answers[CC.logo]);
+      await text('Unique short description', answers[CC.description]);
+      await text('Project website URL', answers[CC.website]);
+      await text('Platform', answers[CC.platform]);
+      await text('Twitter', answers[CC.twitter]);
+      await text('Telegram', answers[CC.telegram]);
+      await text('Explorer', answers[CC.explorer]);
+      await text('Other', answers[CC.other]);
+      // The page's only date field: release date.
+      await page.locator('input[type=date]').first().fill(l.launch_date || new Date().toISOString().slice(0, 10), {timeout: 10000});
+      await page.getByRole('checkbox', {name: 'Meme'}).click();
+      await next();
+      const left = await problems();
+      if (left) throw new NotPostedError(`coincodex: ${left.slice(0, 200)}; nothing was sent.`);
+      await text('Contact e-mail address', answers[CC.email]);
+    } catch (e) {
+      await shot(page, env, 'coincodex-fill');
+      throw e instanceof NotPostedError ? e : notSent('coincodex', 'could not fill the form', e);
+    }
+    if (dryRun) return {submitted: false, dryRun: true, screenshot: await shot(page, env, 'coincodex-dry')};
+    await page.getByRole('button', {name: 'Submit'}).click();
+    await page.waitForTimeout(4000);
+    const body = await page.locator('body').innerText().catch(() => '');
+    if (/Your response has been recorded/i.test(body)) return {submitted: true, url: null, note: 'request recorded; CoinCodex reviews it'};
+    const left = await problems();
+    if (left) throw new NotPostedError(`coincodex rejected the form: ${left.slice(0, 200)}`);
+    await shot(page, env, 'coincodex-noanswer');
+    return {submitted: false};
+  } finally { await browser.close(); }
 }
 
 // ---------------------------------------------------------------- CNToken
@@ -168,14 +198,14 @@ export async function blockspotSubmit(l, _logoPath, env = process.env, {dryRun =
       await field('v-0-2').fill(l.name);
       await field('v-0-3').fill(l.symbol);
       await field('v-0-4').fill(bestSite(l));
-      await page.getByRole('button', {name: 'Token', exact: true}).click();
-      await page.locator('#v-0-11').click();
-      await page.waitForTimeout(800);
-      const search = page.locator('input[type=search], input[placeholder*="earch"]').last();
-      if (await search.count()) await search.fill(CHAIN_NAMES[l.chain] ?? l.chain);
-      await page.waitForTimeout(800);
-      const opt = page.getByText(CHAIN_NAMES[l.chain] ?? l.chain, {exact: true}).last();
-      if (!(await opt.count())) throw notSent('blockspot', `blockchain ${l.chain} is not offered`);
+      // Type "Token" is preselected. Blockchain: a searchable list.
+      await page.getByRole('button', {name: 'Show popup'}).first().click();
+      const search = page.getByRole('combobox', {name: 'Search…'});
+      await search.pressSequentially(CHAIN_NAMES[l.chain] ?? l.chain, {delay: 60});
+      await page.waitForTimeout(2500);
+      const box = await search.getAttribute('aria-controls');
+      const opt = page.locator(`[id="${box}"] [role=option]`).filter({hasText: new RegExp(`^\\s*${CHAIN_NAMES[l.chain] ?? l.chain}\\s*$`, 'i')}).first();
+      if (!(await opt.count())) throw notSent('blockspot', `blockchain ${l.chain} is not offered (or the list did not load)`);
       await opt.click();
       await field('v-0-12').fill(l.contract_address);
       // "Based in a specific country?" No.
