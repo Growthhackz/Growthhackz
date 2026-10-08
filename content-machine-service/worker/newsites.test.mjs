@@ -11,7 +11,7 @@ const env = {LISTING_CONTACT_EMAIL: 'listings@example.com'};
 
 // Off unless named in NEW_LISTING_SITES.
 assert.equal(NEW_LISTING_SITES.coincodex.enabled({}), false);
-assert.equal(NEW_LISTING_SITES.coincodex.enabled({NEW_LISTING_SITES: 'cntoken, coincodex'}), true);
+assert.equal(NEW_LISTING_SITES.coincodex.enabled({NEW_LISTING_SITES: 'blockspot, coincodex'}), true);
 assert.equal(NEW_LISTING_SITES.blockspot.enabled({NEW_LISTING_SITES: 'coincodex'}), false);
 assert.equal(NEW_LISTING_SITES.okx_wallet.enabled({NEW_LISTING_SITES: 'okx_wallet'}), true);
 assert.equal(NEW_LISTING_SITES.bitget_wallet.enabled({}), false);

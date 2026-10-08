@@ -329,7 +329,7 @@ export const LISTING_SITES = {
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
-  // CoinCodex, CNToken, Blockspot: only when listed in NEW_LISTING_SITES (being tested).
+  // CoinCodex, Blockspot: only when listed in NEW_LISTING_SITES (being tested).
   ...NEW_LISTING_SITES,
 };
 

@@ -844,7 +844,6 @@ function directoryUrl(kind: string, url: unknown): string | null {
 const REVIEW_HOSTS: Record<string, string[]> = {
   okx_wallet: ['web3.okx.com'],
   bitget_wallet: ['web3.bitget.com'],
-  cntoken: ['cntoken.io'],
   coincodex: ['coincodex.com', 'docs.google.com'],
   blockspot: ['blockspot.io'],
 };
