@@ -5,6 +5,7 @@ import {join, resolve} from 'node:path';
 import {chromium} from 'playwright';
 import {browserContext, installCookieSession, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
 import {withLock} from './lock.mjs';
+import {NEW_LISTING_SITES} from './newsites.mjs';
 
 /**
  * Listing sites with their own step-by-step flows (each mapped from the live form): Top100Token (no login, 3 steps,
@@ -323,6 +324,8 @@ export const LISTING_SITES = {
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
+  // CoinCodex, CNToken, Blockspot: only when listed in NEW_LISTING_SITES (being tested).
+  ...NEW_LISTING_SITES,
 };
 
 async function logoFile(client, listing) {
@@ -343,7 +346,7 @@ export async function listingSitesCycle(client, {sites = LISTING_SITES, env = pr
     const logo = await logoFile(client, c.target.listing);
     try {
       const r = await sites[c.job.kind].submit(c.target.listing, logo.path, env);
-      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null});
+      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null, note: r.note ?? null});
     } catch (e) {
       if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
       else { console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`); await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)}); }
