@@ -330,6 +330,10 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
       });
     }
     case 'sticker_publish': {
+      // The token's public sticker pack is only for its purchases: an admin test order ("test:...", no meme pack
+      // asked for) never adds to it.
+      if (o.order_id.startsWith('test:') && !o.project.channels?.includes('meme_pack'))
+        return finish(ctx, j, { reason: 'Not a purchase: the sticker pack is left alone.' }, 'skipped');
       if (tokenHistory(ctx, o).packPending) {
         // Back in the queue without using an attempt; the earlier purchase's pack is usually minutes away.
         run(
