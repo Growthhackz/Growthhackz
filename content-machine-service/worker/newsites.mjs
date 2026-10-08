@@ -3,7 +3,7 @@ import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 import {browserContext, NotPostedError, redditProxy} from './reddit.mjs';
 import {withLock} from './lock.mjs';
-import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
+import {bitgetSubmit, okxUpdateSubmit, proofShot} from './wallets.mjs';
 
 /**
  * Newer listing sites, kept apart from the proven ones: CoinCodex (a Google Form), CNToken and Blockspot. They are
@@ -179,7 +179,8 @@ export async function cntokenSubmit(l, _logoPath, env = process.env, {dryRun = f
     if (!r) { await shot(page, env, 'cntoken-noanswer'); return {submitted: false}; }
     const body = await r.json().catch(() => ({}));
     if (r.status() >= 300 || body.code !== 1) throw new NotPostedError(`cntoken rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
-    return {submitted: true, url: null, note: body.msg || 'submitted for review'};
+    // The "Submission successful, We are reviewing!" notice shows for a few seconds.
+    return {submitted: true, url: null, proof: await proofShot(page, 500), note: body.msg || 'submitted for review'};
   } finally { await browser.close(); }
 }
 

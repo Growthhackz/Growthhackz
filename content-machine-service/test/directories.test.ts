@@ -175,5 +175,50 @@ describe('order report with listings under review', () => {
     expect(['queued', 'failed', 'blocked']).toContain(order.jobs.find((j: any) => j.kind === 'cntoken').status);
     const report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
     expect(report.successes).toContainEqual({ source: 'coincodex', label: 'CoinCodex listing request (submitted, in review)', url: null });
+    // Proof captured afterwards (read-only) can be attached by an admin; the report then links the screenshot.
+    const cc = order.jobs.find((j: any) => j.kind === 'coincodex');
+    const jpeg = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64');
+    expect((await t.call(null, 'POST', `/v1/jobs/${cc.id}/proof`, { proof: jpeg })).status).toBe(401);
+    expect((await t.api('POST', `/v1/jobs/${d.job.id}/proof`, { proof: jpeg })).status).toBe(409);
+    const attached = (await t.api('POST', `/v1/jobs/${cc.id}/proof`, { proof: jpeg })).body;
+    expect(attached.result).toMatchObject({ note: 'request recorded', proof_url: expect.stringMatching(/\/media\/[0-9a-f]{40}$/) });
+    expect((await t.api('GET', `/v1/orders/${o.id}/report`)).body.successes).toContainEqual({
+      source: 'coincodex',
+      label: 'CoinCodex listing request (submitted, in review)',
+      url: attached.result.proof_url,
+    });
+  });
+
+  it('wallet listings (OKX, Bitget): the submission screenshot is kept as proof and linked in the report', async () => {
+    const t = makeApp();
+    t.http
+      .on('api.dexscreener.com/', () => json([]))
+      .on('cdn.example.com/logo.png', () => new Response(pngBytes(), { headers: { 'content-type': 'image/png' } }))
+      .on('generativelanguage.googleapis.com/', (_u, init) =>
+        JSON.parse(String(init.body)).generationConfig?.responseModalities
+          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
+          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+      );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/orders', { ...input, order_id: 'req-2', channels: ['okx_wallet', 'bitget_wallet'] })).body;
+    for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const okx = (await t.api('POST', '/v1/publish/claim', { kinds: ['okx_wallet'] })).body;
+    const shot = pngBytes().toString('base64');
+    const review = `https://web3.okx.com/token/solana/${SOL}`;
+    expect((await t.api('POST', `/v1/publish/${okx.job.id}/complete`, { lease: okx.job.lease, submitted: true, url: null, note: 'submitted', review_url: review, proof: shot })).body.status).toBe('delivered');
+    // A review link off the site's own host is dropped; a non-image "proof" is ignored.
+    const bg = (await t.api('POST', '/v1/publish/claim', { kinds: ['bitget_wallet'] })).body;
+    await t.api('POST', `/v1/publish/${bg.job.id}/complete`, { lease: bg.job.lease, submitted: true, url: null, review_url: 'https://evil.example.com/x', proof: Buffer.from('nope').toString('base64') });
+    const jobs = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs;
+    const okxResult = jobs.find((j: any) => j.kind === 'okx_wallet').result;
+    expect(okxResult).toMatchObject({ url: null, review_url: review, proof_url: expect.stringMatching(/\/media\/[0-9a-f]{40}$/) });
+    expect(jobs.find((j: any) => j.kind === 'bitget_wallet')).toMatchObject({ status: 'delivered', result: { url: null } });
+    expect(jobs.find((j: any) => j.kind === 'bitget_wallet').result).not.toHaveProperty('review_url');
+    expect(jobs.find((j: any) => j.kind === 'bitget_wallet').result).not.toHaveProperty('proof_url');
+    const img = await t.call(null, 'GET', `/media/${okxResult.proof_url.split('/media/')[1]}`);
+    expect(img.status).toBe(200);
+    expect(img.headers['content-type']).toBe('image/png');
+    const report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
+    expect(report.successes).toContainEqual({ source: 'okx_wallet', label: 'OKX Wallet token info update (submitted, in review)', url: okxResult.proof_url });
   });
 });

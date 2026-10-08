@@ -840,11 +840,68 @@ function directoryUrl(kind: string, url: unknown): string | null {
 }
 
 /** `note` is the worker's reason when it can't tell whether the post went out; it's kept on the item and logged. */
-export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown, submitted?: unknown, note?: unknown) {
+/** Where each listing request can be followed up (its review page), so a worker-sent link can't point elsewhere. */
+const REVIEW_HOSTS: Record<string, string[]> = {
+  okx_wallet: ['web3.okx.com'],
+  bitget_wallet: ['web3.bitget.com'],
+  cntoken: ['cntoken.io'],
+  coincodex: ['coincodex.com', 'docs.google.com'],
+  blockspot: ['blockspot.io'],
+};
+
+/**
+ * Proof of a listing request that has no public page until the site's review: the worker's screenshot of the
+ * confirmation (or of the site's "Under review" list), stored with the order and served as a public image.
+ */
+export async function listingProof(ctx: ServiceContext, orderId: string, kind: string, proof: unknown, reviewUrl: unknown) {
+  const out: { proof_url?: string; review_url?: string } = {};
+  if (typeof reviewUrl === 'string' && reviewUrl) {
+    try {
+      out.review_url = safeRemote(reviewUrl, REVIEW_HOSTS[kind] ?? []).toString();
+    } catch {
+      // Not one of the site's own pages: left out.
+    }
+  }
+  if (typeof proof === 'string' && proof && proof.length <= 2_000_000) {
+    const bytes = Buffer.from(proof, 'base64');
+    const mime = bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : bytes.subarray(0, 4).toString('hex') === '89504e47' ? 'image/png' : null;
+    if (mime) {
+      const a = await saveAsset(ctx, orderId, `proof_${kind}`, `${kind}-proof.${mime === 'image/png' ? 'png' : 'jpg'}`, mime, bytes);
+      out.proof_url = publicAssetUrl(ctx, orderId, a.id);
+    }
+  }
+  return out;
+}
+
+/** Attaches proof to a listing request delivered earlier (captured afterwards, read-only, from the site). */
+export async function attachListingProof(ctx: ServiceContext, jobId: string, proof: unknown, reviewUrl: unknown) {
+  const j = get<JobRow>(ctx.db, 'SELECT * FROM jobs WHERE id = :id', { id: jobId });
+  if (!j) throw new AppError('Job not found', 404, 'not_found');
+  if (!REQUEST_LISTINGS.includes(j.kind) || j.status !== 'delivered') throw new ConflictError('Only a delivered listing request takes proof');
+  const extra = await listingProof(ctx, j.order_id, j.kind, proof, reviewUrl);
+  if (!extra.proof_url && !extra.review_url) throw new ValidationError('proof: a JPEG/PNG (base64) or review_url on the site');
+  const result = { ...(j.result ? JSON.parse(j.result) : {}), ...extra };
+  run(ctx.db, 'UPDATE jobs SET result = :r, updated_at = :t WHERE id = :id', { r: result, t: nowMs(ctx), id: j.id });
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: j.status, result });
+  return { job_id: j.id, result };
+}
+
+export async function publishComplete(
+  ctx: ServiceContext,
+  jobId: string,
+  lease: unknown,
+  url: unknown,
+  verified?: unknown,
+  submitted?: unknown,
+  note?: unknown,
+  extra: { proof?: unknown; review_url?: unknown } = {},
+) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
-  // A listing request the site accepted: there is no coin page until their review, so it is done (no link yet).
+  // A listing request the site accepted: there is no coin page until their review, so it is done, with a screenshot
+  // of the submission as proof.
   if (REQUEST_LISTINGS.includes(j.kind) && submitted === true) {
-    finish(ctx, j, { url: null, submitted_at: new Date(nowMs(ctx)).toISOString(), note: typeof note === 'string' ? note.slice(0, 200) : 'submitted for review' });
+    const proof = await listingProof(ctx, j.order_id, j.kind, extra.proof, extra.review_url);
+    finish(ctx, j, { url: null, ...proof, submitted_at: new Date(nowMs(ctx)).toISOString(), note: typeof note === 'string' ? note.slice(0, 200) : 'submitted for review' });
     return { status: 'delivered' };
   }
   if (DIRECTORY_HOSTS[j.kind] && submitted === true) {
@@ -1245,7 +1302,7 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     const label = SOURCE_LABELS[j.kind] ?? STEP_LABELS[j.kind] ?? j.kind;
     const result = j.result ? JSON.parse(j.result) : {};
     if (j.status === 'delivered') {
-      if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : label, url: result.url ?? null });
+      if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : label, url: result.url ?? result.proof_url ?? null });
     } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
     else if (j.status === 'submitted' && DIRECTORY_HOSTS[j.kind] && result.url) successes.push({ source: j.kind, label: `${label} (in review)`, url: result.url });
     else if (j.status === 'submitted' && j.kind === 'social_boost') {
