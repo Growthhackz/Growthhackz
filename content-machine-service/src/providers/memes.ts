@@ -46,9 +46,12 @@ export function memeKit() {
   return kit;
 }
 
+/** Templates the image model keeps failing to render (no image after every retry): never picked. */
+export const RETIRED_TEMPLATES = ['grus_plan'];
+
 /** Uniform random draw without replacement (the kit's rule: code picks, not a model). */
 export function selectTemplates(n = MEMES_PER_PACK, exclude: string[] = []): Template[] {
-  const pool = memeKit().templates.filter((t) => !exclude.includes(t.id));
+  const pool = memeKit().templates.filter((t) => !exclude.includes(t.id) && !RETIRED_TEMPLATES.includes(t.id));
   const picked: Template[] = [];
   while (picked.length < n && pool.length) picked.push(pool.splice(randomInt(pool.length), 1)[0]!);
   return picked;

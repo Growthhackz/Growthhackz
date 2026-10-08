@@ -33,6 +33,10 @@ describe('meme kit', () => {
     expect(memeKit().templates).toHaveLength(25);
     const five = selectTemplates();
     expect(new Set(five.map((t) => t.id)).size).toBe(5);
+    // Retired templates (the image model never renders them) are never drawn, even when they are all that's left.
+    const others = memeKit().templates.map((t) => t.id).filter((id) => id !== 'grus_plan');
+    expect(selectTemplates(5, others.slice(0, 21)).map((t) => t.id)).not.toContain('grus_plan');
+    expect(selectTemplates(5, others.slice(0, 21))).toHaveLength(3);
     const memes = five.map((t, i) => meme(t.id, i)) as any;
     expect(storyboardProblems(memes, five)).toEqual([]);
     expect(storyboardProblems([...memes.slice(0, 4), meme(five[0]!.id, 9)] as any, five)).toContain('template ids repeat');

@@ -182,7 +182,9 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
       await editor.click(); await page.keyboard.insertText(listing.description);
       await page.locator('button:has-text("Market Details")').first().click();
       await page.waitForTimeout(3000);
-      await pick('Select a blockchain', new RegExp(`^${listing.chain}$`, 'i'));
+      // FreshCoins' names for our chains (its list: Binance Smart Chain, Ethereum, Solana, Tron, Base, Matic, ...).
+      const FRESH_CHAINS = {bsc: /^Binance Smart Chain$/i, polygon: /^Matic$/i};
+      await pick('Select a blockchain', FRESH_CHAINS[listing.chain] ?? new RegExp(`^${listing.chain}$`, 'i'));
       await pick('Select a DEX', /pump|raydium|other/i);
       const ca = page.getByPlaceholder('Enter project contract address');
       await ca.click(); await ca.fill(listing.contract_address);
@@ -299,6 +301,9 @@ async function coinscopeSubmit(listing, logoPath, env = process.env) {
       return {submitted: false};
     }
     const body = await r.json().catch(() => ({}));
+    // Already on Coinscope (an earlier purchase or the project itself): its page is the listing; the review check confirms it.
+    if (r.status() === 422 && /already exist/i.test(JSON.stringify(body?.fields ?? {})))
+      return {submitted: true, url: `https://www.coinscope.co/coin/${listing.symbol.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, note: 'already listed'};
     if (r.status() >= 300 || !body.slug) throw new NotPostedError(`coinscope rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
     return {submitted: true, url: `https://www.coinscope.co/coin/${body.slug}`};
   } finally { await browser.close(); }
