@@ -123,8 +123,10 @@ export async function coincodexSubmit(l, _logoPath, env = process.env, {dryRun =
     await page.getByRole('button', {name: 'Submit'}).click();
     await page.waitForTimeout(4000);
     const body = await page.locator('body').innerText().catch(() => '');
-    if (/Your response has been recorded/i.test(body)) return {submitted: true, url: null, note: 'request recorded; CoinCodex reviews it'};
     const left = await problems();
+    // Google's confirmation page (the form may use its own wording): .../formResponse, no form left, no errors.
+    const recorded = /Your response has been recorded/i.test(body) || (/\/formResponse/.test(page.url()) && !left && !(await page.getByRole('button', {name: 'Submit'}).count()));
+    if (recorded) return {submitted: true, url: null, note: 'request recorded; CoinCodex reviews it'};
     if (left) throw new NotPostedError(`coincodex rejected the form: ${left.slice(0, 200)}`);
     await shot(page, env, 'coincodex-noanswer');
     return {submitted: false};
