@@ -145,4 +145,35 @@ describe('order report with listings under review', () => {
       ]),
     );
   });
+
+  it('request listings (CoinCodex, CNToken, Blockspot): off for trending orders; done with no link once the site accepts', async () => {
+    const t = makeApp();
+    t.http
+      .on('api.dexscreener.com/', () => json([]))
+      .on('cdn.example.com/logo.png', () => new Response(pngBytes(), { headers: { 'content-type': 'image/png' } }))
+      .on('generativelanguage.googleapis.com/', (_u, init) =>
+        JSON.parse(String(init.body)).generationConfig?.responseModalities
+          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
+          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+      );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    // A trending sale never includes them.
+    const sale = (await t.api('POST', '/v1/trending', { purchase_id: 'req-sale', chain: 'solana', contract_address: SOL, name: 'Moon Frog', symbol: 'MFROG', telegram_url: 'https://t.me/moonfrog' })).body;
+    for (const k of ['coincodex', 'cntoken', 'blockspot']) expect(sale.jobs.find((j: any) => j.kind === k).status).toBe('skipped');
+    // An admin test order (no buybot callback) with only the new sites.
+    const o = (await t.api('POST', '/v1/orders', { ...input, order_id: 'req-1', channels: ['coincodex', 'cntoken', 'blockspot'] })).body;
+    for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['coincodex'] })).body;
+    expect(c.job.kind).toBe('coincodex');
+    expect(c.target.listing).toMatchObject({ name: 'Moon Frog', logo_public_url: 'https://cdn.example.com/logo.png' });
+    expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, submitted: true, url: null, note: 'request recorded' })).body.status).toBe('delivered');
+    // CNToken refused (nothing sent): failed for a retry, never "uncertain".
+    const d = (await t.api('POST', '/v1/publish/claim', { kinds: ['cntoken'] })).body;
+    await t.api('POST', `/v1/publish/${d.job.id}/fail`, { lease: d.job.lease, error: 'cntoken: CNToken requires a Telegram link; nothing was sent.' });
+    const order = (await t.api('GET', `/v1/orders/${o.id}`)).body;
+    expect(order.jobs.find((j: any) => j.kind === 'coincodex')).toMatchObject({ status: 'delivered', result: { url: null, note: 'request recorded' } });
+    expect(['queued', 'failed', 'blocked']).toContain(order.jobs.find((j: any) => j.kind === 'cntoken').status);
+    const report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
+    expect(report.successes).toContainEqual({ source: 'coincodex', label: 'CoinCodex listing request (submitted, in review)', url: null });
+  });
 });

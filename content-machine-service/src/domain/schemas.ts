@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'coincodex', 'cntoken', 'blockspot'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -17,6 +17,11 @@ export const DIRECTORY_HOSTS: Record<string, string[]> = {
   coinscope: ['www.coinscope.co', 'coinscope.co'],
   press_1888: ['www.1888pressrelease.com', '1888pressrelease.com'],
 };
+/**
+ * Listing request forms with no coin page until the site reviews them (no link at submit time): done once the
+ * site accepts the request. Off for trending orders until tested (not in TRENDING_CHANNELS).
+ */
+export const REQUEST_LISTINGS = ['coincodex', 'cntoken', 'blockspot'];
 /** What the live page's path looks like on each of those sites. */
 export const LISTING_PATHS: Record<string, RegExp> = {
   coinsniper: /\/coins?\//i,
@@ -217,6 +222,9 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['gemfinder', 86],
   ['freshcoins', 86],
   ['coinscope', 86],
+  ['coincodex', 86],
+  ['cntoken', 86],
+  ['blockspot', 86],
   ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
@@ -238,7 +246,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'coincodex', 'cntoken', 'blockspot', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
@@ -279,6 +287,9 @@ export const DEADLINE_MS: Record<string, number> = {
   gemfinder: 8 * 24 * HOUR,
   freshcoins: 8 * 24 * HOUR,
   coinscope: 8 * 24 * HOUR,
+  coincodex: 24 * HOUR,
+  cntoken: 24 * HOUR,
+  blockspot: 24 * HOUR,
   press_1888: 8 * 24 * HOUR,
   sticker_art_0: 10 * HOUR,
   sticker_art_1: 10 * HOUR,
@@ -325,6 +336,9 @@ export const SOURCE_LABELS: Record<string, string> = {
   gemfinder: 'GemFinder listing',
   freshcoins: 'FreshCoins listing',
   coinscope: 'Coinscope listing',
+  coincodex: 'CoinCodex listing request',
+  cntoken: 'CNToken listing',
+  blockspot: 'Blockspot listing',
   cmc_community: 'CoinMarketCap community post',
   bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',

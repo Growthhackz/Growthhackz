@@ -7,6 +7,7 @@ import {
   IRREVERSIBLE,
   OPTIONAL_RENDER_FILES,
   LISTING_PATHS,
+  REQUEST_LISTINGS,
   LISTING_REVIEW_MAX_MS,
   PRESS_KINDS,
   MAX_ATTEMPTS,
@@ -585,7 +586,7 @@ export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown,
 
 // ---- worker publications: Binance Square and Reddit ----
 
-export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
+export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS), ...REQUEST_LISTINGS];
 
 /**
  * Every post carries the project's Telegram link; longer posts (articles) also carry X and the website. The copy
@@ -699,7 +700,7 @@ export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
     const body = copy.spotlight_post ? [spotlightTitle(o.project), copy.spotlight_post] : [copy.social_post];
     return { text: [...body, links(o.project, false)].filter(Boolean).join('\n\n'), image_asset_url: image ? `/v1/assets/${image.id}` : null };
   }
-  if (DIRECTORY_HOSTS[kind]) {
+  if (DIRECTORY_HOSTS[kind] || REQUEST_LISTINGS.includes(kind)) {
     const p = o.project;
     const created = Number(p.market?.pair_created_at) || 0;
     const paragraphs = copy.article.split(/\n+/).filter(Boolean);
@@ -723,6 +724,8 @@ export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
         // The worker uploads the project logo when there is one, else the campaign image.
         logo_url: p.logo_url ?? null,
         image_asset_url: image ? `/v1/assets/${image.id}` : null,
+        // Forms that take a logo link rather than an upload.
+        logo_public_url: p.logo_url ?? (image ? publicAssetUrl(ctx, o.id, image.id) : null),
       },
       ...(PRESS_KINDS.includes(kind) ? { release: pressRelease(o) } : {}),
     };
@@ -835,6 +838,11 @@ function directoryUrl(kind: string, url: unknown): string | null {
 /** `note` is the worker's reason when it can't tell whether the post went out; it's kept on the item and logged. */
 export async function publishComplete(ctx: ServiceContext, jobId: string, lease: unknown, url: unknown, verified?: unknown, submitted?: unknown, note?: unknown) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
+  // A listing request the site accepted: there is no coin page until their review, so it is done (no link yet).
+  if (REQUEST_LISTINGS.includes(j.kind) && submitted === true) {
+    finish(ctx, j, { url: null, submitted_at: new Date(nowMs(ctx)).toISOString(), note: typeof note === 'string' ? note.slice(0, 200) : 'submitted for review' });
+    return { status: 'delivered' };
+  }
   if (DIRECTORY_HOSTS[j.kind] && submitted === true) {
     const result = { submitted_at: new Date(nowMs(ctx)).toISOString(), url: directoryUrl(j.kind, url) };
     run(
@@ -1233,7 +1241,7 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     const label = SOURCE_LABELS[j.kind] ?? STEP_LABELS[j.kind] ?? j.kind;
     const result = j.result ? JSON.parse(j.result) : {};
     if (j.status === 'delivered') {
-      if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label, url: result.url ?? null });
+      if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : label, url: result.url ?? null });
     } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
     else if (j.status === 'submitted' && DIRECTORY_HOSTS[j.kind] && result.url) successes.push({ source: j.kind, label: `${label} (in review)`, url: result.url });
     else if (j.status === 'submitted' && j.kind === 'social_boost') {
