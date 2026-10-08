@@ -3,6 +3,7 @@ import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 import {browserContext, NotPostedError, redditProxy} from './reddit.mjs';
 import {withLock} from './lock.mjs';
+import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
 
 /**
  * Newer listing sites, kept apart from the proven ones: CoinCodex (a Google Form), CNToken and Blockspot. They are
@@ -203,6 +204,9 @@ export const NEW_LISTING_SITES = {
   coincodex: {enabled: env => /(^|,)\s*coincodex\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => coincodexSubmit(l, p, e), check: async () => ({live: false})},
   cntoken: {enabled: env => /(^|,)\s*cntoken\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('cntoken', () => cntokenSubmit(l, p, e)), check: async () => ({live: false})},
   blockspot: {enabled: env => /(^|,)\s*blockspot\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('blockspot', () => blockspotSubmit(l, p, e)), check: async () => ({live: false})},
+  // Wallet sites (wallets.mjs): one wallet browser at a time.
+  okx_wallet: {enabled: env => /(^|,)\s*okx_wallet\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('wallet', () => okxUpdateSubmit(l, p, e)), check: async () => ({live: false})},
+  bitget_wallet: {enabled: env => /(^|,)\s*bitget_wallet\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('wallet', () => bitgetSubmit(l, p, e)), check: async () => ({live: false})},
 };
 
 // `node newsites.mjs dry <site>`: fill the form with a sample token and stop before submitting.

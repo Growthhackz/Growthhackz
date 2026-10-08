@@ -159,7 +159,7 @@ describe('order report with listings under review', () => {
     await t.setSetting('GEMINI_API_KEY', 'G');
     // A trending sale never includes them.
     const sale = (await t.api('POST', '/v1/trending', { purchase_id: 'req-sale', chain: 'solana', contract_address: SOL, name: 'Moon Frog', symbol: 'MFROG', telegram_url: 'https://t.me/moonfrog' })).body;
-    for (const k of ['coincodex', 'cntoken', 'blockspot']) expect(sale.jobs.find((j: any) => j.kind === k).status).toBe('skipped');
+    for (const k of ['coincodex', 'cntoken', 'blockspot', 'okx_wallet', 'bitget_wallet']) expect(sale.jobs.find((j: any) => j.kind === k).status).toBe('skipped');
     // An admin test order (no buybot callback) with only the new sites.
     const o = (await t.api('POST', '/v1/orders', { ...input, order_id: 'req-1', channels: ['coincodex', 'cntoken', 'blockspot'] })).body;
     for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
