@@ -3,10 +3,10 @@ import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 import {browserContext, NotPostedError, redditProxy} from './reddit.mjs';
 import {withLock} from './lock.mjs';
-import {bitgetSubmit, okxUpdateSubmit, proofShot} from './wallets.mjs';
+import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
 
 /**
- * Newer listing sites, kept apart from the proven ones: CoinCodex (a Google Form), CNToken and Blockspot. They are
+ * Newer listing sites, kept apart from the proven ones: CoinCodex (a Google Form) and Blockspot. They are
  * off for trending orders (not in TRENDING_CHANNELS) until tested. Each submit takes `{dryRun: true}`, which fills
  * the form and stops before sending anything (a screenshot is saved for review).
  */
@@ -133,57 +133,6 @@ export async function coincodexSubmit(l, _logoPath, env = process.env, {dryRun =
   } finally { await browser.close(); }
 }
 
-// ---------------------------------------------------------------- CNToken
-
-/** CNToken's launch-platform choice from the token itself. */
-const cntokenLaunch = l => (l.chain === 'solana' && /pump$/i.test(l.contract_address) ? 'pump.fun' : l.chain === 'solana' ? 'Raydium' : l.chain === 'bsc' ? 'PancakeSwap' : l.chain === 'ethereum' ? 'UniSwap' : '无(None)');
-const CNTOKEN_CHAINS = {solana: 'SOL', ethereum: 'ETH', bsc: 'BSC', base: 'Base', polygon: 'MATIC', arbitrum: 'Arbitrum'};
-
-export async function cntokenSubmit(l, _logoPath, env = process.env, {dryRun = false} = {}) {
-  if (!l.telegram_url) throw notSent('cntoken', 'CNToken requires a Telegram link and this token has none');
-  if (!l.logo_public_url) throw notSent('cntoken', 'no public logo URL for this token');
-  const browser = await launch();
-  try {
-    const page = await (await browser.newContext(browserContext())).newPage();
-    const pick = async (index, option) => {
-      await page.getByPlaceholder('Select...').nth(index).click();
-      await page.waitForTimeout(600);
-      const o = page.locator('li:visible, [role=option]:visible').filter({hasText: option}).first();
-      if (!(await o.count())) throw notSent('cntoken', `no option ${option}`);
-      await o.click();
-      await page.waitForTimeout(400);
-    };
-    try {
-      await page.goto('https://cntoken.io/addCoin', {waitUntil: 'domcontentloaded', timeout: 60000});
-      await page.waitForTimeout(4000);
-      await page.getByPlaceholder('e.g. Bitcoin', {exact: true}).fill(l.name);
-      await page.getByPlaceholder('e.g. BTC', {exact: true}).fill(l.symbol);
-      await page.locator('textarea').first().fill((l.short_description || l.description || '').slice(0, 500));
-      await pick(0, CNTOKEN_CHAINS[l.chain] ?? l.chain);
-      await page.getByPlaceholder('Please enter...').first().fill(l.contract_address);
-      await pick(2, '无(None)'); // presale platform
-      await pick(4, cntokenLaunch(l)); // launch platform
-      const fill = async (ph, v, nth = 0) => { if (v) await page.getByPlaceholder(ph).nth(nth).fill(v); };
-      await fill('e.g. www.baidu.com', bestSite(l));
-      await fill('e.g. https://t.me/bitcoin', l.telegram_url, 0);
-      await fill('e.g. https://twitter.com/bitcoin', l.x_url);
-      await fill('e.g. https://i.ibb.co/logo.png', l.logo_public_url);
-      const contact = page.getByPlaceholder('Please enter...');
-      const n = await contact.count();
-      if (contactEmail(env) && n >= 2) await contact.nth(n - 2).fill(contactEmail(env));
-    } catch (e) { throw e instanceof NotPostedError ? e : notSent('cntoken', 'could not fill the form', e); }
-    if (dryRun) return {submitted: false, dryRun: true, screenshot: await shot(page, env, 'cntoken-dry')};
-    const answer = page.waitForResponse(r => /api\.cntoken\.io\/api\/coin\//.test(r.url()) && r.request().method() === 'POST', {timeout: 30000}).catch(() => null);
-    await page.getByRole('button', {name: 'Add Coin'}).last().click();
-    const r = await answer;
-    if (!r) { await shot(page, env, 'cntoken-noanswer'); return {submitted: false}; }
-    const body = await r.json().catch(() => ({}));
-    if (r.status() >= 300 || body.code !== 1) throw new NotPostedError(`cntoken rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
-    // The "Submission successful, We are reviewing!" notice shows for a few seconds.
-    return {submitted: true, url: null, proof: await proofShot(page, 500), note: body.msg || 'submitted for review'};
-  } finally { await browser.close(); }
-}
-
 // ---------------------------------------------------------------- Blockspot
 
 export async function blockspotSubmit(l, _logoPath, env = process.env, {dryRun = false} = {}) {
@@ -235,7 +184,6 @@ export async function blockspotSubmit(l, _logoPath, env = process.env, {dryRun =
 /** Enabled only with NEW_LISTING_SITES (comma list) on the worker, so nothing changes until they are tested. */
 export const NEW_LISTING_SITES = {
   coincodex: {enabled: env => /(^|,)\s*coincodex\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => coincodexSubmit(l, p, e), check: async () => ({live: false})},
-  cntoken: {enabled: env => /(^|,)\s*cntoken\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('cntoken', () => cntokenSubmit(l, p, e)), check: async () => ({live: false})},
   blockspot: {enabled: env => /(^|,)\s*blockspot\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('blockspot', () => blockspotSubmit(l, p, e)), check: async () => ({live: false})},
   // Wallet sites (wallets.mjs): one wallet browser at a time.
   okx_wallet: {enabled: env => /(^|,)\s*okx_wallet\s*(,|$)/.test(env.NEW_LISTING_SITES ?? ''), submit: (l, p, e) => withLock('wallet', () => okxUpdateSubmit(l, p, e)), check: async () => ({live: false})},
@@ -252,6 +200,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     logo_public_url: 'https://dd.dexscreener.com/ds-data/tokens/solana/2j5SaS7xy776qCBpyPQbZjyQSAtKiFgrwjfErthnW2ZM.png',
   };
   const env = {...process.env, LISTING_CONTACT_EMAIL: process.env.LISTING_CONTACT_EMAIL || 'test@example.com'};
-  const fn = {coincodex: coincodexSubmit, cntoken: cntokenSubmit, blockspot: blockspotSubmit}[process.argv[3]];
+  const fn = {coincodex: coincodexSubmit, blockspot: blockspotSubmit}[process.argv[3]];
   console.log(JSON.stringify(await fn(sample, null, env, {dryRun: true}), null, 1));
 }
