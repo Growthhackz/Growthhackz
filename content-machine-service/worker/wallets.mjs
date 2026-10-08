@@ -429,19 +429,18 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
   } finally { await close(); await rm(join(icon, '..'), {recursive: true, force: true}).catch(() => {}); }
 }
 
-/** Proof for a submission made earlier: our Bitget submissions list, or the OKX token page with our wallet connected. */
+/**
+ * Proof for a Bitget submission made earlier: our submissions list, showing its status. (OKX keeps no visible record
+ * of a pending update, so its proof is only the screenshot taken at submit.)
+ */
 export async function reviewProof(site, l, env = process.env) {
-  const name = {okx_wallet: 'okx', bitget_wallet: 'bitget'}[site];
-  if (!name) throw new Error(`no proof capture for ${site}`);
-  const {ctx, id, w, close} = await walletBrowser(name, env);
-  try {
-    if (name === 'bitget') return {review_url: BITGET_MANAGE, proof: await bitgetReviewShot(await bitgetConnect(ctx, id, w), l)};
-    const url = `https://web3.okx.com/token/${OKX_CHAINS[l.chain]}/${l.contract_address}`;
-    return {review_url: url, proof: await proofShot(await okxConnect(ctx, id, w, url))};
-  } finally { await close(); }
+  if (site !== 'bitget_wallet') throw new Error(`no later proof capture for ${site}; it is taken at submit`);
+  const {ctx, id, w, close} = await walletBrowser('bitget', env);
+  try { return {review_url: BITGET_MANAGE, proof: await bitgetReviewShot(await bitgetConnect(ctx, id, w), l)}; }
+  finally { await close(); }
 }
 
-// `node wallets.mjs proof <okx_wallet|bitget_wallet> <out.jpg>`: read-only screenshot of an earlier submission.
+// `node wallets.mjs proof bitget_wallet <out.jpg>`: read-only screenshot of an earlier submission.
 // `node wallets.mjs dry <okx_wallet|bitget_wallet> <logo path>`: JUGS sample, fills the form and stops before Submit.
 // `node wallets.mjs live <site> <logo>` does the same and submits (used to test a site once).
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && ['dry', 'live', 'proof'].includes(process.argv[2])) {
