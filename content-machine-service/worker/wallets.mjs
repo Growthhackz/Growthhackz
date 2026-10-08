@@ -379,6 +379,10 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
     // Bitget's API answers {status: 0} on success.
     const answer = page.waitForResponse(r => r.request().method() === 'POST' && /\/openApi\/open\/token\//.test(r.url()) && !/getChainNameList|list|detail|query/i.test(r.url()), {timeout: 60000}).catch(() => null);
     await page.getByRole('button', {name: 'Submit', exact: true}).last().click();
+    // "You may not modify the requested fields ... after submission": confirm.
+    const confirm = page.locator('.ant-modal-confirm-btns button, .ant-modal button').filter({hasText: /^\s*Confirm\s*$/}).first();
+    await confirm.waitFor({timeout: 10000}).catch(() => {});
+    if (await confirm.count()) await confirm.click();
     await approve(ctx, 'bitget', id, page, w).catch(() => 0);
     page = siteTab(ctx, 'web3.bitget.com') ?? page;
     const r = await answer;
@@ -393,12 +397,13 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
 }
 
 // `node wallets.mjs dry <okx_wallet|bitget_wallet> <logo path>`: JUGS sample, fills the form and stops before Submit.
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && process.argv[2] === 'dry') {
+// `node wallets.mjs live <site> <logo>` does the same and submits (used to test a site once).
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && ['dry', 'live'].includes(process.argv[2])) {
   const l = {
     name: 'GoalDaddy', symbol: 'JUGS', chain: 'solana', contract_address: 'APxxh2tWCh95tbHitFJchcdbMsctSBgRS2Zzju9Bpump',
     short_description: 'Dry run: nothing is submitted.', description: 'Dry run.', website_url: null,
     telegram_url: 'https://t.me/GoalDaddyJUGS', x_url: 'https://x.com/goaldaddyllc', launch_date: '2026-10-01',
   };
   const fn = {okx_wallet: okxUpdateSubmit, bitget_wallet: bitgetSubmit}[process.argv[3]];
-  console.log(JSON.stringify(await fn(l, process.argv[4] || null, process.env, {dryRun: true})));
+  console.log(JSON.stringify(await fn(l, process.argv[4] || null, process.env, {dryRun: process.argv[2] === 'dry'})));
 }
