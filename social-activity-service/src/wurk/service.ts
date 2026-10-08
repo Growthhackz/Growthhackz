@@ -493,6 +493,13 @@ export async function runComponent(ctx: ServiceContext, componentId: string): Pr
     // x402 settles only after the resource succeeds; a definite refusal means the signed payment was not used.
     run(ctx.db, "UPDATE wurk_payments SET status = 'failed', error = :e, updated_at = :t WHERE id = :id", { id: paymentId, e: `refused ${paid.status}`, t: nowIso(ctx) });
     if (paid.status === 409 && c.kind === 'tg_batch_2') return defer(ctx, c, `WURK refused an overlapping Telegram job (409): ${text.slice(0, 300)}`);
+    // A repeat purchase on the same post: WURK already has engagement running there. Nothing was paid; the rest of
+    // the package (followers, Telegram members) goes ahead.
+    if (/already exists for the tweet/i.test(text)) {
+      setComponent(ctx, c.id, { status: 'cancelled', last_error: `Skipped: WURK already has a job on this post (${paid.status})` });
+      audit(ctx, { packageId: c.package_id, componentId: c.id, actor: 'system', action: 'component.cancelled', detail: { reason: 'post already boosted' } });
+      return true;
+    }
     // The quote went stale between the challenge and the payment (WURK: "differs from its sealed component manifest"):
     // nothing was paid, so a fresh quote and a new payment are safe.
     if (paid.status === 409 && /X402_REWARD_SOURCE_INVALID|sealed component manifest/i.test(text))

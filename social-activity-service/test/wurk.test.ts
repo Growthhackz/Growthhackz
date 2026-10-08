@@ -16,7 +16,7 @@ const PRICES: Record<string, string> = {
   '/solana/xraid/small': '1000000',
 };
 
-type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '500' | '503' | 'no-json';
+type PaidBehaviour = 'ok' | 'timeout' | '409' | '409-stale' | '409-kept' | '400-dup' | '500' | '503' | 'no-json';
 
 /** A fake WURK: 402 with a v2 challenge when unpaid; job JSON when PAYMENT-SIGNATURE is present. */
 function fakeWurk() {
@@ -66,6 +66,7 @@ function fakeWurk() {
     }
     if (b === '500') return new Response('upstream', { status: 500 });
     if (b === '503') return new Response('unavailable', { status: 503 });
+    if (b === '400-dup') return new Response(JSON.stringify({ message: 'job already exists for the tweet' }), { status: 400 });
     if (b === 'no-json') return new Response('ok', { status: 200 });
     state.jobs++;
     const settle = { success: true, transaction: `tx${state.jobs}`, network: SOLANA_MAINNET };
@@ -498,6 +499,20 @@ describe('WURK fulfillment', () => {
     // Presets that are only engagement still need the post; nothing at all to target is refused.
     expect((await api('POST', '/v1/wurk/packages', { preset: 'engagement', bundled: true, xProfile: 'https://x.com/a' })).status).toBe(400);
     expect((await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, telegram: 'https://t.me/abcdef' })).status).toBe(400);
+  });
+
+  it('a repeat purchase on an already-boosted post skips the engagement and keeps the rest (JUGS #3, Oct 5)', async () => {
+    const { ctx, api, signed, wurk } = setup();
+    wurk.state.price['/solana/xraid/custom'] = '3000000';
+    wurk.state.price['/solana/xfollowers'] = '1500000';
+    wurk.state.paid['/solana/xraid/custom'] = '400-dup';
+    const p = (await api('POST', '/v1/wurk/packages', { preset: 'trending', bundled: true, xPost: 'https://x.com/a/status/11' })).body;
+    await api('POST', `/v1/wurk/packages/${p.id}/payment-received`, { paymentRef: 'dup-1' });
+    await processWurk(ctx);
+    const detail = (await api('GET', `/v1/wurk/packages/${p.id}`)).body;
+    expect(detail.status).toBe('in_progress');
+    expect(detail.components.find((c: any) => c.kind === 'engagement')).toMatchObject({ status: 'cancelled', lastError: expect.stringContaining('already has a job on this post') });
+    expect(signed).toHaveLength(2); // engagement signed but refused (not paid); followers paid
   });
 
   it('an unpaid component can be cancelled (replaced); a paid one cannot', async () => {
