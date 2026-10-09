@@ -168,7 +168,8 @@ async function cardReady() {
       const { windowId } = await cdp.send('Browser.getWindowForTarget');
       await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
     } catch (e) { log('card fullscreen failed:', e.message); }
-    await cardPage.goto(CARD_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    try { await cardPage.goto(CARD_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 }); }
+    catch (e) { cardPage = null; throw e; }   // never record an error page: try again next round
     await sleep(12_000);                 // let data, logos and charts arrive
   }
   return cardPage;
@@ -194,7 +195,7 @@ async function cardClip(seconds) {
 
 let cardBusy = false;
 async function postCard() {
-  if (!page || cardBusy) return;
+  if (cardBusy) return;
   cardBusy = true;
   try { await postCardOnce(); } finally { cardBusy = false; }
 }
@@ -240,7 +241,8 @@ function grabFrame() {
   if (Date.now() - frame.at < 900 && frame.jpg) return Promise.resolve(frame.jpg);
   if (frame.pending) return frame.pending;
   frame.pending = new Promise(resolve => {
-    const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'x11grab', '-video_size', `${W}x${H}`, '-i', `${DISPLAY}.0`,
+    const [disp, size] = STREAM_URLS.length ? [DISPLAY, `${W}x${H}`] : [CARD_DISPLAY, `${CARD_PX}x${CARD_PY}`];
+    const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'x11grab', '-video_size', size, '-i', `${disp}.0`,
       '-frames:v', '1', '-q:v', '5', '-f', 'image2', '-c:v', 'mjpeg', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore'] });
     const parts = [];
     ff.stdout.on('data', d => parts.push(d));
@@ -275,16 +277,20 @@ http.createServer(async (req, res) => {
   if (p === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(PREVIEW); }
   res.writeHead(200, { 'content-type': 'application/json' });
   // /health and /status
-  res.end(JSON.stringify({ ok: status.page === 'ok', ...status, streamTargets: STREAM_URLS.length, telegram: !!(TG_TOKEN && TG_CHAT), page: PAGE_URL }));
+  res.end(JSON.stringify({ ok: status.page === 'ok' || status.page === 'off', ...status, streamTargets: STREAM_URLS.length, telegram: !!(TG_TOKEN && TG_CHAT), page: PAGE_URL }));
 }).listen(Number(process.env.PORT || 8080));
 
 // ---------- run ----------
-startXvfb();
+// with no STREAM_URLS the live stream is paused: no stream browser and no encoder, just the Telegram clip
+const STREAMING = STREAM_URLS.length > 0;
+if (STREAMING) startXvfb();
 startXvfb(CARD_DISPLAY, CARD_PX, CARD_PY);
 await sleep(1500);
-await reopen();
-await sleep(8000);                       // let the page load data and fonts before going on air
-startStream();
+if (STREAMING) {
+  await reopen();
+  await sleep(8000);                     // let the page load data and fonts before going on air
+  startStream();
+} else { status.page = 'off'; log('live stream paused (no STREAM_URLS); Telegram clip only'); }
 // the pinned post: record, post, repeat (a 30s clip every ~35s keeps it close to live)
 (async () => {
   await sleep(5_000);
