@@ -33,15 +33,29 @@ async function debugShot(page, env, name) {
   if (env.DIRECTORY_DEBUG_DIR && page && !page.isClosed()) await page.screenshot({path: `${env.DIRECTORY_DEBUG_DIR}/${name}-${Date.now()}.png`, fullPage: true}).catch(() => {});
 }
 
-/**
- * Proof that a submission went in, for the report: a viewport screenshot (JPEG, base64) of the page as it stands.
- * Sites with no public page until their review approves the token have nothing else to link to.
- */
-export async function proofShot(page, wait = 1500) {
+/** A viewport screenshot of the page as it stands (JPEG), or null. */
+async function shot(page, wait = 1500) {
   if (!page || page.isClosed()) return null;
   await sleep(wait);
-  const buf = await page.screenshot({type: 'jpeg', quality: 70}).catch(() => null);
-  return buf && buf.length < 1_500_000 ? buf.toString('base64') : null;
+  return page.screenshot({type: 'jpeg', quality: 80}).catch(() => null);
+}
+
+/**
+ * Proof that a submission went in, for the report and the dev: the screenshots side by side in one image (the
+ * filled form as sent, then the site's confirmation or "Under review"), as base64 JPEG. These sites have no
+ * public page until their review approves the token, so this is what the report links to.
+ */
+export async function proofImage(shots) {
+  const parts = await Promise.all(shots.filter(Boolean).map(b => sharp(b).resize({height: 800}).toBuffer({resolveWithObject: true})));
+  if (!parts.length) return null;
+  const gap = 16;
+  const width = parts.reduce((n, p) => n + p.info.width, 0) + gap * (parts.length - 1);
+  let left = 0;
+  const out = await sharp({create: {width, height: 800, channels: 3, background: '#ffffff'}})
+    .composite(parts.map(p => { const c = {input: p.data, left, top: 0}; left += p.info.width + gap; return c; }))
+    .jpeg({quality: 70})
+    .toBuffer();
+  return out.length < 1_400_000 ? out.toString('base64') : null;
 }
 
 // ---------------------------------------------------------------- wallet setup
@@ -290,20 +304,24 @@ export async function okxUpdateSubmit(l, logoPath, env = process.env, {dryRun = 
       await debugShot(page, env, 'okx-wallet-fill');
       throw e instanceof NotPostedError ? e : notSent('okx_wallet', 'could not fill the form', e);
     }
-    if (dryRun) { await debugShot(page, env, 'okx-wallet-dry'); return {submitted: false, dryRun: true}; }
+    if (dryRun) { await debugShot(page, env, 'okx-wallet-dry'); return {submitted: false, dryRun: true, proof: await proofImage([await shot(page, 500)])}; }
+    const sent = await shot(page, 500);
     const answer = page.waitForResponse(r => r.request().method() === 'POST' && /okx\.com\/.*(token|update|apply|submit)/i.test(r.url()) && !/log|track|monitor|collect/i.test(r.url()), {timeout: 60000}).catch(() => null);
     await page.getByRole('button', {name: 'Submit', exact: true}).last().click();
     // Submitting may ask the wallet to sign.
     await approve(ctx, 'okx', id, page, w).catch(() => 0);
     page = siteTab(ctx, 'web3.okx.com') ?? page;
     const r = await answer;
+    // OKX's confirmation shows briefly: capture it straight away.
+    await page.getByText(/submitted|success|under review|in review/i).first().waitFor({timeout: 8000}).catch(() => {});
+    const confirmed = await shot(page, 300);
     const text = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
     await debugShot(page, env, 'okx-wallet-after');
     const body = r ? await r.json().catch(() => ({})) : {};
     if (r && (r.status() >= 400 || (body.code && String(body.code) !== '0'))) throw new NotPostedError(`okx_wallet rejected the update: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
     if (!r && !/submitted|success|under review|in review/i.test(text)) return {submitted: false};
-    // OKX's confirmation shows briefly; the token page is where the update appears once approved.
-    return {submitted: true, url: null, review_url: url, proof: await proofShot(page), note: 'token info update submitted; OKX reviews it'};
+    // The token page is where the update appears once OKX approves it.
+    return {submitted: true, url: null, review_url: url, proof: await proofImage([sent, confirmed]), note: 'token info update submitted; OKX reviews it'};
   } finally { await close(); }
 }
 
@@ -331,7 +349,8 @@ const BITGET_MANAGE = 'https://web3.bitget.com/en/business/service/token-manage'
 async function bitgetReviewShot(page, l) {
   await page.goto(BITGET_MANAGE, {waitUntil: 'domcontentloaded', timeout: 60000});
   await page.getByText(l.symbol, {exact: true}).first().waitFor({timeout: 20000}).catch(() => {});
-  return proofShot(page);
+  await page.getByText(/Under review/i).first().waitFor({timeout: 10000}).catch(() => {});
+  return shot(page);
 }
 
 /** Opens Bitget's token management page with our wallet connected. */
@@ -408,7 +427,11 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
       await debugShot(page, env, 'bitget-wallet-fill');
       throw e instanceof NotPostedError ? e : notSent('bitget_wallet', 'could not fill the form', e);
     }
-    if (dryRun) { await debugShot(page, env, 'bitget-wallet-dry'); return {submitted: false, dryRun: true}; }
+    // The form as sent, from the top: icon, name, symbol, chain, contract.
+    await page.locator('#dynamic_rule_name').scrollIntoViewIfNeeded().catch(() => {});
+    await page.evaluate(() => { window.scrollTo(0, 0); for (const e of document.querySelectorAll('*')) if (e.scrollTop) e.scrollTop = 0; }).catch(() => {});
+    const sent = await shot(page, 500);
+    if (dryRun) { await debugShot(page, env, 'bitget-wallet-dry'); return {submitted: false, dryRun: true, proof: await proofImage([sent])}; }
     // Bitget's API answers {status: 0} on success.
     const answer = page.waitForResponse(r => r.request().method() === 'POST' && /\/openApi\/open\/token\//.test(r.url()) && !/getChainNameList|list|detail|query/i.test(r.url()), {timeout: 60000}).catch(() => null);
     await page.getByRole('button', {name: 'Submit', exact: true}).last().click();
@@ -425,7 +448,7 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
     const body = r ? await r.json().catch(() => ({})) : {};
     if (r && (r.status() >= 400 || (body.status !== undefined && body.status !== 0))) throw new NotPostedError(`bitget_wallet rejected the token: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
     if (!r) return {submitted: false};
-    return {submitted: true, url: null, review_url: BITGET_MANAGE, proof: await bitgetReviewShot(page, l).catch(() => null), note: 'token submitted; Bitget Wallet reviews it'};
+    return {submitted: true, url: null, review_url: BITGET_MANAGE, proof: await proofImage([sent, await bitgetReviewShot(page, l).catch(() => null)]), note: 'token submitted; Bitget Wallet reviews it'};
   } finally { await close(); await rm(join(icon, '..'), {recursive: true, force: true}).catch(() => {}); }
 }
 
@@ -436,7 +459,7 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
 export async function reviewProof(site, l, env = process.env) {
   if (site !== 'bitget_wallet') throw new Error(`no later proof capture for ${site}; it is taken at submit`);
   const {ctx, id, w, close} = await walletBrowser('bitget', env);
-  try { return {review_url: BITGET_MANAGE, proof: await bitgetReviewShot(await bitgetConnect(ctx, id, w), l)}; }
+  try { return {review_url: BITGET_MANAGE, proof: await proofImage([await bitgetReviewShot(await bitgetConnect(ctx, id, w), l)])}; }
   finally { await close(); }
 }
 
@@ -457,5 +480,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     process.exit(0);
   }
   const fn = {okx_wallet: okxUpdateSubmit, bitget_wallet: bitgetSubmit}[process.argv[3]];
-  console.log(JSON.stringify(await fn(l, process.argv[4] || null, process.env, {dryRun: process.argv[2] === 'dry'})));
+  const r = await fn(l, process.argv[4] || null, process.env, {dryRun: process.argv[2] === 'dry'});
+  if (r.proof && process.env.PROOF_OUT) await writeFile(process.env.PROOF_OUT, Buffer.from(r.proof, 'base64'));
+  console.log(JSON.stringify({...r, proof: r.proof ? `${r.proof.length} chars` : null}));
 }

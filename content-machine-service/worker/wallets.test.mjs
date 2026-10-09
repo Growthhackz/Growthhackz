@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import {LOOKS_LIKE_TRANSACTION, tokenSupply, walletBrowser} from './wallets.mjs';
+import sharp from 'sharp';
+import {LOOKS_LIKE_TRANSACTION, proofImage, tokenSupply, walletBrowser} from './wallets.mjs';
+import {LISTING_SITES} from './listingsites.mjs';
 import {NotPostedError} from './reddit.mjs';
 
 // Sign-in and connect screens are approved; anything that moves funds is refused.
@@ -19,4 +21,16 @@ await assert.rejects(() => tokenSupply({chain: 'solana', contract_address: 'Mint
 
 // Without the wallet secrets nothing is attempted.
 await assert.rejects(() => walletBrowser('okx', {}), e => e instanceof NotPostedError && /WEB3_WALLET_MNEMONIC/.test(e.message));
-console.log('PASS: wallet requests guard (sign-ins approved, transactions refused), token supply lookup, missing wallet secrets not sent.');
+// The wallet sites run only when named in NEW_LISTING_SITES; CoinCodex, CNToken and Blockspot are gone.
+assert.equal(LISTING_SITES.okx_wallet.enabled({}), false);
+assert.equal(LISTING_SITES.okx_wallet.enabled({NEW_LISTING_SITES: 'bitget_wallet, okx_wallet'}), true);
+assert.equal(LISTING_SITES.bitget_wallet.enabled({NEW_LISTING_SITES: 'okx_wallet'}), false);
+for (const gone of ['coincodex', 'cntoken', 'blockspot']) assert.equal(LISTING_SITES[gone], undefined);
+
+// Proof: the form as sent and the confirmation, side by side in one JPEG; a missing shot is left out.
+const png = (w, h, c) => sharp({create: {width: w, height: h, channels: 3, background: c}}).jpeg().toBuffer();
+const both = await sharp(Buffer.from(await proofImage([await png(1366, 900, '#f00'), null, await png(1366, 900, '#00f')]), 'base64')).metadata();
+assert.deepEqual([both.format, both.height, both.width], ['jpeg', 800, 1214 * 2 + 16]);
+assert.equal(await proofImage([null]), null);
+
+console.log('PASS: wallet requests guard (sign-ins approved, transactions refused), token supply lookup, missing wallet secrets not sent, wallet sites gated, proof image.');
