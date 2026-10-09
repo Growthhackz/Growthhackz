@@ -446,6 +446,47 @@ a { color: inherit; }
 .preview-btn { border: 1px solid var(--line); background: var(--night-2); border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; color: var(--glow-a); cursor: pointer; }
 .preview-btn:hover { border-color: var(--glow-a); }
 
+/* ---------- Telegram card (?card=1): a portrait post, rendered at 540x720 CSS px (1080x1440 at 2x).
+   Peaks across the top half, #1-#3 big under them, #4-#10 as a two-column list. ---------- */
+html.tgcard, html.tgcard body { overflow: hidden; cursor: none; }
+html.tgcard body { width: 540px; height: 720px; }
+html.tgcard .wrap { max-width: none; width: 540px; height: 720px; box-sizing: border-box; padding: 8px 10px 10px; display: grid; grid-template-rows: auto 272px minmax(0, 1fr); gap: 8px; }
+html.tgcard .bar { position: static; padding: 0; gap: 8px; background: none; flex-wrap: nowrap; }
+html.tgcard .brand .mark { width: 34px; height: 34px; }
+html.tgcard .brand b { font-size: 21px; }
+html.tgcard .brand small { font-size: 8.5px; }
+html.tgcard .status { font-size: 9.5px; gap: 6px; }
+html.tgcard #chainSeg, html.tgcard .solo-link, html.tgcard .trend, html.tgcard .duo-left, html.tgcard .nut, html.tgcard .pm-guide,
+html.tgcard .wrap > .row, html.tgcard .wall, html.tgcard .ticker, html.tgcard .foot, html.tgcard .xb, html.tgcard .preview-btn, html.tgcard .ridge-head { display: none !important; }
+html.tgcard .hero { display: block; margin: 0; min-height: 0; }
+html.tgcard .ridge { height: 272px; border-radius: 16px; }
+html.tgcard .duo { display: block; margin: 0; min-height: 0; }
+html.tgcard .pm { margin: 0; padding: 8px 8px 6px; gap: 6px; border-radius: 16px; height: 100%; box-sizing: border-box; align-content: start; overflow: hidden; }
+html.tgcard .pm-head h2 { font-size: 19px; margin: 0; }
+html.tgcard .pm-head .eyebrow { display: none; }
+html.tgcard .pm-head { align-items: center; }
+html.tgcard .legend { font-size: 8px; }
+html.tgcard .lb { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 6px; }
+html.tgcard .lb-row { grid-template-columns: 16px minmax(0, 1fr) 70px; grid-template-areas: "n coin score"; padding: 4px 6px; gap: 2px 6px; background: var(--night-3); border-radius: 9px; }
+html.tgcard .lb-row > .tf { display: none; }
+html.tgcard .lb-row > .coin-c small { display: none; }
+html.tgcard .lb-row > .coin-c b { font-size: 14px; }
+html.tgcard .lb-row > .coin-c .coin { width: 18px; height: 18px; }
+html.tgcard .lb-row.big { grid-column: 1 / -1; grid-template-columns: 26px minmax(0, 1fr) 96px 120px; grid-template-areas: "n coin score tf" "n ph score tf"; padding: 6px 8px; gap: 3px 8px; }
+html.tgcard .lb-row.big > .score, html.tgcard .lb-row.big > .tf { align-self: center; }
+html.tgcard .lb-row.big > .tf { display: grid; }
+html.tgcard .lb-row.big .tf span { height: 14px; }
+html.tgcard .lb-row.big > .n { font-size: 22px; align-self: center; }
+html.tgcard .lb-row.big > .coin-c .coin { width: 28px; height: 28px; }
+html.tgcard .lb-row.big > .coin-c b { font-size: 19px; }
+html.tgcard .lb-row.big > .coin-c small { display: none; }
+html.tgcard .lb-row.big > .ph { padding-left: 36px; }
+html.tgcard .lb-row.big > .ph .ph-chip, html.tgcard .lb-row.big > .ph .chip { font-size: 9.5px; padding: 1px 6px; }
+html.tgcard .lb-row.big .score .v { font-size: 25px; }
+html.tgcard .lb-row.big > .ph .chip:nth-of-type(n+2), html.tgcard .lb-row.big > .ph .risk { display: none; }
+html.tgcard .toasts { left: 8px; right: 8px; top: auto; bottom: 22px; align-items: center; max-width: none; }
+html.tgcard .toast:nth-child(n+2) { display: none; }
+
 /* ---------- trending only: /trending (or ?view=trending) shows just every board's top 10 and the blended board ---------- */
 html.solo .hero, html.solo .duo, html.solo .wrap > .row, html.solo .wall, html.solo .ticker, html.solo .foot { display: none !important; }
 html.solo .xb { margin-top: 6px; }
@@ -710,6 +751,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
 
   const BROADCAST = new URLSearchParams(location.search).has('broadcast');
   if (BROADCAST) document.documentElement.classList.add('broadcast');
+  const CARD = !BROADCAST && new URLSearchParams(location.search).has('card');
+  if (CARD) document.documentElement.classList.add('tgcard');
   const SOLO = !BROADCAST && (location.pathname.replace(/\/$/, '').endsWith('/trending') || new URLSearchParams(location.search).get('view') === 'trending');
   if (SOLO) { document.documentElement.classList.add('solo'); document.title = 'Peak Trending Boards'; }
 

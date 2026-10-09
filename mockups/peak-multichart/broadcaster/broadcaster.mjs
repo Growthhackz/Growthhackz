@@ -12,7 +12,8 @@
 //   TELEGRAM_BOT_TOKEN  bot that is an admin of the channel
 //   TELEGRAM_CHAT_ID    @channelusername or -100… id
 //   TELEGRAM_MESSAGE_ID reuse an existing post after a restart (the log prints the id to set)
-//   CARD_EVERY_SEC      how often the pinned post refreshes (default 120)
+//   CARD_EVERY_SEC      how often the pinned post refreshes (default 30)
+//   CARD_CLIP_SEC       length of the looping clip in the pinned post (default 6; 0 posts a still image)
 //   WATCH_URL           optional link for a "Watch live" button (e.g. the channel's stream link)
 //   EXTRA_CHROME_ARGS   extra browser flags
 
@@ -26,13 +27,15 @@ const FPS = Number(process.env.FPS || 30);
 const BITRATE = process.env.VIDEO_BITRATE || '3000k';
 const PAGE_URL = process.env.PAGE_URL || 'https://peak-ridge-web-production.up.railway.app/?tour=1';
 // the pinned Telegram card always shows the one-screen broadcast view, rendered off-screen so the stream isn't disturbed
-const CARD_URL = process.env.CARD_URL || new URL('/?broadcast=1', PAGE_URL).href;
+const CARD_URL = process.env.CARD_URL || new URL('/?card=1', PAGE_URL).href;
 const SITE_URL = new URL('/', PAGE_URL).href;
 const BOARD_URL = new URL('/api/board', PAGE_URL).href;
 const STREAM_URLS = (process.env.STREAM_URLS || '').split(/[\s,]+/).filter(Boolean);
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TG_CHAT = process.env.TELEGRAM_CHAT_ID || '';
-const CARD_EVERY = Math.max(30, Number(process.env.CARD_EVERY_SEC || 120)) * 1000;
+const CARD_EVERY = Math.max(20, Number(process.env.CARD_EVERY_SEC || 30)) * 1000;
+const CARD_CLIP = Math.min(15, Math.max(0, Number(process.env.CARD_CLIP_SEC ?? 6)));
+const CARD_W = 540, CARD_H = 720, CARD_SCALE = 2;   // portrait post, 1080x1440 pixels
 const WATCH_URL = process.env.WATCH_URL || '';
 const DISPLAY = ':99';
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -118,10 +121,12 @@ function startStream() {
 }
 
 // ---------- Telegram ----------
-async function tg(method, fields, photo) {
+// file: a photo Buffer (sent as "photo"), or { field, data, type, name } for anything else
+async function tg(method, fields, file) {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) if (v != null) fd.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-  if (photo) fd.append('photo', new Blob([photo], { type: 'image/jpeg' }), 'peak-ridge.jpg');
+  if (Buffer.isBuffer(file)) fd.append('photo', new Blob([file], { type: 'image/jpeg' }), 'peak-ridge.jpg');
+  else if (file) fd.append(file.field, new Blob([file.data], { type: file.type }), file.name);
   const r = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/${method}`, { method: 'POST', body: fd });
   const j = await r.json().catch(() => ({ ok: false, description: 'bad response ' + r.status }));
   if (!j.ok) { const e = new Error(`${method}: ${j.description}`); e.retryAfter = j.parameters?.retry_after; throw e; }
@@ -144,41 +149,79 @@ function buttons() {
   return { inline_keyboard: [row] };
 }
 let cardPage = null;
-async function cardShot() {
+async function cardReady() {
   if (!cardPage || cardPage.isClosed()) {
     const b = await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage', ...(process.env.EXTRA_CHROME_ARGS || '').split(/\s+/).filter(Boolean)] });
-    const ctx = await b.newContext({ viewport: { width: W, height: H }, ignoreHTTPSErrors: !!process.env.IGNORE_HTTPS_ERRORS });
+    const ctx = await b.newContext({ viewport: { width: CARD_W, height: CARD_H }, deviceScaleFactor: CARD_SCALE, ignoreHTTPSErrors: !!process.env.IGNORE_HTTPS_ERRORS });
     cardPage = await ctx.newPage();
     cardPage.on('crash', () => { cardPage = null; b.close().catch(() => {}); });
     await cardPage.goto(CARD_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await sleep(12_000);                 // let data, logos and charts arrive
   }
-  return cardPage.screenshot({ type: 'jpeg', quality: 85 });
+  return cardPage;
 }
+// A short looping clip of the card: screenshots as fast as the page renders them, encoded at the rate they were taken.
+async function cardClip(seconds) {
+  const p = await cardReady(), frames = [], t0 = Date.now();
+  while (Date.now() - t0 < seconds * 1000) frames.push(await p.screenshot({ type: 'jpeg', quality: 88 }));
+  const fps = Math.max(2, Math.min(30, frames.length / ((Date.now() - t0) / 1000)));
+  const dir = await fs.promises.mkdtemp('/tmp/card-'), out = dir + '/card.mp4';
+  try {
+    await new Promise((resolve, reject) => {
+      const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', fps.toFixed(2), '-c:v', 'mjpeg', '-i', 'pipe:0',
+        '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        '-movflags', '+faststart', out], { stdio: ['pipe', 'ignore', 'pipe'] });
+      const err = [];
+      ff.stderr.on('data', d => err.push(d));
+      ff.on('close', code => code === 0 ? resolve() : reject(new Error('clip encode: ' + Buffer.concat(err).toString().slice(0, 200))));
+      ff.stdin.on('error', () => {});
+      for (const f of frames) ff.stdin.write(f);
+      ff.stdin.end();
+    });
+    return { mp4: await fs.promises.readFile(out), still: frames[frames.length - 1], frames: frames.length, fps };
+  } finally { fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); }
+}
+let cardBusy = false;
 async function postCard() {
-  if (!page) return;
-  const shot = await cardShot();
-  lastShot = shot;
+  if (!page || cardBusy) return;
+  cardBusy = true;
+  try { await postCardOnce(); } finally { cardBusy = false; }
+}
+async function postCardOnce() {
+  let clip = null, still;
+  if (CARD_CLIP > 0) {
+    try { clip = await cardClip(CARD_CLIP); still = clip.still; }
+    catch (e) { log('card clip:', e.message); }
+  }
+  if (!still) still = await (await cardReady()).screenshot({ type: 'jpeg', quality: 88 });
+  lastShot = still;
   if (!TG_TOKEN || !TG_CHAT) return;
   const cap = await caption();
+  const media = clip
+    ? { type: 'animation', media: 'attach://anim', caption: cap, parse_mode: 'HTML', width: CARD_W * CARD_SCALE, height: CARD_H * CARD_SCALE, duration: CARD_CLIP }
+    : { type: 'photo', media: 'attach://photo', caption: cap, parse_mode: 'HTML' };
+  const file = clip ? { field: 'anim', data: clip.mp4, type: 'video/mp4', name: 'peak-ridge.mp4' } : still;
   try {
     if (status.messageId) {
-      await tg('editMessageMedia', { chat_id: TG_CHAT, message_id: status.messageId, media: { type: 'photo', media: 'attach://photo', caption: cap, parse_mode: 'HTML' }, reply_markup: buttons() }, shot);
+      await tg('editMessageMedia', { chat_id: TG_CHAT, message_id: status.messageId, media, reply_markup: buttons() }, file);
     } else {
-      const m = await tg('sendPhoto', { chat_id: TG_CHAT, caption: cap, parse_mode: 'HTML', reply_markup: buttons(), disable_notification: true }, shot);
+      const m = clip
+        ? await tg('sendAnimation', { chat_id: TG_CHAT, caption: cap, parse_mode: 'HTML', width: media.width, height: media.height, duration: CARD_CLIP, reply_markup: buttons(), disable_notification: true }, { ...file, field: 'animation' })
+        : await tg('sendPhoto', { chat_id: TG_CHAT, caption: cap, parse_mode: 'HTML', reply_markup: buttons(), disable_notification: true }, still);
       status.messageId = m.message_id;
       log(`posted card, message id ${m.message_id} (set TELEGRAM_MESSAGE_ID=${m.message_id} to keep using it after restarts)`);
       await tg('pinChatMessage', { chat_id: TG_CHAT, message_id: m.message_id, disable_notification: true }).catch(e => log('pin failed:', e.message));
     }
     status.lastCardAt = Date.now();
+    if (clip) status.lastClip = { frames: clip.frames, fps: Math.round(clip.fps * 10) / 10, kb: Math.round(clip.mp4.length / 1024) };
   } catch (e) {
+    if (/not modified/i.test(e.message)) return;
     status.lastError = e.message; log('telegram:', e.message);
     if (/message to edit not found|MESSAGE_ID_INVALID/i.test(e.message)) status.messageId = null;
     if (e.retryAfter) await sleep(e.retryAfter * 1000);
   }
 }
 
-// ---------- health ----------
 // One frame grabbed from the same virtual screen ffmpeg streams, so the preview shows exactly what goes out.
 let frame = { at: 0, jpg: null, pending: null };
 function grabFrame() {
