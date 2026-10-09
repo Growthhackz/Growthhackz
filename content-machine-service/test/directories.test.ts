@@ -146,7 +146,7 @@ describe('order report with listings under review', () => {
     );
   });
 
-  it('request listings (CoinCodex, Blockspot): off for trending orders; done with no link once the site accepts', async () => {
+  it('wallet listings (OKX, Bitget): off for trending orders; done once the site accepts; proof can be attached later', async () => {
     const t = makeApp();
     t.http
       .on('api.dexscreener.com/', () => json([]))
@@ -159,32 +159,34 @@ describe('order report with listings under review', () => {
     await t.setSetting('GEMINI_API_KEY', 'G');
     // A trending sale never includes them.
     const sale = (await t.api('POST', '/v1/trending', { purchase_id: 'req-sale', chain: 'solana', contract_address: SOL, name: 'Moon Frog', symbol: 'MFROG', telegram_url: 'https://t.me/moonfrog' })).body;
-    for (const k of ['coincodex', 'blockspot', 'okx_wallet', 'bitget_wallet']) expect(sale.jobs.find((j: any) => j.kind === k).status).toBe('skipped');
-    // An admin test order (no buybot callback) with only the new sites.
-    const o = (await t.api('POST', '/v1/orders', { ...input, order_id: 'req-1', channels: ['coincodex', 'blockspot'] })).body;
+    for (const k of ['okx_wallet', 'bitget_wallet']) expect(sale.jobs.find((j: any) => j.kind === k).status).toBe('skipped');
+    // Gone: CoinCodex, CNToken and Blockspot can't be ordered.
+    expect((await t.api('POST', '/v1/orders', { ...input, order_id: 'req-0', channels: ['coincodex'] })).status).toBe(400);
+    // An admin test order (no buybot callback) with only the wallet sites.
+    const o = (await t.api('POST', '/v1/orders', { ...input, order_id: 'req-1', channels: ['okx_wallet', 'bitget_wallet'] })).body;
     for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
-    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['coincodex'] })).body;
-    expect(c.job.kind).toBe('coincodex');
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['okx_wallet'] })).body;
+    expect(c.job.kind).toBe('okx_wallet');
     expect(c.target.listing).toMatchObject({ name: 'Moon Frog', logo_public_url: 'https://cdn.example.com/logo.png' });
     expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, submitted: true, url: null, note: 'request recorded' })).body.status).toBe('delivered');
-    // Blockspot refused (nothing sent): failed for a retry, never "uncertain".
-    const d = (await t.api('POST', '/v1/publish/claim', { kinds: ['blockspot'] })).body;
-    await t.api('POST', `/v1/publish/${d.job.id}/fail`, { lease: d.job.lease, error: 'blockspot: the chain list did not load; nothing was sent.' });
+    // Bitget refused (nothing sent): failed for a retry, never "uncertain".
+    const d = (await t.api('POST', '/v1/publish/claim', { kinds: ['bitget_wallet'] })).body;
+    await t.api('POST', `/v1/publish/${d.job.id}/fail`, { lease: d.job.lease, error: 'bitget_wallet: could not fill the form; nothing was sent.' });
     const order = (await t.api('GET', `/v1/orders/${o.id}`)).body;
-    expect(order.jobs.find((j: any) => j.kind === 'coincodex')).toMatchObject({ status: 'delivered', result: { url: null, note: 'request recorded' } });
-    expect(['queued', 'failed', 'blocked']).toContain(order.jobs.find((j: any) => j.kind === 'blockspot').status);
+    expect(order.jobs.find((j: any) => j.kind === 'okx_wallet')).toMatchObject({ status: 'delivered', result: { url: null, note: 'request recorded' } });
+    expect(['queued', 'failed', 'blocked']).toContain(order.jobs.find((j: any) => j.kind === 'bitget_wallet').status);
     const report = (await t.api('GET', `/v1/orders/${o.id}/report`)).body;
-    expect(report.successes).toContainEqual({ source: 'coincodex', label: 'CoinCodex listing request (submitted, in review)', url: null });
+    expect(report.successes).toContainEqual({ source: 'okx_wallet', label: 'OKX Wallet token info update (submitted, in review)', url: null });
     // Proof captured afterwards (read-only) can be attached by an admin; the report then links the screenshot.
-    const cc = order.jobs.find((j: any) => j.kind === 'coincodex');
+    const cc = order.jobs.find((j: any) => j.kind === 'okx_wallet');
     const jpeg = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64');
     expect((await t.call(null, 'POST', `/v1/jobs/${cc.id}/proof`, { proof: jpeg })).status).toBe(401);
     expect((await t.api('POST', `/v1/jobs/${d.job.id}/proof`, { proof: jpeg })).status).toBe(409);
     const attached = (await t.api('POST', `/v1/jobs/${cc.id}/proof`, { proof: jpeg })).body;
     expect(attached.result).toMatchObject({ note: 'request recorded', proof_url: expect.stringMatching(/\/media\/[0-9a-f]{40}$/) });
     expect((await t.api('GET', `/v1/orders/${o.id}/report`)).body.successes).toContainEqual({
-      source: 'coincodex',
-      label: 'CoinCodex listing request (submitted, in review)',
+      source: 'okx_wallet',
+      label: 'OKX Wallet token info update (submitted, in review)',
       url: attached.result.proof_url,
     });
   });

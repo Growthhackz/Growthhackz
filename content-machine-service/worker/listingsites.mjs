@@ -5,7 +5,7 @@ import {join, resolve} from 'node:path';
 import {chromium} from 'playwright';
 import {browserContext, installCookieSession, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
 import {withLock} from './lock.mjs';
-import {NEW_LISTING_SITES} from './newsites.mjs';
+import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
 
 /**
  * Listing sites with their own step-by-step flows (each mapped from the live form): Top100Token (no login, 3 steps,
@@ -329,8 +329,13 @@ export const LISTING_SITES = {
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
-  // CoinCodex, Blockspot: only when listed in NEW_LISTING_SITES (being tested).
-  ...NEW_LISTING_SITES,
+  // Wallet sites (wallets.mjs), one wallet browser at a time; only when named in NEW_LISTING_SITES. No coin page
+  // until the site reviews the token: the screenshot proof stands in.
+  ...Object.fromEntries([['okx_wallet', okxUpdateSubmit], ['bitget_wallet', bitgetSubmit]].map(([site, fn]) => [site, {
+    enabled: env => (env.NEW_LISTING_SITES ?? '').split(',').map(s => s.trim()).includes(site),
+    submit: (l, p, e) => withLock('wallet', () => fn(l, p, e)),
+    check: async () => ({live: false}),
+  }])),
 };
 
 async function logoFile(client, listing) {
