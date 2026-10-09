@@ -449,8 +449,8 @@ a { color: inherit; }
 /* ---------- Telegram card (?card=1): a square post, 720x720 CSS px (1080x1080 at 1.5x) so phones never crop it.
    The ridge takes most of the frame; #1-#3 sit side by side under it, #4-#10 in a tight grid. ---------- */
 html.tgcard, html.tgcard body { overflow: hidden; cursor: none; }
-html.tgcard body { width: 720px; height: 720px; background: #000; }
-html.tgcard .wrap { max-width: none; width: 720px; height: 720px; box-sizing: border-box; padding: 0; display: grid; grid-template-rows: 498px minmax(0, 1fr); gap: 0; position: relative; }
+html.tgcard body { width: 720px; height: 640px; background: #000; }
+html.tgcard .wrap { max-width: none; width: 720px; height: 640px; box-sizing: border-box; padding: 0; display: grid; grid-template-rows: 408px minmax(0, 1fr); gap: 0; position: relative; }
 html.tgcard .bar { position: absolute; z-index: 20; left: 14px; right: 14px; top: 10px; padding: 0; gap: 8px; background: none; flex-wrap: nowrap; pointer-events: none; }
 html.tgcard .brand .mark { width: 30px; height: 30px; }
 html.tgcard .brand b { font-size: 19px; text-shadow: 0 2px 12px #000; }
@@ -460,7 +460,7 @@ html.tgcard .status .live, html.tgcard .status > span:first-child { background: 
 html.tgcard #chainSeg, html.tgcard .solo-link, html.tgcard .trend, html.tgcard .duo-left, html.tgcard .nut, html.tgcard .pm-guide, html.tgcard .pm-head,
 html.tgcard .wrap > .row, html.tgcard .wall, html.tgcard .ticker, html.tgcard .foot, html.tgcard .xb, html.tgcard .preview-btn, html.tgcard .ridge-head, html.tgcard .alt-scale { display: none !important; }
 html.tgcard .hero { display: block; margin: 0; min-height: 0; }
-html.tgcard .ridge { height: 498px; border-radius: 0; border: 0; box-shadow: none; }
+html.tgcard .ridge { height: 408px; border-radius: 0; border: 0; box-shadow: none; }
 html.tgcard .ridge::after { content: ""; position: absolute; inset: auto 0 0 0; height: 26px; background: linear-gradient(transparent, #000); pointer-events: none; z-index: 1; }
 html.tgcard .summit:not(.top3) .tk { display: inline; }
 html.tgcard .summit:not(.top3) .tag i { margin-right: .3em; }
@@ -472,24 +472,24 @@ html.tgcard .erupt.go .peak-mark, html.tgcard .erupt.go .veil, html.tgcard .erup
 html.tgcard .erupt.go .flash { animation-duration: .8s; }
 html.tgcard .duo { display: block; margin: 0; min-height: 0; }
 html.tgcard .pm { margin: 0; padding: 6px 10px 10px; border: 0; border-radius: 0; background: #000; height: 100%; box-sizing: border-box; overflow: hidden; display: block; }
-html.tgcard .lb { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: 1.5fr 1fr 1fr; gap: 5px; height: 100%; }
+html.tgcard .lb { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: 1.32fr 1fr 1fr; gap: 5px; height: 100%; }
 html.tgcard .lb-row { align-content: center; }
 /* every row: rank, logo + name (big), small score */
-html.tgcard .lb-row { grid-column: span 3; grid-template-columns: 14px minmax(0, 1fr) auto; grid-template-areas: "n coin score"; padding: 3px 7px; gap: 0 6px; background: #0d120c; border: 1px solid #18221a; border-radius: 10px; }
+html.tgcard .lb-row { grid-column: span 3; grid-template-columns: 15px minmax(0, 1fr) auto; grid-template-areas: "n coin score"; padding: 2px 8px 2px 6px; gap: 0 6px; background: #0d120c; border: 1px solid #18221a; border-radius: 10px; }
 html.tgcard .lb-row > .tf, html.tgcard .lb-row > .coin-c small, html.tgcard .lb-row .meter { display: none; }
-html.tgcard .lb-row > .n { font-size: 12px; }
+html.tgcard .lb-row > .n { font-size: 13px; }
 html.tgcard .lb-row > .coin-c { gap: 6px; }
-html.tgcard .lb-row > .coin-c .coin { width: 22px; height: 22px; }
-html.tgcard .lb-row > .coin-c b { font-size: 16px; }
+html.tgcard .lb-row > .coin-c .coin { width: 25px; height: 25px; }
+html.tgcard .lb-row > .coin-c b { font-size: 21px; letter-spacing: .01em; }
 html.tgcard .lb-row > .score { display: block; }
-html.tgcard .lb-row .score .v { font-size: 12px; font-family: var(--mono); font-weight: 700; color: var(--c); }
+html.tgcard .lb-row .score .v { font-size: 13px; font-family: var(--mono); font-weight: 700; color: var(--c); }
 /* #1-#3: three podium cards side by side */
 html.tgcard .lb-row.big { grid-column: span 4; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "coin coin" "ph score" "tf tf"; padding: 7px 10px 7px; gap: 4px 6px; border-radius: 14px; position: relative; overflow: hidden;
   background: linear-gradient(160deg, rgba(143,224,75,.13), rgba(143,224,75,.02) 55%), #0d120c; border-color: rgba(143,224,75,.28); }
 html.tgcard .lb-row.big:first-child { border-color: rgba(204,255,0,.7); box-shadow: 0 0 22px -6px rgba(204,255,0,.55), inset 0 0 18px -10px rgba(204,255,0,.6); }
 html.tgcard .lb-row.big > .n { position: absolute; right: 8px; top: 2px; font-size: 34px; line-height: 1; opacity: .16; color: var(--glow-b); }
 html.tgcard .lb-row.big > .coin-c .coin { width: 36px; height: 36px; box-shadow: 0 0 0 2px rgba(143,224,75,.35); }
-html.tgcard .lb-row.big > .coin-c b { font-size: 23px; letter-spacing: .01em; }
+html.tgcard .lb-row.big > .coin-c b { font-size: 26px; letter-spacing: .01em; }
 html.tgcard .lb-row.big > .ph { display: flex; flex-wrap: nowrap; overflow: hidden; }
 html.tgcard .lb-row.big > .ph .chip, html.tgcard .lb-row.big > .ph .risk { display: none; }
 html.tgcard .lb-row.big > .ph .ph-chip { font-size: 9.5px; padding: 1px 6px; }
@@ -1082,7 +1082,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     board.forEach(c => {
       const tx = W * (n === 10 ? SLOT_X[pos(c)] : 0.07 + 0.86 * pos(c) / (n - 1));
       const sc = c.mo?.shown ?? c.mo?.score;
-      const th = H * (sc != null ? (CARD ? 0.08 + 0.52 * Math.pow(sc / 100, 1.15) : 0.05 + 0.42 * Math.pow(sc / 100, 1.15)) : 0.07);
+      const th = H * (sc != null ? (CARD ? 0.1 + 0.56 * Math.pow(sc / 100, 1.15) : 0.05 + 0.42 * Math.pow(sc / 100, 1.15)) : 0.07);
       let p = peaks.get(c.key);
       if (!p) { p = { x: tx, h: snap ? th : 0, tx, th, kick: 0 }; peaks.set(c.key, p); }
       p.tx = tx; p.th = th;
@@ -1100,7 +1100,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   // a price tick nudges its mountain by an amount that follows the size of the move
   function kickPeak(c, pctMove) {
     const p = peaks.get(c.key); if (!p || REDUCED || !pctMove) return;
-    const k = Math.sign(pctMove) * Math.min(H * 0.09, H * 0.012 + Math.abs(pctMove) * H * 0.01);
+    const k = Math.sign(pctMove) * Math.min(H * 0.09, H * 0.012 + Math.abs(pctMove) * H * 0.01) * (CARD ? 0.4 : 1);
     p.kick = Math.max(-H * 0.12, Math.min(H * 0.12, (p.kick || 0) + k));
   }
   function jumpTo(key) {
@@ -1113,6 +1113,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const pr = pos(c), tg = pr === 0 ? tgUrl(c) : null;
     const sig = [pr, c.tk, c.icon, tg].join('|');
     if (el.dataset.sig !== sig) {
+      if (CARD && el.dataset.sig && !REDUCED) el.animate([{ opacity: 0.45 }, { opacity: 1 }], { duration: 1200, easing: 'ease-out' });
       el.dataset.sig = sig;
       el.className = 'summit r' + (pr + 1) + (pr < 5 ? ' top5' : '') + (pr < 3 ? ' top3' : '') + (el.classList.contains('dim') ? ' dim' : '') + (el.classList.contains('hot') ? ' hot' : '');
       el.style.setProperty('--fs', (BROADCAST ? rankFs(pr, 17, 10) : CARD ? rankFs(pr, 25, 13) : rankFs(pr, 22, 11)) + 'px');
@@ -1144,7 +1145,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     };
     if (kind === 'burst') spawn(Math.round(36 * mag), ['#ffffff', '#ccff00', '#8fe04b', '#eaffd0'], 4.2 * Math.sqrt(mag), 1.1, 0.11, 1.5, 2.2);
     if (kind === 'spark') spawn(5, ['#ccff00', '#8fe04b'], 2.2, 0.6, 0.08, 0.7, 1.6);
-    if (kind === 'dump') { spawn(Math.round(26 * mag), ['#e0574b', '#ff8a7a', '#7a1f17'], 1.8, 2.6, 0.16, 1.3, 2.2); rings.push({ key: c.key, age: 0, life: 1, col: '224,87,75' }); }
+    if (kind === 'dump') { spawn(Math.round(26 * mag), ['#e0574b', '#ff8a7a', '#7a1f17'], 1.8, 2.6, 0.16, 1.3, 2.2); if (!CARD) rings.push({ key: c.key, age: 0, life: 1, col: '224,87,75' }); }
     if (kind === 'drip') spawn(4, ['#e0574b', '#ff8a7a'], 1, 2.4, 0.14, 0.7, 1.6);
     if (kind === 'ring') rings.push({ key: c.key, age: 0, life: 1.3, col: mag === 2 ? '255,138,61' : '204,255,0' });
     if (kind === 'beam') rings.push({ key: c.key, age: 0, life: 1.6, col: '204,255,0', beam: true });
@@ -1218,9 +1219,12 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     else if (pctMove <= -0.6 && allow('dr:' + c.key, 2500)) fx('drip', c);
   }
 
+  let lastFrame = 0; const sunPos = { x: null, h: null };
   function frame(t) {
     const breathe = REDUCED ? 0 : 1;
-    for (const p of peaks.values()) { p.x += (p.tx - p.x) * 0.04; p.h += (p.th - p.h) * 0.03; p.kick = (p.kick || 0) * 0.965; }
+    const f = Math.min(4, lastFrame ? (t - lastFrame) / (1000 / 60) : 1); lastFrame = t;   // frames' worth of time since the last draw
+    const ease = k => 1 - Math.pow(1 - k, f);
+    for (const p of peaks.values()) { p.x += (p.tx - p.x) * ease(CARD ? 0.03 : 0.04); p.h += (p.th - p.h) * ease(CARD ? 0.022 : 0.03); p.kick = (p.kick || 0) * Math.pow(0.965, f); }
     const list = [...peaks.values()].map(p => ({ x: p.x, h: Math.max(4, (p.h + p.kick) * (1 + breathe * 0.014 * Math.sin(t / 1300 + p.tx * 0.013))) }));
     ctx.clearRect(0, 0, W, H);
     for (const [sx, sy, sr, ph] of stars) { ctx.fillStyle = `rgba(255,255,255,${0.25 + 0.35 * Math.abs(Math.sin(t / 1400 + ph))})`; ctx.fillRect(sx * W, sy * H, sr, sr); }
@@ -1241,7 +1245,10 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     }
     const topLive = mOrder[0] && liveOf(mOrder[0].key);
     if (topLive) {
-      const r = H * 0.19, cx = topLive.x, cy = base - topLive.h - H * 0.06 + r * 0.62;
+      // the sun glides to a new #1 rather than jumping there
+      sunPos.x = sunPos.x == null ? topLive.x : sunPos.x + (topLive.x - sunPos.x) * ease(0.05);
+      sunPos.h = sunPos.h == null ? topLive.h : sunPos.h + (topLive.h - sunPos.h) * ease(0.05);
+      const r = H * 0.19, cx = sunPos.x, cy = base - sunPos.h - H * 0.06 + r * 0.62;
       const sun = ctx.createLinearGradient(0, cy - r, 0, cy + r);
       sun.addColorStop(0, 'rgba(120,205,70,.95)'); sun.addColorStop(1, 'rgba(40,110,30,.9)');
       ctx.save(); ctx.shadowColor = 'rgba(143,224,75,.55)'; ctx.shadowBlur = 40;
@@ -1305,7 +1312,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     ctx.globalCompositeOperation = 'lighter';
     for (let i = parts.length - 1; i >= 0; i--) {
       const q = parts[i]; q.age += 1 / 60; if (q.age > q.life) { parts.splice(i, 1); continue; }
-      q.vy += q.g; q.x += q.vx; q.y += q.vy;
+      q.vy += q.g * f; q.x += q.vx * f; q.y += q.vy * f; q.age += (f - 1) / 60;
       ctx.globalAlpha = Math.max(0, 1 - q.age / q.life); ctx.fillStyle = q.col;
       ctx.beginPath(); ctx.arc(q.x, q.y, q.size, 0, Math.PI * 2); ctx.fill();
     }
@@ -1328,12 +1335,12 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       const maxLift = W < 560 || BROADCAST || CARD ? H * 0.5 : 70;
       for (let lift = 0; lift <= maxLift && !found; lift += 22) {
         for (const dx of [0, 30, 60, 90, -30, -60]) {
-          const x = clampX(p.tx + out * dx), b = Math.max(yT - 14 - lift, h + 4);
+          const x = clampX(p.tx + out * dx), b = Math.max(yT - 14 - lift, h + (CARD ? 50 : 4));   // the card's header overlays the sky
           if (free(x, b)) { lxT = x; bottomT = b; found = true; break; }
         }
       }
       placed.push({ l: lxT - w / 2, r: lxT + w / 2, top: bottomT - h, bottom: bottomT });
-      const dxT = lxT - p.tx, liftT = Math.max(0, (yT - 14) - bottomT), e = REDUCED ? 1 : 0.08;
+      const dxT = lxT - p.tx, liftT = Math.max(0, (yT - 14) - bottomT), e = REDUCED ? 1 : ease(CARD ? 0.05 : 0.08);
       el._dx = el._dx == null ? dxT : el._dx + (dxT - el._dx) * e;
       el._lift = el._lift == null ? liftT : el._lift + (liftT - el._lift) * e;
       const lp = liveOf(c.key) || p;
@@ -1385,8 +1392,13 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   // Scores are smoothed (each update moves 40% of the way), so the order and the numbers don't flicker.
   let mOrder = [];
   let leader = { key: null, since: 0, shown: null, at: 0 };
+  let rankedAt = 0;
   function rankByMomentum() {
     for (const c of board) { const s = c.mo?.score; if (s != null) c.msm = c.msm == null ? s : c.msm + (s - c.msm) * 0.4; }
+    // the Telegram clip reshuffles at most once every 30s, so a clip shows one clean move instead of a run of swaps
+    const same = mOrder.length === board.length && board.every(c => mOrder.includes(c));
+    if (CARD && same && Date.now() - rankedAt < 30000) { for (const c of board) if (c.mo && c.heldShown != null) c.mo.shown = c.heldShown; return; }   // scores hold with the order
+    rankedAt = Date.now();
     const val = c => c.msm ?? -1;
     mOrder = mOrder.filter(c => board.includes(c));
     for (const c of board) if (!mOrder.includes(c)) mOrder.push(c);
@@ -1398,7 +1410,7 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       }
       if (!moved) break;
     }
-    mOrder.forEach((c, i) => { c.pos = i; if (c.mo && c.msm != null) c.mo.shown = Math.round(c.msm); });
+    mOrder.forEach((c, i) => { c.pos = i; if (c.mo && c.msm != null) c.mo.shown = c.heldShown = Math.round(c.msm); });
     // a new leader gets the eruption once it has held #1 for 30s (at most every 3 minutes)
     const top = mOrder[0], now = Date.now();
     if (top) {
@@ -1482,6 +1494,14 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       lbBody.appendChild(el);
     });
     if (REDUCED) return;
+    if (CARD) {
+      lbRows.forEach((el, k) => {
+        const a = before.get(k); if (a == null) return;
+        const r = el.getBoundingClientRect(); if (Math.abs(a[0] - r.left) < 1 && Math.abs(a[1] - r.top) < 1) return;
+        el.animate([{ opacity: 0.45, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 1200, easing: 'cubic-bezier(.25,.8,.25,1)' });
+      });
+      return;
+    }
     lbRows.forEach((el, k) => {
       const a = before.get(k); if (a == null) return;
       const r = el.getBoundingClientRect(), dx = a[0] - r.left, dy = a[1] - r.top; if (!dx && !dy) return;

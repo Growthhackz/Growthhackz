@@ -35,8 +35,8 @@ const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TG_CHAT = process.env.TELEGRAM_CHAT_ID || '';
 const CARD_EVERY = Math.max(20, Number(process.env.CARD_EVERY_SEC || 30)) * 1000;
 const CARD_CLIP = Math.min(60, Math.max(0, Number(process.env.CARD_CLIP_SEC ?? 30)));
-const CARD_W = 720, CARD_H = 720, CARD_SCALE = 1.5;   // square post, 1080x1080 pixels (phones never crop a square)
-const CARD_PX = Math.round(CARD_W * CARD_SCALE), CARD_DISPLAY = ':98';
+const CARD_W = 720, CARD_H = 640, CARD_SCALE = 1.5;   // 1080x960 pixels: a touch wider than tall, so phones never crop it
+const CARD_PX = Math.round(CARD_W * CARD_SCALE), CARD_PY = Math.round(CARD_H * CARD_SCALE), CARD_DISPLAY = ':98';
 const WATCH_URL = process.env.WATCH_URL || '';
 const DISPLAY = ':99';
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -157,7 +157,7 @@ async function cardReady() {
     if (cardBrowser) await cardBrowser.close().catch(() => {});
     cardBrowser = await chromium.launch({
       headless: false, chromiumSandbox: false, env: { ...process.env, DISPLAY: CARD_DISPLAY },
-      args: ['--kiosk', `--window-size=${CARD_PX},${CARD_PX}`, '--window-position=0,0', `--force-device-scale-factor=${CARD_SCALE}`, '--no-first-run', '--noerrdialogs',
+      args: ['--kiosk', `--window-size=${CARD_PX},${CARD_PY}`, '--window-position=0,0', `--force-device-scale-factor=${CARD_SCALE}`, '--no-first-run', '--noerrdialogs',
         '--disable-infobars', '--hide-scrollbars', '--disable-dev-shm-usage', ...(process.env.EXTRA_CHROME_ARGS || '').split(/\s+/).filter(Boolean)],
     });
     const ctx = await cardBrowser.newContext({ viewport: null, ignoreHTTPSErrors: !!process.env.IGNORE_HTTPS_ERRORS });
@@ -178,7 +178,7 @@ async function cardClip(seconds) {
   const dir = await fs.promises.mkdtemp('/tmp/card-'), out = dir + '/card.mp4';
   try {
     await new Promise((resolve, reject) => {
-      const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'x11grab', '-draw_mouse', '0', '-framerate', '30', '-video_size', `${CARD_PX}x${CARD_PX}`,
+      const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'x11grab', '-draw_mouse', '0', '-framerate', '30', '-video_size', `${CARD_PX}x${CARD_PY}`,
         '-i', `${CARD_DISPLAY}.0`, '-t', String(seconds), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '25', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out],
         { stdio: ['ignore', 'ignore', 'pipe'] });
       const err = [];
@@ -208,7 +208,7 @@ async function postCardOnce() {
   if (!TG_TOKEN || !TG_CHAT) return;
   const cap = await caption();
   const media = clip
-    ? { type: 'animation', media: 'attach://anim', caption: cap, parse_mode: 'HTML', width: CARD_PX, height: CARD_PX, duration: CARD_CLIP }
+    ? { type: 'animation', media: 'attach://anim', caption: cap, parse_mode: 'HTML', width: CARD_PX, height: CARD_PY, duration: CARD_CLIP }
     : { type: 'photo', media: 'attach://photo', caption: cap, parse_mode: 'HTML' };
   const file = clip ? { field: 'anim', data: clip.mp4, type: 'video/mp4', name: 'peak-ridge.mp4' } : still;
   try {
@@ -278,7 +278,7 @@ http.createServer(async (req, res) => {
 
 // ---------- run ----------
 startXvfb();
-startXvfb(CARD_DISPLAY, CARD_PX, CARD_PX);
+startXvfb(CARD_DISPLAY, CARD_PX, CARD_PY);
 await sleep(1500);
 await reopen();
 await sleep(8000);                       // let the page load data and fonts before going on air
