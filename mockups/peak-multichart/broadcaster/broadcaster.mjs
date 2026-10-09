@@ -13,7 +13,7 @@
 //   TELEGRAM_CHAT_ID    @channelusername or -100… id
 //   TELEGRAM_MESSAGE_ID reuse an existing post after a restart (the log prints the id to set)
 //   CARD_EVERY_SEC      how often the pinned post refreshes (default 30)
-//   CARD_CLIP_SEC       length of the looping clip in the pinned post (default 6; 0 posts a still image)
+//   CARD_CLIP_SEC       length of the looping clip in the pinned post (default 30; 0 posts a still image)
 //   WATCH_URL           optional link for a "Watch live" button (e.g. the channel's stream link)
 //   EXTRA_CHROME_ARGS   extra browser flags
 
@@ -34,8 +34,9 @@ const STREAM_URLS = (process.env.STREAM_URLS || '').split(/[\s,]+/).filter(Boole
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TG_CHAT = process.env.TELEGRAM_CHAT_ID || '';
 const CARD_EVERY = Math.max(20, Number(process.env.CARD_EVERY_SEC || 30)) * 1000;
-const CARD_CLIP = Math.min(15, Math.max(0, Number(process.env.CARD_CLIP_SEC ?? 6)));
-const CARD_W = 540, CARD_H = 720, CARD_SCALE = 2;   // portrait post, 1080x1440 pixels
+const CARD_CLIP = Math.min(60, Math.max(0, Number(process.env.CARD_CLIP_SEC ?? 30)));
+const CARD_W = 720, CARD_H = 720, CARD_SCALE = 1.5;   // square post, 1080x1080 pixels (phones never crop a square)
+const CARD_PX = Math.round(CARD_W * CARD_SCALE), CARD_DISPLAY = ':98';
 const WATCH_URL = process.env.WATCH_URL || '';
 const DISPLAY = ':99';
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -45,11 +46,11 @@ const status = { startedAt: Date.now(), page: 'starting', stream: STREAM_URLS.le
 let lastShot = null;
 
 // ---------- virtual screen ----------
-function startXvfb() {
+function startXvfb(display = DISPLAY, w = W, h = H) {
   // a restarted container keeps the old display's lock file, which stops Xvfb from starting
-  const n = DISPLAY.slice(1);
+  const n = display.slice(1);
   for (const f of [`/tmp/.X${n}-lock`, `/tmp/.X11-unix/X${n}`]) { try { fs.rmSync(f, { force: true }); } catch {} }
-  const x = spawn('Xvfb', [DISPLAY, '-screen', '0', `${W}x${H}x24`, '-nolisten', 'tcp', '-ac'], { stdio: 'ignore' });
+  const x = spawn('Xvfb', [display, '-screen', '0', `${w}x${h}x24`, '-nolisten', 'tcp', '-ac'], { stdio: 'ignore' });
   x.on('exit', code => { log('Xvfb exited', code); process.exit(1); });
   return x;
 }
@@ -148,39 +149,47 @@ function buttons() {
   if (WATCH_URL) row.push({ text: '🔴 Watch live', url: WATCH_URL });
   return { inline_keyboard: [row] };
 }
-let cardPage = null;
+// The card plays in its own browser on its own virtual screen; clips are recorded from that screen at a true 30fps,
+// the same way the live stream is, so motion is smooth.
+let cardPage = null, cardBrowser = null;
 async function cardReady() {
   if (!cardPage || cardPage.isClosed()) {
-    const b = await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage', ...(process.env.EXTRA_CHROME_ARGS || '').split(/\s+/).filter(Boolean)] });
-    const ctx = await b.newContext({ viewport: { width: CARD_W, height: CARD_H }, deviceScaleFactor: CARD_SCALE, ignoreHTTPSErrors: !!process.env.IGNORE_HTTPS_ERRORS });
+    if (cardBrowser) await cardBrowser.close().catch(() => {});
+    cardBrowser = await chromium.launch({
+      headless: false, chromiumSandbox: false, env: { ...process.env, DISPLAY: CARD_DISPLAY },
+      args: ['--kiosk', `--window-size=${CARD_PX},${CARD_PX}`, '--window-position=0,0', `--force-device-scale-factor=${CARD_SCALE}`, '--no-first-run', '--noerrdialogs',
+        '--disable-infobars', '--hide-scrollbars', '--disable-dev-shm-usage', ...(process.env.EXTRA_CHROME_ARGS || '').split(/\s+/).filter(Boolean)],
+    });
+    const ctx = await cardBrowser.newContext({ viewport: null, ignoreHTTPSErrors: !!process.env.IGNORE_HTTPS_ERRORS });
     cardPage = await ctx.newPage();
-    cardPage.on('crash', () => { cardPage = null; b.close().catch(() => {}); });
+    cardPage.on('crash', () => { log('card page crashed'); cardPage = null; });
+    try {
+      const cdp = await ctx.newCDPSession(cardPage);
+      const { windowId } = await cdp.send('Browser.getWindowForTarget');
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
+    } catch (e) { log('card fullscreen failed:', e.message); }
     await cardPage.goto(CARD_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await sleep(12_000);                 // let data, logos and charts arrive
   }
   return cardPage;
 }
-// A short looping clip of the card: screenshots as fast as the page renders them, encoded at the rate they were taken.
 async function cardClip(seconds) {
-  const p = await cardReady(), frames = [], t0 = Date.now();
-  while (Date.now() - t0 < seconds * 1000) frames.push(await p.screenshot({ type: 'jpeg', quality: 88 }));
-  const fps = Math.max(2, Math.min(30, frames.length / ((Date.now() - t0) / 1000)));
+  await cardReady();
   const dir = await fs.promises.mkdtemp('/tmp/card-'), out = dir + '/card.mp4';
   try {
     await new Promise((resolve, reject) => {
-      const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', fps.toFixed(2), '-c:v', 'mjpeg', '-i', 'pipe:0',
-        '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-        '-movflags', '+faststart', out], { stdio: ['pipe', 'ignore', 'pipe'] });
+      const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'x11grab', '-draw_mouse', '0', '-framerate', '30', '-video_size', `${CARD_PX}x${CARD_PX}`,
+        '-i', `${CARD_DISPLAY}.0`, '-t', String(seconds), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '25', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out],
+        { stdio: ['ignore', 'ignore', 'pipe'] });
       const err = [];
       ff.stderr.on('data', d => err.push(d));
-      ff.on('close', code => code === 0 ? resolve() : reject(new Error('clip encode: ' + Buffer.concat(err).toString().slice(0, 200))));
-      ff.stdin.on('error', () => {});
-      for (const f of frames) ff.stdin.write(f);
-      ff.stdin.end();
+      ff.on('close', code => code === 0 ? resolve() : reject(new Error('clip: ' + Buffer.concat(err).toString().slice(0, 200))));
     });
-    return { mp4: await fs.promises.readFile(out), still: frames[frames.length - 1], frames: frames.length, fps };
+    const still = await cardPage.screenshot({ type: 'jpeg', quality: 88 }).catch(() => null);
+    return { mp4: await fs.promises.readFile(out), still, frames: seconds * 30, fps: 30 };
   } finally { fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
+
 let cardBusy = false;
 async function postCard() {
   if (!page || cardBusy) return;
@@ -193,12 +202,13 @@ async function postCardOnce() {
     try { clip = await cardClip(CARD_CLIP); still = clip.still; }
     catch (e) { log('card clip:', e.message); }
   }
+  if (clip && process.env.CARD_SAVE) fs.writeFileSync(process.env.CARD_SAVE, clip.mp4);   // keep a copy, for testing
   if (!still) still = await (await cardReady()).screenshot({ type: 'jpeg', quality: 88 });
   lastShot = still;
   if (!TG_TOKEN || !TG_CHAT) return;
   const cap = await caption();
   const media = clip
-    ? { type: 'animation', media: 'attach://anim', caption: cap, parse_mode: 'HTML', width: CARD_W * CARD_SCALE, height: CARD_H * CARD_SCALE, duration: CARD_CLIP }
+    ? { type: 'animation', media: 'attach://anim', caption: cap, parse_mode: 'HTML', width: CARD_PX, height: CARD_PX, duration: CARD_CLIP }
     : { type: 'photo', media: 'attach://photo', caption: cap, parse_mode: 'HTML' };
   const file = clip ? { field: 'anim', data: clip.mp4, type: 'video/mp4', name: 'peak-ridge.mp4' } : still;
   try {
@@ -268,10 +278,18 @@ http.createServer(async (req, res) => {
 
 // ---------- run ----------
 startXvfb();
+startXvfb(CARD_DISPLAY, CARD_PX, CARD_PX);
 await sleep(1500);
 await reopen();
 await sleep(8000);                       // let the page load data and fonts before going on air
 startStream();
-setInterval(() => postCard().catch(e => log('card:', e.message)), CARD_EVERY);
-setTimeout(() => postCard().catch(e => log('card:', e.message)), 15_000);
+// the pinned post: record, post, repeat (a 30s clip every ~35s keeps it close to live)
+(async () => {
+  await sleep(5_000);
+  for (;;) {
+    const t0 = Date.now();
+    await postCard().catch(e => log('card:', e.message));
+    await sleep(Math.max(2_000, CARD_EVERY - (Date.now() - t0)));
+  }
+})();
 setInterval(() => { log('scheduled page reload'); page?.reload().catch(() => reopen()); cardPage?.reload().catch(() => { cardPage = null; }); }, 6 * 3600e3);   // keep memory in check
