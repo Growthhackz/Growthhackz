@@ -1392,13 +1392,18 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
   // Scores are smoothed (each update moves 40% of the way), so the order and the numbers don't flicker.
   let mOrder = [];
   let leader = { key: null, since: 0, shown: null, at: 0 };
-  let rankedAt = 0;
+  // The Telegram card holds its order (and the scores shown with it) while a clip records; the broadcaster calls
+  // peakReorder() between clips, so each clip plays without swaps. If nothing calls it, it re-ranks every 90s.
+  let rankedAt = 0, reorderNow = false;
+  window.peakReorder = () => { if (pendingBoard) { const j = pendingBoard; pendingBoard = null; applyBoard(j, true); } reorderNow = true; updateMomentum(); };
   function rankByMomentum() {
     for (const c of board) { const s = c.mo?.score; if (s != null) c.msm = c.msm == null ? s : c.msm + (s - c.msm) * 0.4; }
-    // the Telegram clip reshuffles at most once every 30s, so a clip shows one clean move instead of a run of swaps
     const same = mOrder.length === board.length && board.every(c => mOrder.includes(c));
-    if (CARD && same && Date.now() - rankedAt < 30000) { for (const c of board) if (c.mo && c.heldShown != null) c.mo.shown = c.heldShown; return; }   // scores hold with the order
-    rankedAt = Date.now();
+    if (CARD && same && !reorderNow && Date.now() - rankedAt < 90000) {
+      for (const c of board) if (c.mo && c.heldShown != null) c.mo.shown = c.heldShown;   // scores hold with the order
+      leaderCheck(); return;
+    }
+    reorderNow = false; rankedAt = Date.now();
     const val = c => c.msm ?? -1;
     mOrder = mOrder.filter(c => board.includes(c));
     for (const c of board) if (!mOrder.includes(c)) mOrder.push(c);
@@ -1411,7 +1416,10 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       if (!moved) break;
     }
     mOrder.forEach((c, i) => { c.pos = i; if (c.mo && c.msm != null) c.mo.shown = c.heldShown = Math.round(c.msm); });
-    // a new leader gets the eruption once it has held #1 for 30s (at most every 3 minutes)
+    leaderCheck();
+  }
+  // a new leader gets the eruption once it has held #1 for 30s (at most every 3 minutes)
+  function leaderCheck() {
     const top = mOrder[0], now = Date.now();
     if (top) {
       if (top.key !== leader.key) leader = { ...leader, key: top.key, since: now };
@@ -1809,7 +1817,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     if (!r.ok) throw new Error('board ' + r.status);
     applyBoard(await r.json());
   }
-  function applyBoard(j) {
+  let pendingBoard = null;
+  function applyBoard(j, force) {
     if (!Array.isArray(j.tokens) || !j.tokens.length) throw new Error('empty board');
     lastBoardAt = Date.now();
     const prev = new Map(board.map(c => [c.key, c]));
@@ -1830,8 +1839,12 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       return c;
     });
     const prevTop = board[0] && board[0].key;
-    const orderChanged = next.length !== board.length || next.some((c, i) => board[i] !== c);
-    board = next;
+    // the Telegram card applies coins joining or leaving between clips (peakReorder), never mid-clip
+    const sameSet = next.length === board.length && next.every(c => prev.has(c.key));
+    const hold = CARD && !first && !force && !sameSet;
+    pendingBoard = hold ? j : null;
+    const orderChanged = !hold && (next.length !== board.length || next.some((c, i) => board[i] !== c));
+    if (!hold) board = next;
     if (first) setMode('live');
     if (orderChanged) { if (!first) logRankChanges(prevKeys); layoutWall(); }
     else { board.forEach(c => paintCard(c, true)); updateMomentum(); peaksTarget(); }

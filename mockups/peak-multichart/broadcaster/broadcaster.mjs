@@ -186,6 +186,8 @@ async function cardClip(seconds) {
       ff.on('close', code => code === 0 ? resolve() : reject(new Error('clip: ' + Buffer.concat(err).toString().slice(0, 200))));
     });
     const still = await cardPage.screenshot({ type: 'jpeg', quality: 88 }).catch(() => null);
+    // re-rank now, between clips: the reshuffle plays out while this clip uploads, so the next clip starts settled
+    await cardPage.evaluate(() => window.peakReorder?.()).catch(() => {});
     return { mp4: await fs.promises.readFile(out), still, frames: seconds * 30, fps: 30 };
   } finally { fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
@@ -289,7 +291,7 @@ startStream();
   for (;;) {
     const t0 = Date.now();
     await postCard().catch(e => log('card:', e.message));
-    await sleep(Math.max(2_000, CARD_EVERY - (Date.now() - t0)));
+    await sleep(Math.max(3_000, CARD_EVERY - (Date.now() - t0)));
   }
 })();
 setInterval(() => { log('scheduled page reload'); page?.reload().catch(() => reopen()); cardPage?.reload().catch(() => { cardPage = null; }); }, 6 * 3600e3);   // keep memory in check
