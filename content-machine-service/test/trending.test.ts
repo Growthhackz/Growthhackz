@@ -196,3 +196,53 @@ describe('sticker pack for trending orders', () => {
     expect(received.every((e) => e.external_order_id === 'trending:trend-77')).toBe(true);
   });
 });
+
+describe('chains: Solana, BSC, Robinhood Chain, Arc', () => {
+  const EVM = '0xfD71a4d9599038fe508BF5509963E1F7591C7777';
+  const sites = 'telegraph,binance,cmc_community,bitcointalk,top100token,gemfinder,freshcoins,coinscope';
+  const jobs = async (t: ReturnType<typeof makeApp>, id: string) =>
+    Object.fromEntries((await t.api('GET', `/v1/orders/${id}`)).body.jobs.map((j: any) => [j.kind, j]));
+
+  it('accepts each chain (and the buybot spelling), skipping only the listing sites that do not offer it', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: sites, PAUSED_CHANNELS: '' });
+    const order = async (purchase_id: string, chain: string, contract_address: string) => {
+      const r = await t.api('POST', '/v1/trending', { ...purchase, purchase_id, chain, contract_address });
+      expect(r.status).toBe(201);
+      return r.body;
+    };
+    const status = (j: Record<string, any>) => Object.fromEntries(['telegraph', 'binance', 'cmc_community', 'bitcointalk', 'top100token', 'gemfinder', 'freshcoins', 'coinscope'].map((k) => [k, j[k].status]));
+    // Robinhood Chain (sent as the buybot names it): content everywhere; Top100Token and FreshCoins list it.
+    const hood = await order('hood-1', 'Robinhood', EVM);
+    expect(hood.project).toMatchObject({ chain: 'robinhood', contract_address: EVM.toLowerCase() });
+    const hj = await jobs(t, hood.id);
+    expect(status(hj)).toEqual({ telegraph: 'queued', binance: 'queued', cmc_community: 'queued', bitcointalk: 'queued', top100token: 'queued', gemfinder: 'skipped', freshcoins: 'queued', coinscope: 'skipped' });
+    expect(hj.gemfinder.result).toEqual({ reason: 'GemFinder listing is not offered for Robinhood Chain tokens.' });
+    // Arc: content only; none of the four listing sites has it.
+    const arc = await order('arc-1', 'arc_network', EVM.replace('fD71', 'aB12'));
+    expect(arc.project.chain).toBe('arc');
+    expect(status(await jobs(t, arc.id))).toMatchObject({ telegraph: 'queued', bitcointalk: 'queued', top100token: 'skipped', gemfinder: 'skipped', freshcoins: 'skipped', coinscope: 'skipped' });
+    // BSC ("BNB Chain") and Solana: every site.
+    const bsc = await order('bsc-1', 'BNB Chain', EVM.replace('fD71', 'cC34'));
+    expect(bsc.project.chain).toBe('bsc');
+    expect(Object.values(status(await jobs(t, bsc.id)))).toEqual(Array(8).fill('queued'));
+    expect(Object.values(status(await jobs(t, (await order('sol-1', 'solana', SOL)).id)))).toEqual(Array(8).fill('queued'));
+    // An unknown chain is still refused with the list of accepted ones; an EVM chain needs a 0x address.
+    expect((await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x-1', chain: 'dogechain', contract_address: EVM })).body.error.message).toMatch(/robinhood.*arc/);
+    expect((await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'x-2', chain: 'robinhood', contract_address: SOL })).status).toBe(400);
+  });
+
+  it('a site that turns out not to offer the chain is skipped, not retried, and the order finishes without it', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'top100token', PAUSED_CHANNELS: '' });
+    wire(t);
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'hood-2', chain: 'robinhood', contract_address: EVM })).body;
+    await drain(t);
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['top100token'] })).body;
+    expect(c.target.listing).toMatchObject({ chain: 'robinhood', chart_url: `https://dexscreener.com/robinhood/${EVM.toLowerCase()}` });
+    const r = await t.api('POST', `/v1/publish/${c.job.id}/fail`, { lease: c.job.lease, error: 'top100token: chain robinhood is not offered; nothing was sent.', unsupported: true });
+    expect(r.body.status).toBe('skipped');
+    const j = await jobs(t, o.id);
+    expect(j.top100token).toMatchObject({ status: 'skipped', result: { reason: 'top100token: chain robinhood is not offered; nothing was sent.' } });
+    expect((await t.api('POST', '/v1/publish/claim', { kinds: ['top100token'] })).body).toBeNull();
+  });
+});

@@ -1,4 +1,4 @@
-import { copySchema, type Copy, type Project } from '../domain/schemas.js';
+import { chainName, copySchema, type Copy, type Project } from '../domain/schemas.js';
 import { SetupRequiredError, UpstreamError } from '../lib/errors.js';
 import { jsonFetch, readLimited, safeRemote } from '../lib/http.js';
 import type { ServiceContext } from '../services/context.js';
@@ -55,7 +55,7 @@ function copyPrompt(p: Project, history?: CopyHistory): string {
       name: p.name,
       symbol: p.symbol,
       description: p.description,
-      chain: p.chain,
+      chain: chainName(p.chain),
       approved_facts: p.approved_facts,
       has_telegram: !!p.telegram_url,
       has_x: !!p.x_url,

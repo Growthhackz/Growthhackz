@@ -5,7 +5,7 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {submitListing,checkListing,inspect,directoryCycle,siteConfig} from './directories.mjs';
-import {NotPostedError} from './reddit.mjs';
+import {NotOfferedError,NotPostedError} from './reddit.mjs';
 
 let extraRequired=false,formGone=false,subscribes=0,loginDisabled=false,cfBlock=false;const coins=[];
 // Every page has a footer newsletter form (like Coinvote's), which must never be filled or submitted.
@@ -64,6 +64,8 @@ try{
  assert.ok(await inspect('coinsniper',cookieCfg));
  // Cloudflare holds the submission behind a check that doesn't clear: reported as not sent.
  cfBlock=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'3'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/Cloudflare/.test(e.message));cfBlock=false;
+ // A chain the site's list doesn't have (Robinhood Chain here): not offered, so it is skipped rather than retried.
+ await assert.rejects(()=>submitListing('coinsniper',{...listing,chain:'robinhood',contract_address:'0x'+'4'.repeat(40)},logo,cfg),e=>e instanceof NotOfferedError&&/robinhood is not offered/.test(e.message));assert.equal(coins.length,1);
  // Wrong password: nothing sent.
  await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,password:'nope',statePath:join(dir,'x.json')}),NotPostedError);
  // Review: not live yet, then live after approval, found via the new-coins page.

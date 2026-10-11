@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { chainName } from '../domain/schemas.js';
 import { UpstreamError } from '../lib/errors.js';
 import type { ServiceContext } from '../services/context.js';
 import type { Order } from '../services/orderService.js';
@@ -104,7 +105,7 @@ function brief(o: Order) {
   return {
     name: p.name,
     ticker: p.symbol,
-    chain: p.chain,
+    chain: chainName(p.chain),
     contract_address: p.contract_address,
     description: p.description ?? null,
     research: p.research ?? null,
@@ -197,7 +198,7 @@ function renderPrompt(o: Order, t: Template, m: Meme): string {
   const fill: Record<string, string> = {
     token_name: p.name ?? '',
     ticker: p.symbol ?? '',
-    concise_narrative: narrative || `${p.name} is a community meme coin on ${p.chain}.`,
+    concise_narrative: narrative || `${p.name} is a community meme coin on ${chainName(p.chain)}.`,
     template_name: t.name,
     template_layout: t.layout,
     emotion: m.emotion,

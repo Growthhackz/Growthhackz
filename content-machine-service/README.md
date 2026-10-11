@@ -116,6 +116,7 @@ curl -X POST localhost:4020/v1/orders -H "authorization: Bearer $SERVICE_KEY" -H
 }'
 ```
 
+- **Chains:** `solana`, `bsc`, `robinhood` (Robinhood Chain), `arc` (Circle's Arc), `ethereum`, `base`, `polygon`, `arbitrum` (DEX Screener's IDs; common spellings such as `Robinhood`, `BNB Chain` or `arc_network` are accepted too). Everything but Solana takes a `0x` address. The content (copy, art, memes, stickers, Telegraph, Binance Square, CMC, Bitcointalk, WURK) works on every chain. A listing site that doesn't offer the token's chain is skipped and the rest of the order goes ahead: Top100Token and FreshCoins take Robinhood but not Arc; GemFinder and Coinscope take neither; OKX Wallet takes Arc but not Robinhood; Bitget Wallet takes both. If a site's form turns out not to have the chain, the worker reports it and that item is skipped too (no retries).
 - **Retries are safe.** Resending the same payload returns the existing order (200). Resending the same `order_id` with a different payload returns 409.
 - **Unknown fields are rejected.** Omit absent values rather than sending `null`.
 - **Claims are limited to `approved_facts`.** The prompt tells Gemini not to invent releases, budgets, endorsements or price claims. Review early live outputs before scaling.

@@ -3,7 +3,7 @@ import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {chromium} from 'playwright';
-import {browserContext, installCookieSession, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
+import {browserContext, installCookieSession, NotOfferedError, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
 import {withLock} from './lock.mjs';
 import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
 
@@ -18,19 +18,31 @@ const stateDir = (env = process.env) => resolve(env.DIRECTORY_STATE_DIR || '.');
 /** A link for forms that require one: the project's own, else its DEX Screener chart. */
 const anyLink = l => l.website_url || l.x_url || l.telegram_url || l.chart_url || `https://dexscreener.com/${l.chain}/${l.contract_address}`;
 const notSent = (site, what, e) => new NotPostedError(`${site}: ${what}${e ? ` (${String(e?.message || e).split('\n')[0].slice(0, 160)})` : ''}; nothing was sent.`);
+const notOffered = (site, chain, offered) => new NotOfferedError(`${site}: chain ${chain} is not offered${offered?.length ? ` (${offered.slice(0, 14).join(', ')})` : ''}; nothing was sent.`);
+
+/** Each site's names for our chains (from their live forms). A chain missing here is not offered there. */
+const TOP100_CHAINS = {solana: /^Solana/i, bsc: /\(BSC\)|Binance Smart Chain/i, ethereum: /^Ethereum/i, base: /^Base$/i, arbitrum: /^Arbitrum/i, polygon: /^Polygon/i, robinhood: /^Robinhood/i};
+/** Top100Token's coin page paths: BSC coins live under /binance/. */
+const TOP100_PATHS = {bsc: 'binance'};
+const GEMFINDER_CHAINS = {bsc: /^Binance Smart Chain$/i, ethereum: /^Ethereum$/i, polygon: /^Polygon$/i, solana: /^Solana$/i, arbitrum: /^Arbitrum/i};
+const FRESH_CHAINS = {bsc: /^Binance Smart Chain$/i, ethereum: /^Ethereum$/i, solana: /^Solana$/i, base: /^Base$/i, polygon: /^Matic$/i, robinhood: /^Robinhood Chain$/i};
+/** FreshCoins' DEX choice by chain; "Other" when none fits. */
+const FRESH_DEXES = {solana: /pump|raydium/i, bsc: /pancake/i, base: /uniswap|aerodrome/i, ethereum: /uniswap/i, robinhood: /uniswap/i};
+const COINSCOPE_CHAINS = {solana: /\(SOL\)\s*Solana/, ethereum: /\(ETH\)\s*Ethereum/, bsc: /\(BSC\)/, polygon: /\(MATIC\)/, arbitrum: /\(ARBITRUM\)/};
 
 async function top100Submit(listing, logoPath) {
   const browser = await launch();
   try {
     const page = await (await browser.newContext(browserContext())).newPage();
     const ca = listing.contract_address;
-    const coinUrl = `https://top100token.com/${listing.chain}/${ca}`;
+    const coinUrl = `https://top100token.com/${TOP100_PATHS[listing.chain] ?? listing.chain}/${ca}`;
     try {
       await page.goto('https://top100token.com/submit', {waitUntil: 'domcontentloaded', timeout: 60000});
       await page.waitForTimeout(4000);
       const chain = page.locator('select').first();
-      const label = (await chain.locator('option').allInnerTexts()).find(t => t.toLowerCase().includes(listing.chain));
-      if (!label) throw notSent('top100token', `chain ${listing.chain} is not offered`);
+      const offered = (await chain.locator('option').allInnerTexts()).map(t => t.trim());
+      const label = TOP100_CHAINS[listing.chain] && offered.find(t => TOP100_CHAINS[listing.chain].test(t));
+      if (!label) throw notOffered('top100token', listing.chain, offered);
       await chain.selectOption({label});
       await page.getByPlaceholder('0xB8c76482f45A0F44dE1545F52C73426C621bDC52').fill(ca);
       await page.waitForTimeout(5000);
@@ -96,8 +108,10 @@ async function gemfinderSubmit(listing, logoPath, env = process.env) {
       await page.fill('#telegram', listing.telegram_url || anyLink(listing));
       if (listing.website_url) await page.fill('#website', listing.website_url);
       if (listing.x_url) await page.fill('#twitter', listing.x_url);
-      const chain = (await page.locator('select[name=chain] option').allInnerTexts()).find(t => t.toLowerCase().includes(listing.chain));
-      if (chain) await page.selectOption('select[name=chain]', {label: chain});
+      const offered = (await page.locator('select[name=chain] option').allInnerTexts()).map(t => t.trim());
+      const chain = GEMFINDER_CHAINS[listing.chain] && offered.find(t => GEMFINDER_CHAINS[listing.chain].test(t));
+      if (!chain) throw notOffered('gemfinder', listing.chain, offered);
+      await page.selectOption('select[name=chain]', {label: chain});
       await page.locator('input[name=presale]').first().check();
       await page.fill('input[name=chain_address]', listing.contract_address);
       await page.fill('input[name=poocoin_link]', `https://dexscreener.com/${listing.chain}/${listing.contract_address}`);
@@ -148,7 +162,7 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
     const page = await context.newPage();
     const next = async () => { const b = page.locator('button[aria-label="Next step"]').last(); await b.evaluate(e => e.scrollIntoView({block: 'center'})); await b.click(); await page.waitForTimeout(2500); };
     const menuItems = () => page.locator('[role=menu]:visible [role=menuitemradio], [role=menu]:visible [role=menuitem]');
-    const pick = async (button, re) => {
+    const pick = async (button, re, {fallback, chain} = {}) => {
       for (let i = 0; i < 4; i++) {
         const b = page.locator(`button:has-text("${button}")`).last();
         await b.evaluate(e => e.scrollIntoView({block: 'center'})).catch(() => {});
@@ -157,7 +171,8 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
         await page.waitForTimeout(1200);
         if (await menuItems().count()) {
           const opts = (await menuItems().allInnerTexts()).map(t => t.trim());
-          const want = opts.find(t => re.test(t));
+          const want = opts.find(t => re?.test(t)) ?? (fallback && opts.find(t => fallback.test(t)));
+          if (!want && chain) throw notOffered('freshcoins', chain, opts);
           if (!want) throw notSent('freshcoins', `${button}: no match in ${opts.join(', ')}`);
           await menuItems().filter({hasText: want}).first().click();
           return;
@@ -182,10 +197,9 @@ async function freshcoinsSubmit(listing, logoPath, env = process.env) {
       await editor.click(); await page.keyboard.insertText(listing.description);
       await page.locator('button:has-text("Market Details")').first().click();
       await page.waitForTimeout(3000);
-      // FreshCoins' names for our chains (its list: Binance Smart Chain, Ethereum, Solana, Tron, Base, Matic, ...).
-      const FRESH_CHAINS = {bsc: /^Binance Smart Chain$/i, polygon: /^Matic$/i};
-      await pick('Select a blockchain', FRESH_CHAINS[listing.chain] ?? new RegExp(`^${listing.chain}$`, 'i'));
-      await pick('Select a DEX', /pump|raydium|other/i);
+      // FreshCoins' list: Binance Smart Chain, Ethereum, Solana, Tron, Base, Matic, Avalanche, Monad, Robinhood Chain.
+      await pick('Select a blockchain', FRESH_CHAINS[listing.chain], {chain: listing.chain});
+      await pick('Select a DEX', FRESH_DEXES[listing.chain], {fallback: /^other/i});
       const ca = page.getByPlaceholder('Enter project contract address');
       await ca.click(); await ca.fill(listing.contract_address);
       await page.waitForTimeout(1000);
@@ -268,8 +282,8 @@ async function coinscopeSubmit(listing, logoPath, env = process.env) {
       await page.fill('input[name=name]', listing.name);
       await page.fill('input[name=symbol]', listing.symbol || listing.name);
       if (logoPath) await page.locator('input[type=file]').first().setInputFiles(logoPath);
-      const chainLabel = {solana: /\(SOL\)\s*Solana/, ethereum: /\(ETH\)\s*Ethereum/, bsc: /\(BSC\)/, base: /\bBase\b/};
-      await pick('network', chainLabel[listing.chain] ?? new RegExp(listing.chain, 'i'));
+      if (!COINSCOPE_CHAINS[listing.chain]) throw notOffered('coinscope', listing.chain);
+      await pick('network', COINSCOPE_CHAINS[listing.chain]);
       await page.fill('input[name=address]', listing.contract_address);
       await page.fill('textarea[name=description]', listing.description);
       if (listing.launch_date) {
@@ -358,7 +372,7 @@ export async function listingSitesCycle(client, {sites = LISTING_SITES, env = pr
       const r = await sites[c.job.kind].submit(c.target.listing, logo.path, env);
       await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null, note: r.note ?? null, review_url: r.review_url ?? null, proof: r.proof ?? null});
     } catch (e) {
-      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
+      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message, unsupported: e instanceof NotOfferedError}); }
       else { console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`); await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)}); }
     } finally { await rm(logo.dir, {recursive: true, force: true}); }
   }
