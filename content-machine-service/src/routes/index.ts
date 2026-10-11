@@ -157,8 +157,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return listingChecked(ctx, req.params.id, b.url, b.live);
   });
   app.post<{ Params: Params }>('/v1/publish/:id/fail', async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; error?: unknown };
-    return publishFailed(ctx, req.params.id, b.lease, b.error);
+    const b = (req.body ?? {}) as { lease?: unknown; error?: unknown; unsupported?: unknown };
+    return publishFailed(ctx, req.params.id, b.lease, b.error, b.unsupported);
   });
 
   // ---- admin ----

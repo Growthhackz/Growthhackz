@@ -1,6 +1,58 @@
 import { z } from 'zod';
 
-export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum'] as const;
+/** Chain IDs as DEX Screener names them (robinhood: Robinhood Chain; arc: Circle's Arc). All but Solana are EVM. */
+export const CHAINS = ['solana', 'ethereum', 'base', 'bsc', 'polygon', 'arbitrum', 'robinhood', 'arc'] as const;
+export type Chain = (typeof CHAINS)[number];
+/** How each chain is named in posts, prompts and pages. */
+export const CHAIN_NAMES: Record<Chain, string> = {
+  solana: 'Solana',
+  ethereum: 'Ethereum',
+  base: 'Base',
+  bsc: 'BNB Chain',
+  polygon: 'Polygon',
+  arbitrum: 'Arbitrum',
+  robinhood: 'Robinhood Chain',
+  arc: 'Arc',
+};
+export const chainName = (chain: string) => CHAIN_NAMES[chain as Chain] ?? chain;
+/** Other spellings the buybot (or an admin) may send, after lower-casing and turning - and _ into spaces. */
+const CHAIN_ALIASES: Record<string, Chain> = {
+  sol: 'solana',
+  eth: 'ethereum',
+  'ethereum mainnet': 'ethereum',
+  bnb: 'bsc',
+  'bnb chain': 'bsc',
+  'bnb smart chain': 'bsc',
+  'binance smart chain': 'bsc',
+  binance: 'bsc',
+  bep20: 'bsc',
+  matic: 'polygon',
+  'arbitrum one': 'arbitrum',
+  arb: 'arbitrum',
+  'robinhood chain': 'robinhood',
+  'robinhood mainnet': 'robinhood',
+  'arc network': 'arc',
+  'arc chain': 'arc',
+  'arc mainnet': 'arc',
+};
+export const chainSchema = z.preprocess((v) => {
+  if (typeof v !== 'string') return v;
+  const k = v.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  return CHAIN_ALIASES[k] ?? k;
+}, z.enum(CHAINS));
+/**
+ * The chains each listing site offers (read from their live forms, October 2026). A site's job is skipped for other
+ * chains, so the rest of the order goes ahead. Sites not listed here are tried with any chain; the worker reports a
+ * chain it can't find on the form, and that job is skipped too.
+ */
+export const CHANNEL_CHAINS: Partial<Record<string, readonly Chain[]>> = {
+  top100token: ['solana', 'bsc', 'ethereum', 'base', 'arbitrum', 'polygon', 'robinhood'],
+  freshcoins: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'robinhood'],
+  gemfinder: ['solana', 'bsc', 'ethereum', 'polygon', 'arbitrum'],
+  coinscope: ['solana', 'bsc', 'ethereum', 'polygon', 'arbitrum'],
+  okx_wallet: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'arbitrum', 'arc'],
+};
+export const chainOffered = (channel: string, chain: string) => !CHANNEL_CHAINS[channel] || CHANNEL_CHAINS[channel]!.includes(chain as Chain);
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
 export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet'] as const;
 
@@ -89,7 +141,7 @@ export const approvedFactSchema = z.object({
 export const orderInputSchema = z
   .object({
     order_id: z.string().min(1).max(120),
-    chain: z.enum(CHAINS),
+    chain: chainSchema,
     contract_address: z.string().min(20).max(64),
     name: z.string().min(1).max(80).optional(),
     symbol: z.string().min(1).max(20).optional(),
@@ -131,7 +183,7 @@ export type OrderInput = z.infer<typeof orderInputSchema>;
  */
 export const trendingPurchaseSchema = z.object({
   purchase_id: z.string().min(1).max(100),
-  chain: z.enum(CHAINS),
+  chain: chainSchema,
   contract_address: z.string().min(20).max(64),
   telegram_url: httpsUrl.refine((v) => new URL(v).hostname === 't.me', 'Use a t.me link').optional(),
   name: z.string().min(1).max(80).optional(),

@@ -1,3 +1,4 @@
+import { chainName } from '../domain/schemas.js';
 import type { ServiceContext } from './context.js';
 import { loadOrder } from './orderService.js';
 
@@ -61,7 +62,7 @@ nav{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}nav a{padding:8px 14px;bo
 h2{margin-top:36px}
 </style></head><body><main>
 <div class="eyebrow">${h.demo ? 'Demonstration' : 'Project announcement'} · community kit</div>
-<section class="cover"><div><div class="eyebrow" style="color:inherit">${esc(p.chain)} / $${esc(p.symbol)}</div><h1>${esc(p.name)}</h1>
+<section class="cover"><div><div class="eyebrow" style="color:inherit">${esc(chainName(p.chain))} / $${esc(p.symbol)}</div><h1>${esc(p.name)}</h1>
 <p style="margin:0;max-width:560px">${esc(h.copy?.short_post ?? 'Content and community assets appear here as they are delivered.')}</p></div>
 ${art ? `<img src="${esc(art.url)}" alt="${esc(p.name)} campaign artwork">` : ''}</section>
 <div class="ca"><div class="eyebrow">Contract address</div>${esc(p.contract_address)}</div>

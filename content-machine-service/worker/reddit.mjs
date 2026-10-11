@@ -5,6 +5,8 @@ import {chromium} from 'playwright';
 
 /** Nothing was submitted (login failed, CAPTCHA, rate limit, form missing): the job can safely be retried later. */
 export class NotPostedError extends Error {}
+/** The site doesn't take this token at all (e.g. its chain isn't offered): nothing was sent, and retrying won't help. */
+export class NotOfferedError extends NotPostedError {}
 
 /** Opens a page and waits out Reddit's JavaScript challenge (served to browsers on new networks). */
 export async function gotoSettled(page, url) {

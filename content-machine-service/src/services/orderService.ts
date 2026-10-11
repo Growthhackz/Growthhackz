@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, channelOf, DIRECTORY_HOSTS, deadlineMs, IRREVERSIBLE, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, chainName, chainOffered, channelOf, DIRECTORY_HOSTS, deadlineMs, IRREVERSIBLE, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -167,15 +167,28 @@ export function createOrder(ctx: ServiceContext, body: unknown): { order: Order;
       { id, order_id: input.order_id, hash: digest, input, project, budget: input.budget_cents, demo: input.demo, t },
     );
     for (const [kind, rank] of STAGES) {
+      const channel = channelOf(kind);
+      // A listing site that doesn't offer this chain: skipped, and the rest of the order goes ahead.
+      const notOffered = channel !== null && (input.channels as string[]).includes(channel) && !chainOffered(channel, input.chain);
       const skipped =
+        notOffered ||
         (input.demo && !['metadata', 'copy', 'hub'].includes(kind)) ||
-        (input.test && channelOf(kind) === null && !['metadata', 'copy', 'campaign_image'].includes(kind)) ||
-        (channelOf(kind) !== null && !(input.channels as string[]).includes(channelOf(kind)!)) ||
+        (input.test && channel === null && !['metadata', 'copy', 'campaign_image'].includes(kind)) ||
+        (channel !== null && !(input.channels as string[]).includes(channel)) ||
         (!!REDDIT_SUBREDDITS[kind] && !redditTargets(ctx).includes(kind));
       run(
         ctx.db,
-        'INSERT INTO jobs (id, order_id, kind, rank, status, deadline_at, updated_at) VALUES (:id, :o, :kind, :rank, :status, :deadline, :t)',
-        { id: uid(), o: id, kind, rank, status: skipped ? 'skipped' : 'queued', deadline: skipped ? null : t + deadlineMs(kind), t },
+        'INSERT INTO jobs (id, order_id, kind, rank, status, result, deadline_at, updated_at) VALUES (:id, :o, :kind, :rank, :status, :result, :deadline, :t)',
+        {
+          id: uid(),
+          o: id,
+          kind,
+          rank,
+          status: skipped ? 'skipped' : 'queued',
+          result: notOffered ? { reason: `${SOURCE_LABELS[kind] ?? channel} is not offered for ${chainName(input.chain)} tokens.` } : null,
+          deadline: skipped ? null : t + deadlineMs(kind),
+          t,
+        },
       );
     }
     recordEvent(ctx, id, 'order.accepted', { order_id: input.order_id });

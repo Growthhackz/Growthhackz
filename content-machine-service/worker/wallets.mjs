@@ -4,7 +4,7 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import sharp from 'sharp';
-import {NotPostedError, redditProxy} from './reddit.mjs';
+import {NotOfferedError, NotPostedError, redditProxy} from './reddit.mjs';
 
 /**
  * Token info submissions that need a browser wallet connected to the site: OKX Wallet (web3.okx.com "Update token
@@ -19,6 +19,7 @@ const EXT = {
   bitget: {dir: env => env.BITGET_WALLET_EXT || '/opt/wallets/bitget', approval: 'popup.html'},
 };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const notOffered = (site, what) => new NotOfferedError(`${site}: ${what}; nothing was sent.`);
 const notSent = (site, what, e) => new NotPostedError(`${site}: ${what}${e ? ` (${String(e?.message || e).split('\n')[0].slice(0, 160)})` : ''}; nothing was sent.`);
 const contactEmail = env => env.LISTING_CONTACT_EMAIL || env.COINSNIPER_EMAIL || '';
 const tgHandle = url => url?.match(/^https:\/\/(?:www\.)?(?:t|telegram)\.me\/([A-Za-z0-9_]{4,32})\/?$/)?.[1] ?? null;
@@ -238,7 +239,8 @@ async function clearOkxPopups(page) {
   }
 }
 
-const OKX_CHAINS = {solana: 'solana', ethereum: 'eth', base: 'base', bsc: 'bsc', polygon: 'polygon', arbitrum: 'arbitrum'};
+/** OKX's token page paths. It has no Robinhood Chain pages (checked October 2026), so those are not offered. */
+const OKX_CHAINS = {solana: 'solana', ethereum: 'eth', base: 'base', bsc: 'bsc', polygon: 'polygon', arbitrum: 'arbitrum', arc: 'arc'};
 
 /** Opens the OKX token page with our wallet connected. */
 async function okxConnect(ctx, id, w, url) {
@@ -248,6 +250,7 @@ async function okxConnect(ctx, id, w, url) {
   // The wallet is injected reliably from the second load on.
   await page.reload({waitUntil: 'domcontentloaded'});
   await sleep(7000);
+  if (/couldn.t find what you.re looking for|page can.t be/i.test(await page.locator('body').innerText().catch(() => ''))) throw notOffered('okx_wallet', 'OKX has no page for this token');
   await clearOkxPopups(page);
   await page.getByText('Connect wallet', {exact: true}).first().click({force: true});
   await sleep(2500);
@@ -261,7 +264,7 @@ async function okxConnect(ctx, id, w, url) {
 
 export async function okxUpdateSubmit(l, logoPath, env = process.env, {dryRun = false} = {}) {
   const chain = OKX_CHAINS[l.chain];
-  if (!chain) throw notSent('okx_wallet', `chain ${l.chain} is not supported`);
+  if (!chain) throw notOffered('okx_wallet', `chain ${l.chain} is not offered`);
   const telegram = env.LISTING_CONTACT_TELEGRAM || (tgHandle(l.telegram_url) ? `@${tgHandle(l.telegram_url)}` : '');
   if (!telegram || !contactEmail(env)) throw notSent('okx_wallet', 'OKX requires a contact Telegram and e-mail (LISTING_CONTACT_TELEGRAM / LISTING_CONTACT_EMAIL)');
   const {ctx, id, w, close} = await walletBrowser('okx', env);
@@ -327,11 +330,42 @@ export async function okxUpdateSubmit(l, logoPath, env = process.env, {dryRun = 
 
 // ---------------------------------------------------------------- Bitget: Submit Token
 
-const BITGET_CHAINS = {solana: 'Solana', ethereum: 'Ethereum', bsc: 'BNB Chain', base: 'Base', polygon: 'Polygon', arbitrum: 'Arbitrum'};
+/** Bitget's mainnet names; a chain its list doesn't have is not offered. */
+const BITGET_CHAINS = {solana: /^Solana$/i, ethereum: /^Ethereum$/i, bsc: /^BNB Chain$/i, base: /^Base$/i, polygon: /^Polygon$/i, arbitrum: /^Arbitrum/i, robinhood: /^Robinhood/i, arc: /^Arc\b/i};
 
-/** Total supply and decimals from the chain (Bitget requires both). Solana only for now. */
+/** Public JSON-RPC endpoints per EVM chain (tried in order). */
+export const EVM_RPC = {
+  bsc: ['https://bsc-dataseed1.bnbchain.org', 'https://bsc-rpc.publicnode.com'],
+  robinhood: ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood-rpc.publicnode.com'],
+  arc: ['https://rpc.mainnet.arc.io', 'https://rpc.drpc.mainnet.arc.io'],
+  ethereum: ['https://ethereum-rpc.publicnode.com'],
+  base: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'],
+  polygon: ['https://polygon-bor-rpc.publicnode.com'],
+  arbitrum: ['https://arb1.arbitrum.io/rpc'],
+};
+
+/** totalSupply() and decimals() of an ERC-20, as a whole-token supply string. */
+async function evmSupply(l, fetchFn) {
+  const call = async (rpc, data) => {
+    const r = await fetchFn(rpc, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{to: l.contract_address, data}, 'latest']}), signal: AbortSignal.timeout(15000)});
+    const v = (await r.json().catch(() => ({})))?.result;
+    if (typeof v !== 'string' || !/^0x[0-9a-f]+$/i.test(v)) throw new Error(`no result from ${new URL(rpc).host}`);
+    return BigInt(v);
+  };
+  let last;
+  for (const rpc of EVM_RPC[l.chain] ?? []) {
+    try {
+      const [total, decimals] = [await call(rpc, '0x18160ddd'), Number(await call(rpc, '0x313ce567'))];
+      if (decimals > 36) throw new Error('implausible decimals');
+      return {supply: String(total / 10n ** BigInt(decimals)), decimals};
+    } catch (e) { last = e; }
+  }
+  throw notSent('bitget_wallet', 'could not read the token supply', last ?? `no RPC for ${l.chain}`);
+}
+
+/** Total supply and decimals from the chain (Bitget requires both). */
 export async function tokenSupply(l, env = process.env, fetchFn = fetch) {
-  if (l.chain !== 'solana') throw notSent('bitget_wallet', `total supply lookup for ${l.chain} is not supported yet`);
+  if (l.chain !== 'solana') return evmSupply(l, fetchFn);
   const r = await fetchFn(env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', {
     method: 'POST', headers: {'content-type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'getTokenSupply', params: [l.contract_address]}), signal: AbortSignal.timeout(20000),
@@ -381,7 +415,7 @@ async function bitgetConnect(ctx, id, w) {
 
 export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = false} = {}) {
   const chain = BITGET_CHAINS[l.chain];
-  if (!chain) throw notSent('bitget_wallet', `chain ${l.chain} is not supported`);
+  if (!chain) throw notOffered('bitget_wallet', `chain ${l.chain} is not offered`);
   if (!logoPath) throw notSent('bitget_wallet', 'Bitget requires a token icon and this token has none');
   const {supply, decimals} = await tokenSupply(l, env);
   // JPG/PNG, ideally under 100KB.
@@ -405,7 +439,9 @@ export async function bitgetSubmit(l, logoPath, env = process.env, {dryRun = fal
       await page.locator('#dynamic_rule_coin').fill(l.symbol);
       await page.locator('#dynamic_rule_chain').click();
       await sleep(1200);
-      await page.locator('.ant-select-dropdown-menu-item').filter({hasText: new RegExp(`^${chain}$`)}).first().click();
+      const offered = (await page.locator('.ant-select-dropdown-menu-item').allInnerTexts()).map(t => t.trim());
+      if (!offered.some(t => chain.test(t))) throw notOffered('bitget_wallet', `chain ${l.chain} is not offered (${offered.slice(0, 14).join(', ')})`);
+      await page.locator('.ant-select-dropdown-menu-item').filter({hasText: chain}).first().click();
       await page.locator('#dynamic_rule_supplyTotal input').fill(supply);
       await page.locator('#dynamic_rule_contract').fill(l.contract_address);
       await page.locator('#dynamic_rule_decimals input').fill(String(decimals));

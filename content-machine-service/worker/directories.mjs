@@ -3,7 +3,7 @@ import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {browserContext, installCookieSession, NotPostedError, redditProxy} from './reddit.mjs';
+import {browserContext, installCookieSession, NotOfferedError, NotPostedError, redditProxy} from './reddit.mjs';
 import {firecrawlSite, openBrowser, sessionContext} from './firecrawl.mjs';
 
 /** Directory sites. Paths are relative to each site's origin so tests can point at a local fake. */
@@ -24,6 +24,7 @@ export const siteConfig = (site, env = process.env) => {
 const CHAINS = {
   solana: /solana|\bsol\b/i, ethereum: /ethereum|\beth\b|erc-?20/i, bsc: /binance smart chain|bnb|\bbsc\b|bep-?20/i,
   base: /^\s*base\s*$|base chain|base network|\bbase\b/i, polygon: /polygon|matic/i, arbitrum: /arbitrum/i,
+  robinhood: /robinhood/i, arc: /^\s*arc\s*$|\barc (network|chain|mainnet)\b|\(arc\)/i,
 };
 
 /** Maps one form control (described by its label/name/id/placeholder) to a listing value. Order matters. */
@@ -98,6 +99,8 @@ async function applyField(page, f, plan, logoPath) {
   if (f.tag === 'select') {
     const re = v?.chain ? CHAINS[v.chain] : v?.option ?? (typeof v === 'string' ? new RegExp(v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null);
     const opt = re && f.options.find(o => o.value && re.test(o.text));
+    // A chain list without ours: the site doesn't take this token.
+    if (!opt && v?.chain && f.options.filter(o => o.value).length > 1) throw new NotOfferedError(`chain ${v.chain} is not offered (${f.options.map(o => o.text.trim()).filter(Boolean).slice(0, 12).join(', ')}); nothing was sent.`);
     if (!opt) return false;
     await el.selectOption(opt.value); return true;
   }
@@ -313,7 +316,7 @@ export async function directoryCycle(client, {submit = submitListing, check = ch
       const r = await submit(c.job.kind, c.target.listing, logo.path);
       await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null});
     } catch (e) {
-      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message}); }
+      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message, unsupported: e instanceof NotOfferedError}); }
       else {
         console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`);
         await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)});

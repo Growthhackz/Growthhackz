@@ -1,5 +1,6 @@
 import { all, get, run } from '../db/database.js';
 import {
+  chainName,
   deadlineMs,
   dependenciesOf,
   DIRECTORY_HOSTS,
@@ -752,7 +753,7 @@ function pressRelease(o: Order) {
   const copy = o.copy!;
   const headline = copy.headline.split(/\s+/).slice(0, 22).join(' ');
   const facts = [
-    `${p.name}${p.symbol ? ` ($${p.symbol})` : ''} trades on ${p.chain[0]!.toUpperCase() + p.chain.slice(1)}. Contract address: ${p.contract_address}.`,
+    `${p.name}${p.symbol ? ` ($${p.symbol})` : ''} trades on ${chainName(p.chain)}. Contract address: ${p.contract_address}.`,
     [p.telegram_url && `Telegram: ${p.telegram_url}`, p.x_url && `X: ${p.x_url}`, p.website_url && `Website: ${p.website_url}`].filter(Boolean).join(' | '),
     'This release is for information only and is not financial advice. Cryptocurrencies are volatile; do your own research.',
   ];
@@ -760,14 +761,14 @@ function pressRelease(o: Order) {
     `About ${p.name}: ${p.description || copy.social_post}`,
     p.telegram_url || p.x_url
       ? `How to get involved: ${[p.telegram_url && `join the ${p.name} Telegram community at ${p.telegram_url}`, p.x_url && `follow ${p.x_url} on X`].filter(Boolean).join(' and ')} for launch updates, community events and announcements from the team.`
-      : `${p.name} is building its community on ${p.chain}.`,
+      : `${p.name} is building its community on ${chainName(p.chain)}.`,
     copy.short_post,
   ];
   const parts = [copy.article, ...facts.filter(Boolean)];
   // 1888 rejects bodies under 750 characters.
   while (parts.join('\n\n').length < 750 && extra.length) parts.splice(parts.length - 1, 0, extra.shift()!);
   const body = parts.join('\n\n').replace(/[<>]/g, '');
-  const keywords = [p.name, p.symbol, p.chain, 'crypto', 'memecoin', 'token launch'].filter(Boolean).join(', ');
+  const keywords = [p.name, p.symbol, chainName(p.chain), 'crypto', 'memecoin', 'token launch'].filter(Boolean).join(', ');
   // Press sites reject emojis, hashtags and cashtags in the summary.
   const summary = copy.short_post.replace(/(^|\s)#\w+/g, '').replace(/\$(\w+)/g, '$1').replace(/\p{Extended_Pictographic}|\uFE0F/gu, '').replace(/\s+/g, ' ').trim();
   return { headline, summary, body, keywords, website_url: p.website_url ?? p.telegram_url ?? p.x_url ?? null };
@@ -947,9 +948,14 @@ export async function publishComplete(
 }
 
 /** The worker stopped before submitting anything (login failed, CAPTCHA shown, form missing): safe to retry. */
-export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown, error: unknown) {
+export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown, error: unknown, unsupported?: unknown) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
   const message = String(error || 'Publishing failed before anything was posted').slice(0, 300);
+  // The site doesn't take this token (e.g. its chain isn't offered): skipped, not retried, and the order goes on.
+  if (unsupported === true) {
+    finish(ctx, j, { reason: message }, 'skipped');
+    return { status: 'skipped' };
+  }
   run(
     ctx.db,
     `UPDATE jobs SET status = 'blocked', error = :error, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
