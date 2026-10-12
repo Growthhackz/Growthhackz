@@ -350,7 +350,8 @@ export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false,
   if (j.status === 'uncertain' && confirmNotPosted) resetAttempts = true;
   else if (!['blocked', 'failed'].includes(j.status))
     throw new ConflictError('Only blocked or failed work can be retried. Uncertain publications require reconciliation.');
-  const nothingSent = ['blocked', 'uncertain'].includes(j.status) || (j.status === 'failed' && !IRREVERSIBLE.includes(j.kind));
+  const notSent = j.status === 'failed' && !!j.result && JSON.parse(j.result).not_sent === true;
+  const nothingSent = ['blocked', 'uncertain'].includes(j.status) || (j.status === 'failed' && (!IRREVERSIBLE.includes(j.kind) || notSent));
   if (resetAttempts && !nothingSent) throw new ConflictError('Attempts can only be reset on blocked work (nothing was sent).');
   if (j.attempts >= MAX_ATTEMPTS && !resetAttempts) throw new ConflictError('Three-attempt limit reached; inspect the provider before proceeding.');
   run(
