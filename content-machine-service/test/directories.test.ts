@@ -94,6 +94,23 @@ describe('directory listings', () => {
     expect(rec.status).toBe(200);
   });
 
+  it('fails an item as soon as its attempts run out without sending (no wait for the deadline); an admin can retry it', async () => {
+    const { t, o } = await setup();
+    const one = { kinds: ['coinsniper'] };
+    for (let i = 1; i <= 3; i++) {
+      const c = (await t.api('POST', '/v1/publish/claim', one)).body;
+      expect(c.job.kind).toBe('coinsniper');
+      const r = (await t.api('POST', `/v1/publish/${c.job.id}/fail`, { lease: c.job.lease, error: 'coinsniper: login failed; nothing was sent.' })).body;
+      expect(r.status).toBe(i < 3 ? 'blocked' : 'failed');
+      t.clock.advance(3 * 60_000);
+    }
+    const job = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs.find((j: any) => j.kind === 'coinsniper');
+    expect(job).toMatchObject({ status: 'failed', error: 'Not sent after 3 attempts: coinsniper: login failed; nothing was sent.', result: { not_sent: true } });
+    // Nothing was sent, so a fresh set of attempts is allowed even though listings are irreversible.
+    expect((await t.api('POST', `/v1/jobs/${job.id}/retry`, { reset_attempts: true })).status).toBe(200);
+    expect((await t.api('POST', '/v1/publish/claim', one)).body.job.id).toBe(job.id);
+  });
+
   it('treats a submit it could not confirm as uncertain', async () => {
     const { t } = await setup();
     const c = (await t.api('POST', '/v1/publish/claim', kinds)).body;

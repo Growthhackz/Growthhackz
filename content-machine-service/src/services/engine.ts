@@ -956,6 +956,19 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
     finish(ctx, j, { reason: message }, 'skipped');
     return { status: 'skipped' };
   }
+  // Out of attempts: failed now (nothing was sent, so an admin can still retry it), so the order's report goes out
+  // instead of waiting for the item's deadline, which is days for listing sites.
+  if (j.attempts >= MAX_ATTEMPTS) {
+    const error = `Not sent after ${MAX_ATTEMPTS} attempts: ${message}`.slice(0, 400);
+    run(
+      ctx.db,
+      `UPDATE jobs SET status = 'failed', error = :error, result = :r, lease = NULL, lease_until = NULL, updated_at = :t
+       WHERE id = :id AND lease = :lease`,
+      { error, r: { not_sent: true }, t: nowMs(ctx), id: j.id, lease: j.lease },
+    );
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+    return { status: 'failed' };
+  }
   run(
     ctx.db,
     `UPDATE jobs SET status = 'blocked', error = :error, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
@@ -1248,6 +1261,15 @@ const FINAL = ['delivered', 'skipped', 'failed', 'uncertain'];
 export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded: number; completed: number } {
   const t = nowMs(ctx);
   let timedOut = 0;
+  // Worker items out of attempts are never claimed again: failed now (nothing was sent) rather than at their deadline.
+  const kinds = WORKER_PUBLICATIONS.map((k) => `'${k}'`).join(', ');
+  for (const j of all<JobRow>(ctx.db, `SELECT * FROM jobs WHERE status = 'blocked' AND attempts >= ${MAX_ATTEMPTS} AND kind IN (${kinds})`, {})) {
+    const error = `Not sent after ${MAX_ATTEMPTS} attempts: ${j.error ?? 'nothing was sent'}`.slice(0, 400);
+    if (run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, result = :r, updated_at = :t WHERE id = :id AND status = 'blocked'", { e: error, r: { not_sent: true }, t, id: j.id }).changes) {
+      recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+      timedOut++;
+    }
+  }
   for (const j of all<JobRow>(ctx.db, "SELECT * FROM jobs WHERE status IN ('queued', 'blocked', 'submitted') AND deadline_at IS NOT NULL AND deadline_at <= :t", { t })) {
     const hours = Math.round(deadlineMs(j.kind) / 3_600_000);
     const error = `Timed out after ${hours}h (${j.status}${j.error ? `: ${j.error}` : ''})`.slice(0, 500);

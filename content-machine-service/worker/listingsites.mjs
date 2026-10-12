@@ -339,7 +339,8 @@ async function pageIsLive(url, listing) {
 }
 
 export const LISTING_SITES = {
-  top100token: {enabled: () => true, submit: top100Submit, check: pageIsLive},
+  // The coin page from the chain (older BSC records were saved under /bsc/, which Top100Token doesn't serve).
+  top100token: {enabled: () => true, submit: top100Submit, check: (_url, l) => pageIsLive(`https://top100token.com/${TOP100_PATHS[l.chain] ?? l.chain}/${l.contract_address}`, l)},
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
