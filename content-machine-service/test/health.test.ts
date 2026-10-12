@@ -100,6 +100,11 @@ describe('source health', () => {
     expect(sent[0]).not.toContain('proxy');
     await report([{ source: 'gemfinder', ok: true, detail: 'logged in' }]);
     expect(sent).toHaveLength(1); // ✅ fixed is not sent
+    // The proxy is no longer checked (removed): after 6 hours unreported it drops out instead of staying broken.
+    expect(Object.keys((await t.api('GET', '/v1/health/sources')).body.sources)).toContain('proxy');
+    t.clock.advance(7 * 3600_000);
+    await report([{ source: 'gemfinder', ok: true, detail: 'logged in' }]);
+    expect(Object.keys((await t.api('GET', '/v1/health/sources')).body.sources)).toEqual(['gemfinder']);
     // The same 🔴 line again (e.g. from the ops agent) within 12 hours is dropped.
     expect((await t.api('POST', '/v1/ops/notify', { lines: ['🔴 Need you: X'] })).body.sent).toBe(true);
     expect((await t.api('POST', '/v1/ops/notify', { lines: ['🔴 Need you: X'] })).body.sent).toBe(false);
