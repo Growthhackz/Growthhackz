@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { json, liveCopy, makeApp, pngBytes, SOL } from './helpers.js';
+import { deliverCallbacks } from '../src/services/engine.js';
 
 const purchase = {
   purchase_id: 'cb-1',
@@ -100,6 +101,25 @@ describe('core bot callbacks', () => {
     expect(link?.data).toEqual({ source: 'telegraph', label: 'Telegraph article', url: 'https://telegra.ph/Moon-Frog-09-29', project: { name: 'Moon Frog', symbol: 'MFROG' } });
     for (const b of bodies.filter((x) => x.type === 'order.completed'))
       for (const f of b.data.failures) expect(Object.keys(f).sort()).toEqual(['label', 'source', 'status']);
+  });
+});
+
+describe('callback loop', () => {
+  it('sends each event once even when the fast callback loop and a tick deliver at the same moment', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph' });
+    const ids: string[] = [];
+    t.http.on('bot.example.com/hooks/content', async (_u, init) => {
+      await new Promise((r) => setTimeout(r, 30)); // a slow receiver: both runs overlap
+      ids.push(JSON.parse(String(init.body)).id);
+      return json({ ok: true });
+    });
+    await t.setSetting('CALLBACK_URL', 'https://bot.example.com/hooks/content');
+    await t.setSetting('CALLBACK_SECRET', 'cb-secret');
+    await t.api('POST', '/v1/trending', purchase);
+    const [a, b] = await Promise.all([deliverCallbacks(t.ctx), deliverCallbacks(t.ctx)]);
+    expect(a.sent + b.sent).toBe(1); // order.accepted
+    expect(ids).toHaveLength(1);
+    expect(await deliverCallbacks(t.ctx)).toEqual({ sent: 0, failed: 0 });
   });
 });
 

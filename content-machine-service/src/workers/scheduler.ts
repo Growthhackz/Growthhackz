@@ -1,5 +1,8 @@
 import type { ServiceContext } from '../services/context.js';
-import { tick } from '../services/engine.js';
+import { deliverCallbacks, tick } from '../services/engine.js';
+
+/** Links reach the core bot within seconds of going live, not at the end of a tick busy generating images. */
+export const CALLBACK_EVERY_MS = 2_000;
 
 /** A tick still running after this long is treated as stuck. */
 export const STUCK_AFTER_MS = 15 * 60_000;
@@ -7,6 +10,7 @@ export const STUCK_AFTER_MS = 15 * 60_000;
 /** Advances in-process jobs and delivers callbacks on a fixed interval, never overlapping itself. */
 export class Scheduler {
   private timer: NodeJS.Timeout | null = null;
+  private callbacks: NodeJS.Timeout | null = null;
   private running = false;
   private startedAt = 0;
   private runs = 0;
@@ -17,11 +21,18 @@ export class Scheduler {
     void this.run();
     this.timer = setInterval(() => void this.run(), this.ctx.config.TICK_INTERVAL_MS);
     this.timer.unref();
+    this.callbacks = setInterval(
+      () => void deliverCallbacks(this.ctx).catch((err) => this.ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'callbacks failed')),
+      CALLBACK_EVERY_MS,
+    );
+    this.callbacks.unref();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.callbacks) clearInterval(this.callbacks);
     this.timer = null;
+    this.callbacks = null;
   }
 
   private async run(): Promise<void> {
