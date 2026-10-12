@@ -124,8 +124,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   app.post('/v1/publish/claim', async (req) => publishClaim(ctx, (req.body as { kinds?: unknown } | null)?.kinds));
   // Listing requests may carry a screenshot of the submission as proof.
   app.post<{ Params: Params }>('/v1/publish/:id/complete', { bodyLimit: 3_000_000 }, async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown; note?: unknown; proof?: unknown; review_url?: unknown };
-    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted, b.note, { proof: b.proof, review_url: b.review_url });
+    const b = (req.body ?? {}) as { lease?: unknown; url?: unknown; verified?: unknown; submitted?: unknown; note?: unknown; proof?: unknown; review_url?: unknown; links?: unknown };
+    return publishComplete(ctx, req.params.id, b.lease, b.url, b.verified, b.submitted, b.note, { proof: b.proof, review_url: b.review_url, links: b.links });
   });
   app.post<{ Params: Params }>('/v1/jobs/:id/proof', { bodyLimit: 3_000_000, preHandler: requireAdmin }, async (req) => {
     const b = (req.body ?? {}) as { proof?: unknown; review_url?: unknown };

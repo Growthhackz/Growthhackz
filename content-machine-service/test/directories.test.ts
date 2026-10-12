@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { json, liveCopy, makeApp, pngBytes, SOL } from './helpers.js';
+import { callbackData } from '../src/services/engine.js';
 
 const input = {
   order_id: 'dir-1',
@@ -206,6 +207,42 @@ describe('order report with listings under review', () => {
       label: 'OKX Wallet token info update (submitted, in review)',
       url: attached.result.proof_url,
     });
+  });
+
+  it('Web3 Listing Updates: part of every trending order; the checked pages go out together in one link and the report', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph,web3_listings', PAUSED_CHANNELS: '' });
+    t.http
+      .on('api.dexscreener.com/', () => json([]))
+      .on('cdn.example.com/logo.png', () => new Response(pngBytes(), { headers: { 'content-type': 'image/png' } }))
+      .on('generativelanguage.googleapis.com/', (_u, init) =>
+        JSON.parse(String(init.body)).generationConfig?.responseModalities
+          ? json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] })
+          : json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] }),
+      );
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/trending', { purchase_id: 'w3-1', chain: 'solana', contract_address: SOL, name: 'Moon Frog', symbol: 'MFROG', telegram_url: 'https://t.me/moonfrog', logo_url: 'https://cdn.example.com/logo.png' })).body;
+    for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const c = (await t.api('POST', '/v1/publish/claim', { kinds: ['web3_listings'] })).body;
+    expect(c.target.listing).toMatchObject({ chain: 'solana', contract_address: SOL, symbol: 'MFROG' });
+    const links = [
+      { name: 'Binance Wallet', url: `https://web3.binance.com/en/token/sol/${SOL}` },
+      { name: 'Gate Web3', url: `https://web3.gate.com/trade/solana/${SOL}` },
+      { name: 'Elsewhere', url: 'https://evil.example.com/x' },
+    ];
+    expect((await t.api('POST', `/v1/publish/${c.job.id}/complete`, { lease: c.job.lease, submitted: true, url: null, links })).body.status).toBe('delivered');
+    const kept = links.slice(0, 2);
+    const job = (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs.find((j: any) => j.kind === 'web3_listings');
+    expect(job).toMatchObject({ status: 'delivered', result: { url: kept[0]!.url, links: kept } });
+    const published = (await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.filter((e: any) => e.type === 'link.published' && e.data.source === 'web3_listings');
+    expect(published).toHaveLength(1);
+    expect(callbackData('link.published', published[0].data)).toEqual({ source: 'web3_listings', label: 'Web3 Listing Updates', url: kept[0]!.url, links: kept, project: { name: 'Moon Frog', symbol: 'MFROG' } });
+    expect((await t.api('GET', `/v1/orders/${o.id}/report`)).body.successes).toContainEqual({ source: 'web3_listings', label: 'Web3 Listing Updates', url: kept[0]!.url, links: kept });
+    // No page shows the token: failed, nothing sent.
+    const o2 = (await t.api('POST', '/v1/trending', { purchase_id: 'w3-2', chain: 'bsc', contract_address: '0x' + '2'.repeat(40), name: 'Bee', symbol: 'BEE' })).body;
+    for (let i = 0; i < 10; i++) if (!(await t.api('POST', '/v1/tick')).body.processed) break;
+    const c2 = (await t.api('POST', '/v1/publish/claim', { kinds: ['web3_listings'] })).body;
+    expect((await t.api('POST', `/v1/publish/${c2.job.id}/complete`, { lease: c2.job.lease, submitted: true, url: null, links: [] })).body.status).toBe('failed');
+    expect((await t.api('GET', `/v1/orders/${o2.id}`)).body.jobs.find((j: any) => j.kind === 'web3_listings').status).toBe('failed');
   });
 
   it('wallet listings (OKX, Bitget): the submission screenshot is kept as proof and linked in the report', async () => {

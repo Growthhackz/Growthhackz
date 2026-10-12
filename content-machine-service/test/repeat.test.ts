@@ -114,7 +114,7 @@ describe('repeat purchases of the same token', () => {
     // Same token, new purchase: only the repeat package.
     const second = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'rep-2', channels: ['telegraph'] })).body;
     expect(second.project.purchase_number).toBe(2);
-    expect(second.project.channels).toEqual(['binance', 'cmc_community', 'meme_pack', 'social_boost']);
+    expect(second.project.channels).toEqual(['binance', 'cmc_community', 'meme_pack', 'social_boost', 'web3_listings']);
     for (const k of ['telegraph', 'call_channel', 'bitcointalk', 'top100token', 'coinscope']) expect(second.jobs.find((j: any) => j.kind === k).status).toBe('skipped');
     await drain(t);
 

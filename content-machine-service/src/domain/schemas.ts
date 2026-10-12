@@ -54,7 +54,7 @@ export const CHANNEL_CHAINS: Partial<Record<string, readonly Chain[]>> = {
 };
 export const chainOffered = (channel: string, chain: string) => !CHANNEL_CHAINS[channel] || CHANNEL_CHAINS[channel]!.includes(chain as Chain);
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -74,6 +74,12 @@ export const DIRECTORY_HOSTS: Record<string, string[]> = {
  * site accepts the request, with a screenshot as proof. Off for trending orders (not in TRENDING_CHANNELS).
  */
 export const REQUEST_LISTINGS = ['okx_wallet', 'bitget_wallet'];
+/**
+ * "Web3 Listing Updates": the token's own page on the big exchanges' Web3 wallets (Binance, OKX, Bitget, Gate, MEXC).
+ * They list every DEX-traded token on their own; the worker checks each page shows the token before it is sent.
+ */
+export const WEB3_LISTINGS = 'web3_listings';
+export const WEB3_HOSTS = ['web3.binance.com', 'web3.okx.com', 'web3.bitget.com', 'web3.gate.com', 'www.mexc.com'];
 /** What the live page's path looks like on each of those sites. */
 export const LISTING_PATHS: Record<string, RegExp> = {
   coinsniper: /\/coins?\//i,
@@ -276,6 +282,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['coinscope', 86],
   ['okx_wallet', 86],
   ['bitget_wallet', 86],
+  ['web3_listings', 86],
   ['bitcointalk', 84],
   ['cmc_community', 87],
   ['press_1888', 88],
@@ -340,6 +347,7 @@ export const DEADLINE_MS: Record<string, number> = {
   coinscope: 8 * 24 * HOUR,
   okx_wallet: 24 * HOUR,
   bitget_wallet: 24 * HOUR,
+  web3_listings: 6 * HOUR,
   press_1888: 8 * 24 * HOUR,
   sticker_art_0: 10 * HOUR,
   sticker_art_1: 10 * HOUR,
@@ -388,6 +396,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   coinscope: 'Coinscope listing',
   okx_wallet: 'OKX Wallet token info update',
   bitget_wallet: 'Bitget Wallet token submission',
+  web3_listings: 'Web3 Listing Updates',
   cmc_community: 'CoinMarketCap community post',
   bitcointalk: 'Bitcointalk thread',
   press_1888: '1888PressRelease',

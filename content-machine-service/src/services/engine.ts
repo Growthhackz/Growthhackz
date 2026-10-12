@@ -9,6 +9,8 @@ import {
   OPTIONAL_RENDER_FILES,
   LISTING_PATHS,
   REQUEST_LISTINGS,
+  WEB3_HOSTS,
+  WEB3_LISTINGS,
   LISTING_REVIEW_MAX_MS,
   PRESS_KINDS,
   MAX_ATTEMPTS,
@@ -591,7 +593,7 @@ export function renderFailed(ctx: ServiceContext, jobId: string, lease: unknown,
 
 // ---- worker publications: Binance Square and Reddit ----
 
-export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS), ...REQUEST_LISTINGS];
+export const WORKER_PUBLICATIONS = ['binance', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS), ...REQUEST_LISTINGS, WEB3_LISTINGS];
 
 /**
  * Every post carries the project's Telegram link; longer posts (articles) also carry X and the website. The copy
@@ -705,7 +707,7 @@ export function publishTarget(ctx: ServiceContext, kind: string, o: Order) {
     const body = copy.spotlight_post ? [spotlightTitle(o.project), copy.spotlight_post] : [copy.social_post];
     return { text: [...body, links(o.project, false)].filter(Boolean).join('\n\n'), image_asset_url: image ? `/v1/assets/${image.id}` : null };
   }
-  if (DIRECTORY_HOSTS[kind] || REQUEST_LISTINGS.includes(kind)) {
+  if (DIRECTORY_HOSTS[kind] || REQUEST_LISTINGS.includes(kind) || kind === WEB3_LISTINGS) {
     const p = o.project;
     const created = Number(p.market?.pair_created_at) || 0;
     const paragraphs = copy.article.split(/\n+/).filter(Boolean);
@@ -841,6 +843,23 @@ function directoryUrl(kind: string, url: unknown): string | null {
 }
 
 /** `note` is the worker's reason when it can't tell whether the post went out; it's kept on the item and logged. */
+/** The worker's checked Web3 wallet pages: HTTPS, on those wallets' own hosts, at most one per platform. */
+export function web3Links(input: unknown): Array<{ name: string; url: string }> {
+  if (!Array.isArray(input)) return [];
+  const out: Array<{ name: string; url: string }> = [];
+  for (const x of input.slice(0, 10)) {
+    const { name, url } = (x ?? {}) as { name?: unknown; url?: unknown };
+    if (typeof name !== 'string' || !name.trim() || name.length > 40 || typeof url !== 'string') continue;
+    try {
+      const u = safeRemote(url, WEB3_HOSTS);
+      if (!out.some((l) => l.name === name.trim())) out.push({ name: name.trim(), url: u.href });
+    } catch {
+      // Not one of the wallets' own pages: left out.
+    }
+  }
+  return out;
+}
+
 /** Where each listing request can be followed up (its review page), so a worker-sent link can't point elsewhere. */
 const REVIEW_HOSTS: Record<string, string[]> = {
   okx_wallet: ['web3.okx.com'],
@@ -892,9 +911,21 @@ export async function publishComplete(
   verified?: unknown,
   submitted?: unknown,
   note?: unknown,
-  extra: { proof?: unknown; review_url?: unknown } = {},
+  extra: { proof?: unknown; review_url?: unknown; links?: unknown } = {},
 ) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
+  // Web3 Listing Updates: the pages the worker saw showing the token, on the Web3 wallets' own sites only.
+  if (j.kind === WEB3_LISTINGS) {
+    const links = web3Links(extra.links);
+    if (links.length) {
+      finish(ctx, j, { url: links[0]!.url, links, checked_at: new Date(nowMs(ctx)).toISOString() });
+      return { status: 'delivered' };
+    }
+    const error = 'None of the Web3 wallet pages show this token yet.';
+    run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, lease = NULL, lease_until = NULL, updated_at = :t WHERE id = :id AND lease = :lease", { e: error, t: nowMs(ctx), id: j.id, lease: j.lease });
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
+    return { status: 'failed' };
+  }
   // A listing request the site accepted: there is no coin page until their review, so it is done, with a screenshot
   // of the submission as proof.
   if (REQUEST_LISTINGS.includes(j.kind) && submitted === true) {
@@ -1071,14 +1102,15 @@ export function callbackData(type: string, d: any): unknown {
     case 'order.accepted':
       return {};
     case 'link.published':
-      return { source: d.source, label: d.label, url: d.url, project };
+      // Web3 Listing Updates carries every checked page in `links` (url = the first).
+      return { source: d.source, label: d.label, url: d.url, ...(Array.isArray(d.links) ? { links: d.links } : {}), project };
     case 'sticker_pack.ready':
       return { url: d.url, name: d.name, project };
     case 'order.completed':
       return {
         complete: !!d.complete,
         project,
-        successes: (d.successes ?? []).map((x: any) => ({ source: x.source, label: x.label, url: x.url ?? null })),
+        successes: (d.successes ?? []).map((x: any) => ({ source: x.source, label: x.label, url: x.url ?? null, ...(Array.isArray(x.links) ? { links: x.links } : {}) })),
         failures: (d.failures ?? []).map((x: any) => ({ source: x.source, label: x.label, status: x.status })),
         pending: (d.pending ?? []).map((x: any) => ({ source: x.source, label: x.label, status: x.status })),
       };
@@ -1327,7 +1359,13 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     const label = SOURCE_LABELS[j.kind] ?? STEP_LABELS[j.kind] ?? j.kind;
     const result = j.result ? JSON.parse(j.result) : {};
     if (j.status === 'delivered') {
-      if (SOURCE_LABELS[j.kind]) successes.push({ source: j.kind, label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : label, url: result.url ?? result.proof_url ?? null });
+      if (SOURCE_LABELS[j.kind])
+        successes.push({
+          source: j.kind,
+          label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : label,
+          url: result.url ?? result.proof_url ?? null,
+          ...(Array.isArray(result.links) ? { links: result.links } : {}),
+        });
     } else if (j.status === 'failed') failures.push({ source: j.kind, label, status: 'failed', error: j.error });
     else if (j.status === 'submitted' && DIRECTORY_HOSTS[j.kind] && result.url) successes.push({ source: j.kind, label: `${label} (in review)`, url: result.url });
     else if (j.status === 'submitted' && j.kind === 'social_boost') {

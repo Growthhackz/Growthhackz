@@ -60,7 +60,7 @@ const EnvSchema = z.object({
    */
   TRENDING_CHANNELS: z
     .string()
-    .default('telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack'),
+    .default('telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack,web3_listings'),
 
   /**
    * Posts handed to a person instead of the worker: the order's operator gets one Telegram DM with a page where each
@@ -83,7 +83,7 @@ const EnvSchema = z.object({
    * A second, third… trending purchase for the same token gets only these (new posts and a new social boost), plus
    * five new stickers and five new memes added to its existing sticker pack.
    */
-  REPEAT_CHANNELS: z.string().default('cmc_community,binance,social_boost,meme_pack'),
+  REPEAT_CHANNELS: z.string().default('cmc_community,binance,social_boost,meme_pack,web3_listings'),
   /** Subreddits each order posts to when it has the `reddit` channel (names from SUBREDDITS, or `all`). */
   REDDIT_TARGETS: z.string().default('moonshots,SolanaMemeCoins'),
 
