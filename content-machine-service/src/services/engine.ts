@@ -45,7 +45,8 @@ import { assistKinds, sendAssists } from './assistService.js';
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
 const JOB_LEASE_MS = 2 * 60_000;
-const PUBLISH_LEASE_MS = 3 * 60_000;
+/** Browser flows on listing sites can take several minutes (a slow site, a login); the lease must outlast them. */
+const PUBLISH_LEASE_MS = 10 * 60_000;
 const PUBLICATIONS = ['telegraph', 'binance', 'call_channel', 'cmc_community', 'bitcointalk', ...Object.keys(REDDIT_SUBREDDITS), ...Object.keys(DIRECTORY_HOSTS)];
 const STICKER_EMOJI = ['🚀', '💪', '👋', '🛒', '🤩'];
 /** Telegram's limit for a static sticker pack. */
@@ -1309,6 +1310,17 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
       recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });
       timedOut++;
     }
+  }
+  // A meme still pending after its pack went out (without it) is no longer needed: it must not hold the report.
+  for (const j of all<JobRow>(
+    ctx.db,
+    `SELECT m.* FROM jobs m JOIN jobs p ON p.order_id = m.order_id AND p.kind = 'meme_pack' AND p.status = 'delivered'
+     WHERE m.status IN ('queued', 'blocked') AND m.kind IN (${MEME_SLOTS.map((k) => `'${k}'`).join(', ')})`,
+    {},
+  )) {
+    const result = { reason: 'The meme pack went out without it.' };
+    if (run(ctx.db, "UPDATE jobs SET status = 'skipped', result = :r, error = NULL, updated_at = :t WHERE id = :id AND status IN ('queued', 'blocked')", { r: result, t, id: j.id }).changes)
+      recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'skipped', result });
   }
   let cascaded = 0;
   const open = all<{ order_id: string }>(ctx.db, "SELECT DISTINCT order_id FROM jobs WHERE status IN ('queued', 'blocked')", {});

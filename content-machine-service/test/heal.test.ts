@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { json, liveCopy, makeApp, pngBytes, SOL } from './helpers.js';
+import { run } from '../src/db/database.js';
 
 const purchase = {
   purchase_id: 'heal-1',
@@ -81,6 +82,41 @@ describe('self-healing', () => {
     for (const k of ['meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_pack']) expect((await job(k)).status).toBe('delivered');
     expect(sent.join('\n')).toContain('✅ Fixed: $MFROG');
     expect(sent.join('\n')).not.toContain('🔴');
+  });
+
+  it('never retries or waits on a meme once the meme pack went out without it (GOR, Oct 12)', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'meme_pack' });
+    t.http
+      .on('api.dexscreener.com/', () => json([]))
+      .on('cdn.example.com/logo.png', () => new Response(pngBytes(), { headers: { 'content-type': 'image/png' } }))
+      .on('generativelanguage.googleapis.com/', (_u, init) => {
+        const body = JSON.parse(String(init.body));
+        if (body.generationConfig?.responseModalities)
+          return json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngBytes().toString('base64') } }] } }] });
+        const text: string = body.contents[0].parts[0].text;
+        if (text.includes('SELECTED_TEMPLATES')) {
+          const ids = JSON.parse(text.split('SELECTED_TEMPLATES: ')[1]!.split('\n')[0]!).map((x: any) => x.template_id);
+          return json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ memes: ids.map(meme), self_review: {}, approved_for_render: true }) }] } }] });
+        }
+        return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(liveCopy) }] } }] });
+      });
+    await t.setSetting('GEMINI_API_KEY', 'G');
+    const o = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'heal-gor' })).body;
+    const tick = async (n = 20) => { for (let i = 0; i < n; i++) { t.clock.advance(61_000); await t.api('POST', '/v1/tick'); } };
+    const job = async (k: string) => (await t.api('GET', `/v1/orders/${o.id}`)).body.jobs.find((j: any) => j.kind === k);
+    await tick();
+    expect((await job('meme_pack')).status).toBe('delivered');
+    // As in GOR: one meme had failed and the pack went out with the other four.
+    run(t.db, "UPDATE jobs SET status = 'failed', error = 'The Anakin Padme 4 Panel meme render returned no image.' WHERE order_id = :o AND kind = 'meme_2'", { o: o.id });
+    await tick(3);
+    // Not retried: it could only miss the pack.
+    expect((await job('meme_2')).status).toBe('failed');
+    expect((await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.some((e: any) => e.type === 'heal.retry')).toBe(false);
+    // One already put back in the queue (before this fix) is skipped, not waited for.
+    run(t.db, "UPDATE jobs SET status = 'queued', available_at = :a WHERE order_id = :o AND kind = 'meme_2'", { o: o.id, a: t.clock.now().getTime() + 600_000 });
+    await t.api('POST', '/v1/tick');
+    expect(await job('meme_2')).toMatchObject({ status: 'skipped', result: { reason: 'The meme pack went out without it.' } });
+    expect((await t.api('GET', `/v1/orders/${o.id}/report`)).body.pending.map((x: any) => x.source)).not.toContain('meme_2');
   });
 
   it('asks a person when the automatic retry fails too, once', async () => {

@@ -54,6 +54,8 @@ export async function healOrders(ctx: ServiceContext, workerKinds: string[]): Pr
   );
   for (const j of failed) {
     if (!healable(j.kind, workerKinds) || NOT_TRANSIENT.test(j.error ?? '')) continue;
+    // A meme whose pack already went out (without it): retrying it delivers nothing and only holds the report.
+    if (/^meme_\d+$/.test(j.kind) && get(ctx.db, "SELECT 1 AS x FROM jobs WHERE order_id = :o AND kind = 'meme_pack' AND status = 'delivered'", { o: j.order_id })) continue;
     if (marked(ctx, j.id, 'heal.retry')) {
       // Already had its second run: ask a person, once.
       if (!marked(ctx, j.id, 'heal.escalated')) {
