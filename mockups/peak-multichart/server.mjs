@@ -9,6 +9,7 @@
 // counts and scores over time so momentum can measure holder growth and whether a score is rising.
 // No dependencies. Run: node server.mjs  (PORT defaults to 8787)
 
+import v8 from 'node:v8';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -434,7 +435,7 @@ http.createServer(async (req, res) => {
       req.on('close', () => streams.delete(res));
       return;
     }
-    if (url.pathname === '/health') { const m = process.memoryUsage(); return send(res, 200, { ok: true, board: !!state, cacheEntries: cache.size, rssMB: Math.round(m.rss / 1048576), heapMB: Math.round(m.heapUsed / 1048576) }); }
+    if (url.pathname === '/health') { const m = process.memoryUsage(); return send(res, 200, { ok: true, board: !!state, cacheEntries: cache.size, rssMB: Math.round(m.rss / 1048576), heapMB: Math.round(m.heapUsed / 1048576), heapLimitMB: Math.round(v8.getHeapStatistics().heap_size_limit / 1048576) }); }
     if (url.pathname === '/momentum.js') return send(res, 200, await readFile(path.join(HERE, 'momentum.js')), 'text/javascript; charset=utf-8');
     if (url.pathname === '/api/board') { if (!state) await refresh(); return send(res, 200, state); }
     if (url.pathname === '/api/candles') {
