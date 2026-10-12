@@ -113,7 +113,7 @@ export function recentProblems(ctx: ServiceContext, sinceMs = 0, limit = 100) {
  * A live public URL for one destination, for the core bot to DM the buyer. The sticker pack has its own
  * sticker_pack.ready event, so it isn't repeated here; the hub is only linked when it is public.
  */
-function publishedLink(ctx: ServiceContext, orderId: string, data: unknown): { source: string; label: string; url: string } | null {
+function publishedLink(ctx: ServiceContext, orderId: string, data: unknown): { source: string; label: string; url: string; links?: unknown } | null {
   const d = data as { kind?: string; status?: string; result?: { url?: unknown } };
   // A listing's coin page is known at submission: it goes out then ("in review"), not again when the site approves it.
   const listing = !!d?.kind && !!DIRECTORY_HOSTS[d.kind];
@@ -122,7 +122,9 @@ function publishedLink(ctx: ServiceContext, orderId: string, data: unknown): { s
   if (listing && get(ctx.db, "SELECT 1 AS x FROM events WHERE order_id = :o AND type = 'link.published' AND json_extract(data, '$.source') = :k", { o: orderId, k: d.kind }))
     return null;
   if (d.kind === 'hub' && !ctx.config.PUBLIC_HUB_ENABLED) return null;
-  return linkOf(d.kind, SOURCE_LABELS[d.kind]!, d.result?.url);
+  const link = linkOf(d.kind, SOURCE_LABELS[d.kind]!, d.result?.url);
+  const links = (d.result as { links?: unknown } | undefined)?.links;
+  return link && Array.isArray(links) ? { ...link, links } : link;
 }
 
 function linkOf(source: string, label: string, url: unknown): { source: string; label: string; url: string } | null {

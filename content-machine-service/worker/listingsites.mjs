@@ -6,6 +6,7 @@ import {chromium} from 'playwright';
 import {browserContext, installCookieSession, NotOfferedError, NotPostedError, redditProxy, textOnly} from './reddit.mjs';
 import {withLock} from './lock.mjs';
 import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
+import {web3ListingsSubmit} from './web3links.mjs';
 
 /**
  * Listing sites with their own step-by-step flows (each mapped from the live form): Top100Token (no login, 3 steps,
@@ -344,6 +345,8 @@ export const LISTING_SITES = {
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
+  // Web3 Listing Updates (web3links.mjs): the token's pages on the exchanges' Web3 wallets, checked, nothing submitted.
+  web3_listings: {enabled: () => true, submit: (l, p, e) => web3ListingsSubmit(l, p, e), check: async () => ({live: false})},
   // Wallet sites (wallets.mjs), one wallet browser at a time; only when named in NEW_LISTING_SITES. No coin page
   // until the site reviews the token: the screenshot proof stands in.
   ...Object.fromEntries([['okx_wallet', okxUpdateSubmit], ['bitget_wallet', bitgetSubmit]].map(([site, fn]) => [site, {
@@ -371,7 +374,7 @@ export async function listingSitesCycle(client, {sites = LISTING_SITES, env = pr
     const logo = await logoFile(client, c.target.listing);
     try {
       const r = await sites[c.job.kind].submit(c.target.listing, logo.path, env);
-      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null, note: r.note ?? null, review_url: r.review_url ?? null, proof: r.proof ?? null});
+      await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null, note: r.note ?? null, review_url: r.review_url ?? null, proof: r.proof ?? null, ...(r.links ? {links: r.links} : {})});
     } catch (e) {
       if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message, unsupported: e instanceof NotOfferedError}); }
       else { console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`); await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)}); }

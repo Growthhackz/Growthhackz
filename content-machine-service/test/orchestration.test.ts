@@ -72,6 +72,7 @@ describe('trending orchestration', () => {
       'social_boost',
       'telegraph',
       'top100token',
+      'web3_listings',
     ]);
     expect(jobOf(o, 'reddit_moonshots').status).toBe('skipped');
 
