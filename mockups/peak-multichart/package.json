@@ -3,7 +3,7 @@
   "private": true,
   "description": "Peak Ridge: live multichart and momentum board for Peak's top 10 trending coins.",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node --max-old-space-size=384 server.mjs"
   },
   "engines": {
     "node": ">=20"

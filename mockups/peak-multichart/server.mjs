@@ -41,8 +41,14 @@ async function getJson(url) {
 
 // Small cache that keeps serving the last good value when the upstream fails.
 const cache = new Map();
+// Entries nobody has fetched or refreshed for 30 minutes are dropped, so memory stays flat as coins come and go.
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60_000;
+  for (const [k, v] of cache) if (!v.pending && Math.max(v.at || 0, v.used || 0) < cutoff) cache.delete(k);
+}, 5 * 60_000).unref();
 async function cached(key, ttl, load) {
   const hit = cache.get(key);
+  if (hit) hit.used = Date.now();
   if (hit && Date.now() - hit.at < ttl) return hit.value;
   if (hit?.pending) return hit.pending;
   const pending = load().then(
@@ -56,6 +62,7 @@ async function cached(key, ttl, load) {
 // Like cached(), but never waits once there is a value: an expired value is returned at once and refreshed behind it.
 function swr(key, ttl, load) {
   const hit = cache.get(key);
+  if (hit) hit.used = Date.now();
   if (hit && 'value' in hit) { if (Date.now() - hit.at >= ttl && !hit.pending) cached(key, 0, load).catch(() => {}); return hit.value; }
   cached(key, ttl, load).catch(() => {});
   return undefined;
@@ -427,7 +434,7 @@ http.createServer(async (req, res) => {
       req.on('close', () => streams.delete(res));
       return;
     }
-    if (url.pathname === '/health') return send(res, 200, { ok: true, board: !!state });
+    if (url.pathname === '/health') { const m = process.memoryUsage(); return send(res, 200, { ok: true, board: !!state, cacheEntries: cache.size, rssMB: Math.round(m.rss / 1048576), heapMB: Math.round(m.heapUsed / 1048576) }); }
     if (url.pathname === '/momentum.js') return send(res, 200, await readFile(path.join(HERE, 'momentum.js')), 'text/javascript; charset=utf-8');
     if (url.pathname === '/api/board') { if (!state) await refresh(); return send(res, 200, state); }
     if (url.pathname === '/api/candles') {

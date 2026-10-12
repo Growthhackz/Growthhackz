@@ -465,7 +465,8 @@ html.tgcard .ridge::after { content: ""; position: absolute; inset: auto 0 0 0; 
 html.tgcard .summit:not(.top3) .tk { display: inline; }
 html.tgcard .summit:not(.top3) .tag i { margin-right: .3em; }
 html.tgcard .summit .chg { display: none; }
-html.tgcard .summit .tag { padding: .28em .55em; }
+html.tgcard .summit .tag { padding: .28em .55em; background: rgba(4,7,4,.88); }
+html.tgcard * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 html.tgcard .toasts { left: 10px; right: 10px; top: auto; bottom: 14px; align-items: center; max-width: none; z-index: 8; }
 html.tgcard .toast:nth-child(n+2) { display: none; }
 html.tgcard .erupt.go .peak-mark, html.tgcard .erupt.go .veil, html.tgcard .erupt.go .erupt-card, html.tgcard .erupt.go .erupt-card .cash { animation-duration: 2.8s; }
@@ -1221,6 +1222,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
 
   let lastFrame = 0; const sunPos = { x: null, h: null };
   function frame(t) {
+    // the Telegram card draws a steady 30fps, the rate it is recorded at (painting without a GPU is the expensive part)
+    if (CARD && lastFrame && t - lastFrame < 1000 / 30 - 6) { requestAnimationFrame(frame); return; }
     const breathe = REDUCED ? 0 : 1;
     const f = Math.min(4, lastFrame ? (t - lastFrame) / (1000 / 60) : 1); lastFrame = t;   // frames' worth of time since the last draw
     const ease = k => 1 - Math.pow(1 - k, f);
@@ -1251,8 +1254,10 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       const r = H * 0.19, cx = sunPos.x, cy = base - sunPos.h - H * 0.06 + r * 0.62;
       const sun = ctx.createLinearGradient(0, cy - r, 0, cy + r);
       sun.addColorStop(0, 'rgba(120,205,70,.95)'); sun.addColorStop(1, 'rgba(40,110,30,.9)');
-      ctx.save(); ctx.shadowColor = 'rgba(143,224,75,.55)'; ctx.shadowBlur = 40;
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = sun; ctx.fill(); ctx.restore();
+      const halo = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r + 40);
+      halo.addColorStop(0, 'rgba(143,224,75,.45)'); halo.addColorStop(1, 'rgba(143,224,75,0)');
+      ctx.fillStyle = halo; ctx.fillRect(cx - r - 40, cy - r - 40, (r + 40) * 2, (r + 40) * 2);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = sun; ctx.fill();
     }
     const pts = []; for (let x = 0; x <= W + 2; x += 2) pts.push([x, ridgeY(x, list, base)]);
     ctx.beginPath(); ctx.moveTo(0, H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(W, H); ctx.closePath();
@@ -1263,7 +1268,10 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
     const rim = ctx.createLinearGradient(0, 0, W, 0);
     rim.addColorStop(0, 'rgba(92,158,46,.9)'); rim.addColorStop(0.5, 'rgba(204,255,0,1)'); rim.addColorStop(1, 'rgba(92,158,46,.9)');
     ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
-    ctx.strokeStyle = rim; ctx.lineWidth = 1.6; ctx.shadowColor = 'rgba(143,224,75,.6)'; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(143,224,75,.10)'; ctx.lineWidth = 9; ctx.stroke();
+    ctx.strokeStyle = 'rgba(143,224,75,.22)'; ctx.lineWidth = 4.5; ctx.stroke();
+    ctx.strokeStyle = rim; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.save();
     ctx.beginPath(); ctx.moveTo(0, H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(W, H); ctx.closePath(); ctx.clip();
     for (const p of list) {
@@ -1326,7 +1334,8 @@ html.broadcast .ticker .cta { position: relative; z-index: 1; box-shadow: 12px 0
       const p = peaks.get(c.key), el = summitEls.get(c.key); if (!p || !el) continue;
       summitLabel(el, c);
       const row = el.firstElementChild, chg = el.lastElementChild;
-      const w = el.offsetWidth || 0, h = (row?.offsetHeight || 0) + (chg?.offsetHeight || 0) + 2;
+      if (el._sizeSig !== el.dataset.sig || !el._w || t - (el._sizeAt || 0) > 2000) { el._sizeSig = el.dataset.sig; el._sizeAt = t; el._w = el.offsetWidth || 0; el._h = (row?.offsetHeight || 0) + (chg?.offsetHeight || 0) + 2; }
+      const w = el._w, h = el._h;
       const clampX = x => Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, x));
       const yT = ridgeY(p.tx, tlist, base) - 2;
       const out = p.tx >= W / 2 ? 1 : -1;
