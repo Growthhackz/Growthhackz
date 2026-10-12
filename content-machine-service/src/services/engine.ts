@@ -1120,7 +1120,20 @@ export function callbackData(type: string, d: any): unknown {
   }
 }
 
+/** One delivery run at a time per service, so the fast callback loop and the tick never send an event twice. */
+const delivering = new WeakSet<ServiceContext>();
+
 export async function deliverCallbacks(ctx: ServiceContext, batch = 20): Promise<{ sent: number; failed: number }> {
+  if (delivering.has(ctx)) return { sent: 0, failed: 0 };
+  delivering.add(ctx);
+  try {
+    return await deliverCallbackBatch(ctx, batch);
+  } finally {
+    delivering.delete(ctx);
+  }
+}
+
+async function deliverCallbackBatch(ctx: ServiceContext, batch: number): Promise<{ sent: number; failed: number }> {
   const url = setting(ctx, 'CALLBACK_URL');
   const secret = setting(ctx, 'CALLBACK_SECRET');
   if (!url || !secret) return { sent: 0, failed: 0 };
