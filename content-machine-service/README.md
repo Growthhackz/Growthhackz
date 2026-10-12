@@ -277,7 +277,7 @@ Every 30 minutes the worker checks each site it posts to and the API checks its 
 
 | Source | What keeps it working | Checked by | When it breaks |
 |---|---|---|---|
-| CoinMarketCap | `CMC_COOKIES` + `CMC_EMAIL` / `CMC_PASSWORD` (the worker re-logs in and saves fresh cookies to `/data`), residential `DIRECTORY_PROXY` | profile shows our Edit button | log in once in a normal browser and export fresh `CMC_COOKIES` (a human check at login is not bypassed) |
+| CoinMarketCap | `CMC_COOKIES` + `CMC_EMAIL` / `CMC_PASSWORD` (the worker re-logs in and saves fresh cookies to `/data`), optional residential `DIRECTORY_PROXY` (not set: runs direct) | profile shows our Edit button | log in once in a normal browser and export fresh `CMC_COOKIES` (a human check at login is not bypassed) |
 | Bitcointalk | `BTCTALK_COOKIES` (`SMFCookie…`, "stay logged in"; current one expires 2027-11) | logged-in username | export fresh cookies from a logged-in browser |
 | Binance Square | `BINANCE_SQUARE_OPENAPI_KEY` + the Square skill in the image | key and script present | new OpenAPI key |
 | Top100Token | no login | submit form loads | usually Cloudflare; clears by itself |

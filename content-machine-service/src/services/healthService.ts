@@ -78,6 +78,8 @@ export async function recordChecks(ctx: ServiceContext, input: unknown, by: Sour
     if (c.ok) next = 'ok';
     all[c.source] = { ...c, checked_at: new Date(nowMs(ctx)).toISOString(), by, fails, stage: next, announced };
   }
+  // A source nobody has checked for 6 hours (checks run every 30 min) was removed, e.g. the proxy: no longer tracked.
+  for (const [source, c] of Object.entries(all)) if (nowMs(ctx) - Date.parse(c.checked_at) > 6 * 3600_000) delete all[source];
   setRawSetting(ctx, KEY, JSON.stringify(all));
   if (lines.length) await notifyAdmins(ctx, lines);
   return all;
