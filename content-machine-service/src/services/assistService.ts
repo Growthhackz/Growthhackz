@@ -17,7 +17,7 @@ import { setting } from './settingsService.js';
 const HANDABLE = [...Object.keys(REDDIT_SUBREDDITS), 'coinsniper', 'coinvote'];
 const SUBMIT_PAGES: Record<string, string> = {
   coinsniper: 'https://coinsniper.net/submit',
-  coinvote: 'https://coinvote.cc/en/add-coin/released',
+  coinvote: 'https://coinvote.cc/add-coin/released',
 };
 /** What each subreddit asks of a post, shown on its card. */
 const SUBREDDIT_NOTES: Record<string, string> = {
