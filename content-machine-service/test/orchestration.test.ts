@@ -70,6 +70,7 @@ describe('trending orchestration', () => {
       'gemfinder',
       'meme_pack',
       'social_boost',
+      'sticker_pack',
       'telegraph',
       'top100token',
       'web3_listings',

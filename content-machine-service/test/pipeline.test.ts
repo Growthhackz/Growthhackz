@@ -8,7 +8,7 @@ const liveInput = {
   contract_address: SOL,
   telegram_url: 'https://t.me/moonfrog',
   logo_url: 'https://cdn.example.com/logo.png',
-  channels: ['telegraph', 'call_channel', 'binance', 'media'],
+  channels: ['telegraph', 'call_channel', 'binance', 'media', 'sticker_pack'],
   telegram_owner_id: 42,
   budget_cents: 100,
 };
