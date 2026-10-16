@@ -18,6 +18,7 @@ import {
   RENDER_KINDS,
   SOURCE_LABELS,
   STEP_LABELS,
+  STICKER_KINDS,
 } from '../domain/schemas.js';
 import { AppError, ConflictError, isBlocking, NotVerifiedError, SetupRequiredError, UpstreamError, ValidationError } from '../lib/errors.js';
 import { signCallback } from '../lib/crypto.js';
@@ -69,7 +70,6 @@ export function finish(ctx: ServiceContext, job: Leased, result: unknown, status
   if (r.changes) recordEvent(ctx, job.order_id, 'delivery.updated', { job_id: job.id, kind: job.kind, status, result });
 }
 
-const STICKER_KINDS = ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'sticker_art_3', 'sticker_art_4', 'stickers', 'sticker_publish'];
 
 /** No logo (supplied or from the DEX): the whole sticker pack is skipped rather than blocking the order. */
 function skipStickerPack(ctx: ServiceContext, j: Leased, o: Order) {

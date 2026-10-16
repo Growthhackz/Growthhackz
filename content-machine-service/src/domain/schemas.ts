@@ -54,7 +54,7 @@ export const CHANNEL_CHAINS: Partial<Record<string, readonly Chain[]>> = {
 };
 export const chainOffered = (channel: string, chain: string) => !CHANNEL_CHAINS[channel] || CHANNEL_CHAINS[channel]!.includes(chain as Chain);
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings', 'sticker_pack'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -118,8 +118,18 @@ const REDDIT_KINDS = Object.keys(REDDIT_SUBREDDITS);
 /** The channel that switches a pipeline kind on (kinds not listed are always on). */
 /** The five-meme pack (plan, renders, gallery page) is one switchable channel, so it costs nothing when off. */
 export const MEME_KINDS = ['meme_plan', 'meme_0', 'meme_1', 'meme_2', 'meme_3', 'meme_4', 'meme_pack'];
+/** The token's Telegram sticker pack: five sticker drawings, then the published pack (the memes ride in it too). */
+export const STICKER_KINDS = ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'sticker_art_3', 'sticker_art_4', 'stickers', 'sticker_publish'];
 export const channelOf = (kind: string): string | null =>
-  REDDIT_SUBREDDITS[kind] ? 'reddit' : MEME_KINDS.includes(kind) ? 'meme_pack' : (CHANNELS as readonly string[]).includes(kind) ? kind : null;
+  REDDIT_SUBREDDITS[kind]
+    ? 'reddit'
+    : MEME_KINDS.includes(kind)
+      ? 'meme_pack'
+      : STICKER_KINDS.includes(kind)
+        ? 'sticker_pack'
+        : (CHANNELS as readonly string[]).includes(kind)
+          ? kind
+          : null;
 
 /** One X post (the raid target for social_boost). */
 const xPostUrl = z

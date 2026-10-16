@@ -128,7 +128,7 @@ describe('trending purchase → call channel', () => {
 
 describe('sticker pack for trending orders', () => {
   it('uses one bot, a team-owned pack named after the ticker (memes included), and tells the buybot where to DM the link', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: '' });
+    const t = makeApp({ TRENDING_CHANNELS: 'sticker_pack' });
     wire(t);
     // Another token with the same ticker already has the plain name.
     const sets = new Map<string, number>([['MFROG_by_Fullsendtrenchesbot', 5]]);
@@ -244,5 +244,20 @@ describe('chains: Solana, BSC, Robinhood Chain, Arc', () => {
     const j = await jobs(t, o.id);
     expect(j.top100token).toMatchObject({ status: 'skipped', result: { reason: 'top100token: chain robinhood is not offered; nothing was sent.' } });
     expect((await t.api('POST', '/v1/publish/claim', { kinds: ['top100token'] })).body).toBeNull();
+  });
+});
+
+describe('paused content channels (Oct 16)', () => {
+  it('runs only the listing sites, the X boost and Web3 Listing Updates (plus the copy and image they need)', async () => {
+    const t = makeApp({
+      TRENDING_CHANNELS: 'telegraph,binance,call_channel,cmc_community,social_boost,bitcointalk,meme_pack,top100token,gemfinder,freshcoins,coinscope,web3_listings,sticker_pack',
+      PAUSED_CHANNELS: 'call_channel,freshcoins,binance,bitcointalk,telegraph,cmc_community,meme_pack,sticker_pack',
+    });
+    const o = (await t.api('POST', '/v1/trending', purchase)).body;
+    expect(o.project.channels).toEqual(['coinscope', 'gemfinder', 'social_boost', 'top100token', 'web3_listings']);
+    const status = Object.fromEntries(o.jobs.map((j: any) => [j.kind, j.status]));
+    for (const k of ['metadata', 'copy', 'campaign_image', 'social_boost', 'top100token', 'gemfinder', 'coinscope', 'web3_listings']) expect(status[k]).toBe('queued');
+    for (const k of ['telegraph', 'binance', 'cmc_community', 'bitcointalk', 'call_channel', 'freshcoins', 'meme_plan', 'meme_0', 'meme_pack', 'sticker_art_0', 'stickers', 'sticker_publish'])
+      expect(status[k]).toBe('skipped');
   });
 });

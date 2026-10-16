@@ -155,7 +155,7 @@ describe('global pause', () => {
 
 describe('live-test readiness', () => {
   it('with no logo, invents a mascot from the name for the campaign image and draws the stickers from it; lists problems at /v1/errors', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: 'telegraph' }); // hub off: Telegraph is blocked, which /v1/errors must show
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph,sticker_pack' }); // hub off: Telegraph is blocked, which /v1/errors must show
     const imageCalls: any[] = [];
     t.http
       .on('api.dexscreener.com/', () => json([{ chainId: 'solana', baseToken: { address: SOL, name: 'Moon Frog', symbol: 'MFROG' }, liquidity: { usd: 1 } }]))
