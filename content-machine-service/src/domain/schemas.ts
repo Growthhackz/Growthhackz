@@ -51,6 +51,8 @@ export const CHANNEL_CHAINS: Partial<Record<string, readonly Chain[]>> = {
   gemfinder: ['solana', 'bsc', 'ethereum', 'polygon', 'arbitrum'],
   coinscope: ['solana', 'bsc', 'ethereum', 'polygon', 'arbitrum'],
   okx_wallet: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'arbitrum', 'arc'],
+  // Coinvote's add-coin networks (no Arc).
+  coinvote: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'arbitrum', 'robinhood'],
 };
 export const chainOffered = (channel: string, chain: string) => !CHANNEL_CHAINS[channel] || CHANNEL_CHAINS[channel]!.includes(chain as Chain);
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */

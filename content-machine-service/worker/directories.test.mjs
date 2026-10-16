@@ -60,7 +60,7 @@ try{
  // A login button that stays disabled (captcha) is reported as needing cookies; nothing is sent.
  loginDisabled=true;await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,statePath:join(dir,'y.json')}),e=>e instanceof NotPostedError&&/human check/.test(e.message));loginDisabled=false;
  // A cookie export logs in without the password form.
- const cookieCfg={...siteConfig('coinsniper',{...env,COINSNIPER_COOKIES:JSON.stringify([{name:'sid',value:'1',domain:'127.0.0.1',path:'/'}]),COINSNIPER_EMAIL:'',COINSNIPER_PASSWORD:''}),login:'/login',submit:'/submit',browse:['/new'],statePath:join(dir,'cookie.json')};
+ const cookieCfg={...siteConfig('coinsniper',{...env,COINSNIPER_COOKIES:JSON.stringify([{name:'sid',value:'1',domain:'127.0.0.1',path:'/'}]),COINSNIPER_EMAIL:'',COINSNIPER_PASSWORD:''}),login:'/login',submit:'/submit',browse:['/new'],statePath:join(dir,'cookie.json'),debugDir:dir};
  assert.ok(await inspect('coinsniper',cookieCfg));
  // Cloudflare holds the submission behind a check that doesn't clear: reported as not sent.
  cfBlock=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'3'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/Cloudflare/.test(e.message));cfBlock=false;

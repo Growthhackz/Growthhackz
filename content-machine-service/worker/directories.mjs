@@ -5,11 +5,13 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {browserContext, installCookieSession, NotOfferedError, NotPostedError, redditProxy} from './reddit.mjs';
 import {firecrawlSite, openBrowser, sessionContext} from './firecrawl.mjs';
+import {coinvoteCheck, coinvoteSubmit} from './coinvote.mjs';
 
 /** Directory sites. Paths are relative to each site's origin so tests can point at a local fake. */
 export const SITES = {
   coinsniper: {origin: 'https://coinsniper.net', login: '/login', submit: '/submit', browse: ['/new', '/'], user: 'COINSNIPER_EMAIL', pass: 'COINSNIPER_PASSWORD'},
-  coinvote: {origin: 'https://coinvote.cc', login: '/en/login', submit: '/en/add-coin/released', browse: ['/en/new', '/en/'], user: 'COINVOTE_EMAIL', pass: 'COINVOTE_PASSWORD'},
+  // Coinvote has its own flow (coinvote.mjs): its login is a dialog and its form is script-driven.
+  coinvote: {origin: 'https://coinvote.cc', login: '/login', submit: '/add-coin/released', browse: [], user: 'COINVOTE_EMAIL', pass: 'COINVOTE_PASSWORD'},
 };
 
 export const siteConfig = (site, env = process.env) => {
@@ -221,6 +223,7 @@ async function debugSnapshot(page, cfg, tag) {
  * Throws NotPostedError when nothing was sent (login, unmapped required fields, validation errors).
  */
 export async function submitListing(site, listing, logoPath, cfg = siteConfig(site)) {
+  if (site === 'coinvote') return submitCoinvote(listing, logoPath, cfg);
   const browser = await launch(cfg);
   try {
     const {page} = await openSubmitForm(browser, cfg);
@@ -265,8 +268,18 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
   } finally { await browser.close(); }
 }
 
+async function submitCoinvote(listing, logoPath, cfg, opts = {}) {
+  if (cfg.cookies) {
+    try { installCookieSession(cfg.statePath, cfg.cookies, cfg.cookieSite); } catch (e) { throw new NotPostedError(`COINVOTE_COOKIES: ${e.message}`); }
+  }
+  const browser = await launch(cfg);
+  try { return await coinvoteSubmit({browser, sessionContext, contextOptions: browserContext(), snapshot: (page, tag) => debugSnapshot(page, cfg, tag)}, cfg, listing, logoPath, opts); }
+  finally { await browser.close(); }
+}
+
 /** Logged-out look for the live coin page: the known URL first, else the site's new-coins pages. */
 export async function checkListing(site, listing, submission = {}, cfg = siteConfig(site)) {
+  if (site === 'coinvote') return coinvoteCheck(listing, {origin: cfg.origin});
   const browser = await launch(cfg, false, '/');
   try {
     const page = await (await browser.newContext(browserContext())).newPage();
@@ -285,8 +298,9 @@ export async function checkListing(site, listing, submission = {}, cfg = siteCon
 }
 
 /** Dry run: opens the form, prints each field and what would go in it. Never submits. */
-export async function inspect(site, cfg = siteConfig(site)) {
+export async function inspect(site, cfg = siteConfig(site), listing = null) {
   const sample = {name: 'Sample Token', symbol: 'SMPL', chain: 'solana', contract_address: 'So11111111111111111111111111111111111111112', description: 'Sample description', short_description: 'Sample', website_url: 'https://example.com', telegram_url: 'https://t.me/example', x_url: 'https://x.com/example', launch_date: '2026-01-01'};
+  if (site === 'coinvote') return submitCoinvote(listing ?? sample, null, {...cfg, debugDir: cfg.debugDir || '.'}, {dryRun: true});
   const browser = await launch(cfg, false);
   try {
     const {page} = await openSubmitForm(browser, cfg);
