@@ -66,17 +66,27 @@ async function signedIn(page) {
   return !(await page.locator('[data-ref-modal="login"]:visible').count());
 }
 
-/** The launch announcement and the "how do you want to start" dialog sit over the form: their own close buttons. */
-async function closeOverlays(page) {
-  for (const sel of ['#cv-v3-launchpad-announce button:has-text("Close")', '#cv-ac-start.show [data-start-skip].btn-close', '#cv-ac-start.show [data-start-skip]']) {
-    const b = page.locator(sel).first();
-    if (await b.isVisible().catch(() => false)) { await b.click({timeout: 5000}).catch(() => {}); await page.waitForTimeout(600); }
+/**
+ * The launch announcement and the "Let's list your project" dialog sit over the form: their own close buttons. The
+ * dialog fades in a moment after the page loads, so this watches for a few seconds and waits for it to be gone.
+ */
+async function closeOverlays(page, watchMs = 3000) {
+  await page.waitForLoadState('load', {timeout: 15000}).catch(() => {});
+  const selectors = ['#cv-v3-launchpad-announce button:has-text("Close")', '#cv-ac-start.show [data-start-skip].btn-close', '#cv-ac-start.show [data-start-skip]'];
+  for (let t = 0; t < watchMs; t += 500) {
+    for (const sel of selectors) {
+      const b = page.locator(sel).first();
+      if (await b.isVisible().catch(() => false)) await b.click({timeout: 5000}).catch(() => {});
+    }
+    await page.waitForTimeout(500);
   }
+  await page.locator('#cv-ac-start.show, .modal-backdrop').first().waitFor({state: 'hidden', timeout: 5000}).catch(() => {});
 }
 
 /** Signs in through Coinvote's login dialog. A security check it raises is only ever waited on, never answered for it. */
 async function signIn(page, cfg) {
   if (!cfg.username || !cfg.password) throw new NotPostedError('coinvote: the saved session has expired; set COINVOTE_EMAIL and COINVOTE_PASSWORD (or fresh COINVOTE_COOKIES) on the worker.');
+  await closeOverlays(page, 1000);
   await page.locator('[data-ref-modal="login"]:visible').first().click({timeout: 15000});
   const form = page.locator('#login_form');
   await form.waitFor({state: 'visible', timeout: 20000});
@@ -94,30 +104,37 @@ async function signIn(page, cfg) {
   await page.waitForTimeout(2000);
 }
 
-/**
- * Opens the add-coin form signed in. Returns once `#cv-ac-form` is there and Coinvote treats us as signed in, saving
- * the session for next time.
- */
-async function openForm(page, context, cfg) {
-  const url = cfg.origin + cfg.submit;
+/** Loads the add-coin page with its overlays closed. */
+async function loadForm(page, url) {
   await page.goto(url, {waitUntil: 'domcontentloaded'});
   await page.locator('#cv-ac-form').waitFor({timeout: 30000}).catch(() => { throw new NotPostedError(`coinvote: the add-coin form did not load (${page.url().split('?')[0]}); nothing was sent.`); });
   await closeOverlays(page);
+}
+
+/** Opens the add-coin form signed in (Coinvote treats us as signed in), saving the session for next time. */
+async function openForm(page, context, cfg) {
+  const url = cfg.origin + cfg.submit;
+  await loadForm(page, url);
   if (!(await signedIn(page))) {
     await signIn(page, cfg);
-    await page.goto(url, {waitUntil: 'domcontentloaded'});
-    await page.locator('#cv-ac-form').waitFor({timeout: 30000});
-    await closeOverlays(page);
+    await loadForm(page, url);
     if (!(await signedIn(page))) throw new NotPostedError('coinvote: still signed out after logging in; nothing was sent.');
   }
   await context.storageState({path: cfg.statePath}).catch(() => {});
 }
 
+/** The page's add-coin script never started: the form looks normal but nothing in it reacts. Loading it again helps. */
+export class FormNotStarted extends Error {}
+
 /** Fills the form; checks what it filled. Sends nothing. */
-export async function fillCoinvote(page, listing, logoPath, name) {
+export async function fillCoinvote(page, listing, logoPath, name, readyMs = 5000) {
   const network = COINVOTE_CHAINS[listing.chain];
   // Contract first: Coinvote may prefill name/description from it, which the fields below then overwrite.
   await page.locator('#cv-ac-address').fill(listing.contract_address);
+  // Coinvote's two deferred form scripts race; when the add-coin one loses, the contract box does nothing. A live
+  // one names the address type ("Solana address detected", "EVM …") within a second.
+  const alive = await page.waitForFunction(n => document.querySelector('#cv-ac-detect')?.textContent.trim() || document.querySelector(`input[name="networks[${n}]"]`), network, {timeout: readyMs}).then(() => true, () => false);
+  if (!alive) throw new FormNotStarted();
   const details = page.locator('details.cv-ac-more:has(#cv-ac-manual-chains)');
   if (!(await details.evaluate(d => d.open).catch(() => false))) await details.locator('summary').click();
   await page.locator(`#cv-ac-manual-chains .cv-ac-chip[data-chain="${network}"]`).click({timeout: 10000});
@@ -151,15 +168,24 @@ export async function coinvoteSubmit({browser, sessionContext, contextOptions, s
   // Another coin has the name: Coinvote's own suggestion (e.g. "Bul Sol"), else the name with the ticker.
   const name = before.nameTaken ? (before.nameTaken.suggest || `${listing.name} ${coinvoteSymbol(listing)}`) : listing.name;
   const context = await sessionContext(browser, cfg.statePath, contextOptions);
+  // The saved session carries Coinvote's form draft from the last run; restored, it leaves the contract box dead.
+  await context.addInitScript(() => { try { for (const k of Object.keys(localStorage)) if (/^cv_(ac|form)_draft/.test(k)) localStorage.removeItem(k); } catch {} });
   const page = await context.newPage();
   try {
     // Everything up to the submit click sends nothing, so any failure there is safe to retry.
     try {
       await openForm(page, context, cfg);
-      await fillCoinvote(page, listing, logoPath, name);
+      for (let load = 1; ; load++) {
+        try { await fillCoinvote(page, listing, logoPath, name, cfg.formReadyMs); break; }
+        catch (e) {
+          if (!(e instanceof FormNotStarted)) throw e;
+          if (load >= 3) throw new NotPostedError('coinvote: the add-coin form did not start after 3 loads; nothing was sent.');
+          await loadForm(page, cfg.origin + cfg.submit);
+        }
+      }
     } catch (e) {
-      if (e instanceof NotPostedError) throw e;
       await snapshot(page, 'unfilled');
+      if (e instanceof NotPostedError) throw e;
       throw new NotPostedError(`coinvote: could not open or fill the form (${String(e?.message || e).split('\n')[0].slice(0, 160)}); nothing was sent.`);
     }
     if (dryRun) { await snapshot(page, 'dryrun'); return {submitted: false, dryRun: true, name, form: await page.evaluate(() => [...new FormData(document.querySelector('#cv-ac-form')).entries()].map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 80) : `file:${v.name}:${v.size}`]))}; }
