@@ -41,7 +41,7 @@ import { apiHealthChecks } from './healthService.js';
 import { healOrders } from './healService.js';
 import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
-import { assistKinds, sendAssists } from './assistService.js';
+import { assistKinds, assistOnCheck, handOver, sendAssists } from './assistService.js';
 
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
@@ -790,7 +790,7 @@ export function publishClaim(ctx: ServiceContext, kinds: unknown = ['binance']) 
   const rows = all<JobRow>(
     ctx.db,
     `SELECT * FROM jobs WHERE kind IN (${wanted.map((k) => `'${k}'`).join(', ')}) AND status IN ('queued', 'blocked')
-       AND attempts < ${MAX_ATTEMPTS} AND available_at <= :t ORDER BY updated_at LIMIT 20`,
+       AND handed_at IS NULL AND attempts < ${MAX_ATTEMPTS} AND available_at <= :t ORDER BY updated_at LIMIT 20`,
     { t: nowMs(ctx) },
   );
   for (const j of rows) {
@@ -980,13 +980,18 @@ export async function publishComplete(
 }
 
 /** The worker stopped before submitting anything (login failed, CAPTCHA shown, form missing): safe to retry. */
-export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown, error: unknown, unsupported?: unknown) {
+export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown, error: unknown, unsupported?: unknown, humanCheck?: unknown) {
   const j = leasedJob(ctx, jobId, lease, WORKER_PUBLICATIONS);
   const message = String(error || 'Publishing failed before anything was posted').slice(0, 300);
   // The site doesn't take this token (e.g. its chain isn't offered): skipped, not retried, and the order goes on.
   if (unsupported === true) {
     finish(ctx, j, { reason: message }, 'skipped');
     return { status: 'skipped' };
+  }
+  // The site showed a human check, which is never answered for us: the item goes to a person instead of retrying.
+  if (humanCheck === true && assistOnCheck(ctx).includes(j.kind)) {
+    handOver(ctx, j, message);
+    return { status: 'blocked', handed: true };
   }
   // Out of attempts: failed now (nothing was sent, so an admin can still retry it), so the order's report goes out
   // instead of waiting for the item's deadline, which is days for listing sites.
@@ -1012,28 +1017,57 @@ export function publishFailed(ctx: ServiceContext, jobId: string, lease: unknown
   return { status: 'blocked' };
 }
 
-/** Hands the worker a submitted listing whose next check is due (the claim itself pushes the next check out an hour). */
+/**
+ * Sites whose listing check finds a listing still in review (Coinvote's duplicate lookup), so a listing a person
+ * submitted is found without them pasting the link.
+ */
+const FINDS_IN_REVIEW = ['coinvote'];
+/** How often a handed listing is looked for while it waits on the person: the lookup is one cheap request. */
+const HANDED_CHECK_MS = 2 * 60_000;
+
+/**
+ * Hands the worker a listing whose next check is due: a submitted one (next check an hour later), or one handed to a
+ * person on a site whose check finds it in review (every two minutes).
+ */
 export function listingCheckClaim(ctx: ServiceContext, wanted?: unknown) {
   if (isPaused(ctx)) return null;
   const allowed = Array.isArray(wanted) ? wanted.filter((k): k is string => typeof k === 'string' && !!DIRECTORY_HOSTS[k]) : Object.keys(DIRECTORY_HOSTS);
   if (!allowed.length) return null;
   const kinds = allowed.map((k) => `'${k}'`).join(', ');
+  const findable = allowed.filter((k) => FINDS_IN_REVIEW.includes(k)).map((k) => `'${k}'`).join(', ') || "''";
   const j = get<JobRow>(
     ctx.db,
-    `SELECT * FROM jobs WHERE status = 'submitted' AND kind IN (${kinds}) AND available_at <= :t ORDER BY available_at LIMIT 1`,
+    `SELECT * FROM jobs WHERE kind IN (${kinds}) AND available_at <= :t
+       AND (status = 'submitted' OR (status = 'blocked' AND handed_at IS NOT NULL AND kind IN (${findable})))
+     ORDER BY available_at LIMIT 1`,
     { t: nowMs(ctx) },
   );
   if (!j) return null;
-  run(ctx.db, 'UPDATE jobs SET available_at = :a WHERE id = :id', { a: nowMs(ctx) + 60 * 60_000, id: j.id });
+  run(ctx.db, 'UPDATE jobs SET available_at = :a WHERE id = :id', { a: nowMs(ctx) + (j.status === 'blocked' ? HANDED_CHECK_MS : 60 * 60_000), id: j.id });
   return { job: { id: j.id, kind: j.kind, order_id: j.order_id }, submission: JSON.parse(j.result ?? '{}'), target: publishTarget(ctx, j.kind, loadOrder(ctx, j.order_id)) };
 }
 
-/** The worker looked for the live coin page. Delivered once it's public; failed if review takes over a week. */
+/**
+ * The worker looked for the coin page. Delivered once it's public; failed if review takes over a week. A handed
+ * listing found in review becomes submitted with its link (the person submitted it on the site).
+ */
 export function listingChecked(ctx: ServiceContext, jobId: string, url: unknown, live: unknown) {
-  const j = get<JobRow>(ctx.db, "SELECT * FROM jobs WHERE id = :id AND status = 'submitted'", { id: jobId });
+  const j = get<JobRow>(ctx.db, "SELECT * FROM jobs WHERE id = :id AND (status = 'submitted' OR (status = 'blocked' AND handed_at IS NOT NULL))", { id: jobId });
   if (!j || !DIRECTORY_HOSTS[j.kind]) throw new ConflictError('No listing awaiting review with this ID');
-  const submission = JSON.parse(j.result ?? '{}');
+  const submission = j.status === 'blocked' ? { submitted_at: new Date(nowMs(ctx)).toISOString(), via: 'assist' } : JSON.parse(j.result ?? '{}');
   const coinUrl = directoryUrl(j.kind, url);
+  if (live !== true && coinUrl && !submission.url) {
+    const result = { ...submission, url: coinUrl };
+    run(ctx.db, "UPDATE jobs SET status = 'submitted', result = :r, error = NULL, available_at = :a, updated_at = :t WHERE id = :id", {
+      r: result,
+      a: nowMs(ctx) + 60 * 60_000,
+      t: nowMs(ctx),
+      id: j.id,
+    });
+    recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'submitted', result });
+    return { status: 'submitted', url: coinUrl };
+  }
+  if (j.status === 'blocked' && live !== true) return { status: 'blocked' };
   if (live === true && coinUrl) {
     const result = { url: coinUrl, submitted_at: submission.submitted_at, verified_at: new Date(nowMs(ctx)).toISOString(), verified_by: 'worker' };
     run(ctx.db, "UPDATE jobs SET status = 'delivered', result = :r, error = NULL, updated_at = :t WHERE id = :id", { r: result, t: nowMs(ctx), id: j.id });
@@ -1309,7 +1343,7 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
   let timedOut = 0;
   // Worker items out of attempts are never claimed again: failed now (nothing was sent) rather than at their deadline.
   const kinds = WORKER_PUBLICATIONS.map((k) => `'${k}'`).join(', ');
-  for (const j of all<JobRow>(ctx.db, `SELECT * FROM jobs WHERE status = 'blocked' AND attempts >= ${MAX_ATTEMPTS} AND kind IN (${kinds})`, {})) {
+  for (const j of all<JobRow>(ctx.db, `SELECT * FROM jobs WHERE status = 'blocked' AND handed_at IS NULL AND attempts >= ${MAX_ATTEMPTS} AND kind IN (${kinds})`, {})) {
     const error = `Not sent after ${MAX_ATTEMPTS} attempts: ${j.error ?? 'nothing was sent'}`.slice(0, 400);
     if (run(ctx.db, "UPDATE jobs SET status = 'failed', error = :e, result = :r, updated_at = :t WHERE id = :id AND status = 'blocked'", { e: error, r: { not_sent: true }, t, id: j.id }).changes) {
       recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'failed', error });

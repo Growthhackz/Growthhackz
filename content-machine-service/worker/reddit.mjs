@@ -7,6 +7,8 @@ import {chromium} from 'playwright';
 export class NotPostedError extends Error {}
 /** The site doesn't take this token at all (e.g. its chain isn't offered): nothing was sent, and retrying won't help. */
 export class NotOfferedError extends NotPostedError {}
+/** Nothing was sent because the site showed a human check, which is never answered for us: a person can finish it. */
+export class HumanCheckError extends NotPostedError {}
 
 /** Opens a page and waits out Reddit's JavaScript challenge (served to browsers on new networks). */
 export async function gotoSettled(page, url) {

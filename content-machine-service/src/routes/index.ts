@@ -27,7 +27,7 @@ import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrder
 import { saveSetting, settingsSummary } from '../services/settingsService.js';
 import { apiHealthChecks, notifyAdmins, recordChecks, sourceHealth } from '../services/healthService.js';
 import { verifyClaim, verifyResult } from '../services/healService.js';
-import { assistDone, assistView, renderAssist } from '../services/assistService.js';
+import { assistDone, assistLink, assistView, renderAssist } from '../services/assistService.js';
 
 type Params = { id: string };
 type AssetParams = { id: string; assetId: string };
@@ -157,8 +157,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     return listingChecked(ctx, req.params.id, b.url, b.live);
   });
   app.post<{ Params: Params }>('/v1/publish/:id/fail', async (req) => {
-    const b = (req.body ?? {}) as { lease?: unknown; error?: unknown; unsupported?: unknown };
-    return publishFailed(ctx, req.params.id, b.lease, b.error, b.unsupported);
+    const b = (req.body ?? {}) as { lease?: unknown; error?: unknown; unsupported?: unknown; human_check?: unknown };
+    return publishFailed(ctx, req.params.id, b.lease, b.error, b.unsupported, b.human_check);
   });
 
   // ---- admin ----
@@ -177,6 +177,9 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
     saveSetting(ctx, b.key, b.value);
     return { saved: true, key: b.key };
   });
+
+  /** The order's posting page for the person (admin), e.g. to pass on when the Telegram DM can't be sent. */
+  app.get<{ Params: Params }>('/v1/admin/orders/:id/assist', admin, async (req) => assistLink(ctx, req.params.id));
 
   app.get('/v1/keys', admin, async () => ({ keys: listKeys(ctx) }));
   app.post('/v1/keys', admin, async (req, reply) => {

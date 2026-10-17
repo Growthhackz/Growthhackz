@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import {NotOfferedError, NotPostedError} from './reddit.mjs';
+import {HumanCheckError, NotOfferedError, NotPostedError} from './reddit.mjs';
 
 /**
  * Coinvote (coinvote.cc). Its add-coin page is one script-driven form that posts to /processing/submit_project.php and
@@ -34,10 +34,10 @@ export async function coinvoteLookup(listing, {origin = 'https://coinvote.cc', n
   };
 }
 
-/** Logged-out review check: live once Coinvote has approved the listing. */
+/** Logged-out review check: the coin page once Coinvote has the listing (in review), live once approved. */
 export async function coinvoteCheck(listing, opts = {}) {
   const {listed} = await coinvoteLookup(listing, opts);
-  return listed?.live && listed.url ? {live: true, url: listed.url} : {live: false};
+  return listed?.url ? {live: listed.live, url: listed.url} : {live: false};
 }
 
 const CHAIN_LABELS = {bsc: 'BNB Chain', ethereum: 'Ethereum', solana: 'Solana', polygon: 'Polygon', arbitrum: 'Arbitrum', base: 'Base', robinhood: 'Robinhood Chain'};
@@ -100,7 +100,10 @@ async function signIn(page, cfg) {
     const last = answers.at(-1);
     if (last && !last.ok && !last.body?.captchaRequired) throw new NotPostedError(`coinvote: login refused (${String(last.body?.message || 'no reason given').slice(0, 120)}); nothing was sent.`);
   }
-  if (!answers.some(a => a.ok)) throw new NotPostedError(answers.length ? 'coinvote: the login asked for a human check that did not pass by itself; nothing was sent.' : 'coinvote: the login got no answer; nothing was sent.');
+  if (!answers.some(a => a.ok)) {
+    if (answers.length) throw new HumanCheckError('coinvote: the login asked for a human check that did not pass by itself; nothing was sent.');
+    throw new NotPostedError('coinvote: the login got no answer; nothing was sent.');
+  }
   await page.waitForTimeout(2000);
 }
 
@@ -211,7 +214,7 @@ export async function coinvoteSubmit({browser, sessionContext, contextOptions, s
       const last = answers.at(-1);
       await snapshot(page, 'rejected');
       if (!last) throw new NotPostedError('coinvote: the submit got no answer; nothing was sent.');
-      if (last.body?.captchaRequired) throw new NotPostedError('coinvote: asked for a human check that did not pass by itself; the listing was not sent.');
+      if (last.body?.captchaRequired) throw new HumanCheckError('coinvote: asked for a human check that did not pass by itself; the listing was not sent.');
       if (last.body?.conflict?.type === 'listed') {
         const again = await coinvoteLookup(listing, {origin: cfg.origin, fetchImpl}).catch(() => null);
         return {submitted: true, url: again?.listed?.url ?? null, note: 'already on Coinvote'};

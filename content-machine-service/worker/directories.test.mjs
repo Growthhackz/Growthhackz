@@ -5,7 +5,7 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {submitListing,checkListing,inspect,directoryCycle,siteConfig} from './directories.mjs';
-import {NotOfferedError,NotPostedError} from './reddit.mjs';
+import {HumanCheckError,NotOfferedError,NotPostedError} from './reddit.mjs';
 
 let extraRequired=false,formGone=false,subscribes=0,loginDisabled=false,cfBlock=false;const coins=[];
 // Every page has a footer newsletter form (like Coinvote's), which must never be filled or submitted.
@@ -58,12 +58,12 @@ try{
  formGone=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'2'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/not reachable/.test(e.message));formGone=false;
  assert.equal(subscribes,0);
  // A login button that stays disabled (captcha) is reported as needing cookies; nothing is sent.
- loginDisabled=true;await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,statePath:join(dir,'y.json')}),e=>e instanceof NotPostedError&&/human check/.test(e.message));loginDisabled=false;
+ loginDisabled=true;await assert.rejects(()=>submitListing('coinsniper',listing,logo,{...cfg,statePath:join(dir,'y.json')}),e=>e instanceof HumanCheckError&&/human check/.test(e.message));loginDisabled=false;
  // A cookie export logs in without the password form.
  const cookieCfg={...siteConfig('coinsniper',{...env,COINSNIPER_COOKIES:JSON.stringify([{name:'sid',value:'1',domain:'127.0.0.1',path:'/'}]),COINSNIPER_EMAIL:'',COINSNIPER_PASSWORD:''}),login:'/login',submit:'/submit',browse:['/new'],statePath:join(dir,'cookie.json'),debugDir:dir};
  assert.ok(await inspect('coinsniper',cookieCfg));
  // Cloudflare holds the submission behind a check that doesn't clear: reported as not sent.
- cfBlock=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'3'.repeat(40)},logo,cfg),e=>e instanceof NotPostedError&&/Cloudflare/.test(e.message));cfBlock=false;
+ cfBlock=true;await assert.rejects(()=>submitListing('coinsniper',{...listing,contract_address:'0x'+'3'.repeat(40)},logo,cfg),e=>e instanceof HumanCheckError&&/Cloudflare/.test(e.message));cfBlock=false;
  // A chain the site's list doesn't have (Robinhood Chain here): not offered, so it is skipped rather than retried.
  await assert.rejects(()=>submitListing('coinsniper',{...listing,chain:'robinhood',contract_address:'0x'+'4'.repeat(40)},logo,cfg),e=>e instanceof NotOfferedError&&/robinhood is not offered/.test(e.message));assert.equal(coins.length,1);
  // Wrong password: nothing sent.
@@ -77,5 +77,9 @@ try{
  assert.deepEqual(calls.find(c=>c[0]==='publish/claim')[1],{kinds:['coinsniper']});
  assert.deepEqual(calls.find(c=>c[0]==='publish/j/complete')[1],{lease:'L',submitted:true,url:null});
  assert.deepEqual(calls.find(c=>c[0]==='listings/j/checked')[1],{live:true,url:'https://coinsniper.net/coin/9'});
+ // A human check in the cycle is reported as such, so the service hands the item to a person.
+ const fails=[];const client2={asset:async()=>Buffer.from('x'),request:async(p,d)=>{if(p==='publish/claim')return {job:{id:'h',kind:'coinsniper',lease:'L2'},target:{listing}};if(p.endsWith('/fail'))fails.push(d);return null;}};
+ await directoryCycle(client2,{env,submit:async()=>{throw new HumanCheckError('coinsniper: Cloudflare check');},check:async()=>({live:false})});
+ assert.deepEqual(fails[0],{lease:'L2',error:'coinsniper: Cloudflare check',unsupported:false,human_check:true});
  console.log('PASS: login, label-based form fill (chain select, date, logo upload, terms), submit, already-listed, unmapped required field and bad login not sent, review check, cycle reporting.');
 }finally{server.close();await rm(dir,{recursive:true,force:true});}

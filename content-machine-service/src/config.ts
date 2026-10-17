@@ -67,6 +67,11 @@ const EnvSchema = z.object({
    * post opens pre-filled on the site, and they pass its human check and submit. Comma list of item kinds.
    */
   ASSIST_KINDS: z.string().default(''),
+  /**
+   * Listing sites the worker tries itself and, when the site shows a human check (which is never answered for us),
+   * hands to the same person and page as ASSIST_KINDS. Comma list of item kinds.
+   */
+  ASSIST_ON_CHECK: z.string().default('coinsniper,coinvote'),
   /** Channels switched off for every order, even when the buybot asks for them. The call channel is paused. */
   PAUSED_CHANNELS: z.string().default('call_channel'),
   /** Source health checks every 30 min (logins, keys, bots, WURK wallet); changes are DMed to ASSIST_CHAT_ID. */
