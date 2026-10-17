@@ -31,19 +31,23 @@ const FRESH_CHAINS = {bsc: /^Binance Smart Chain$/i, ethereum: /^Ethereum$/i, so
 const FRESH_DEXES = {solana: /pump|raydium/i, bsc: /pancake/i, base: /uniswap|aerodrome/i, ethereum: /uniswap/i, robinhood: /uniswap/i};
 const COINSCOPE_CHAINS = {solana: /\(SOL\)\s*Solana/, ethereum: /\(ETH\)\s*Ethereum/, bsc: /\(BSC\)/, polygon: /\(MATIC\)/, arbitrum: /\(ARBITRUM\)/};
 
-async function top100Submit(listing, logoPath) {
+/** Top100Token and CoinBoom run on one platform with one token database: a token submitted on either shows on both. */
+const TOP100_SITES = {top100token: 'https://top100token.com', coinboom: 'https://coinboom.net'};
+const top100CoinUrl = (site, l) => `${TOP100_SITES[site]}/${TOP100_PATHS[l.chain] ?? l.chain}/${l.contract_address}`;
+
+async function top100Submit(listing, logoPath, site = 'top100token') {
   const browser = await launch();
   try {
     const page = await (await browser.newContext(browserContext())).newPage();
     const ca = listing.contract_address;
-    const coinUrl = `https://top100token.com/${TOP100_PATHS[listing.chain] ?? listing.chain}/${ca}`;
+    const coinUrl = top100CoinUrl(site, listing);
     try {
-      await page.goto('https://top100token.com/submit', {waitUntil: 'domcontentloaded', timeout: 60000});
+      await page.goto(`${TOP100_SITES[site]}/submit`, {waitUntil: 'domcontentloaded', timeout: 60000});
       await page.waitForTimeout(4000);
       const chain = page.locator('select').first();
       const offered = (await chain.locator('option').allInnerTexts()).map(t => t.trim());
       const label = TOP100_CHAINS[listing.chain] && offered.find(t => TOP100_CHAINS[listing.chain].test(t));
-      if (!label) throw notOffered('top100token', listing.chain, offered);
+      if (!label) throw notOffered(site, listing.chain, offered);
       await chain.selectOption({label});
       await page.getByPlaceholder('0xB8c76482f45A0F44dE1545F52C73426C621bDC52').fill(ca);
       await page.waitForTimeout(5000);
@@ -67,13 +71,13 @@ async function top100Submit(listing, logoPath) {
       // Free listing (reviewed by the site); Premium is a paid upgrade.
       await page.getByText('Normal Listing', {exact: true}).click();
       await page.waitForTimeout(1000);
-    } catch (e) { throw e instanceof NotPostedError ? e : notSent('top100token', 'could not fill the form', e); }
+    } catch (e) { throw e instanceof NotPostedError ? e : notSent(site, 'could not fill the form', e); }
     const created = page.waitForResponse(r => /\/offer\/create/.test(r.url()) && r.request().method() === 'POST', {timeout: 30000}).catch(() => null);
     await page.locator('button:has-text("Submit")').last().click();
     const r = await created;
     if (!r) return {submitted: false};
     const body = await r.json().catch(() => ({}));
-    if (r.status() >= 300 || body.status !== 'success') throw new NotPostedError(`top100token rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
+    if (r.status() >= 300 || body.status !== 'success') throw new NotPostedError(`${site} rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}`);
     return {submitted: true, url: coinUrl};
   } finally { await browser.close(); }
 }
@@ -325,6 +329,116 @@ async function coinscopeSubmit(listing, logoPath, env = process.env) {
 }
 
 /** Logged-out: is the coin page public and about this coin? */
+/**
+ * HKDeFi (hkdefi.io): no account and no check; its form posts one JSON request. Its ids for our chains and the DEX each
+ * chain launches on (presale "None"). It needs a contact: the project's Telegram, else our listing e-mail. The coin
+ * page (/coin/<id>) appears once HKDeFi approves the token; its search finds it then.
+ */
+const HKDEFI_API = 'https://api.hkdefi.io/api/coin';
+const HKDEFI_CHAINS = {solana: 27, bsc: 14, ethereum: 15, base: 74, polygon: 30, arbitrum: 59, robinhood: 88};
+const HKDEFI_DEX = {solana: 85, bsc: 19, ethereum: 21, base: 21, arbitrum: 21, robinhood: 21, polygon: 36};
+const HKDEFI_HEADERS = {'content-type': 'application/json', origin: 'https://hkdefi.io', referer: 'https://hkdefi.io/addcoin', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'};
+
+async function hkdefiFind(listing, fetchFn = fetch) {
+  const r = await fetchFn(`${HKDEFI_API}/search?search=${encodeURIComponent(listing.name)}`, {headers: HKDEFI_HEADERS, signal: AbortSignal.timeout(20000)});
+  const rows = (await r.json().catch(() => null))?.data?.rows ?? [];
+  const hit = rows.find(c => String(c.contract ?? '').toLowerCase() === listing.contract_address.toLowerCase());
+  return hit ? {live: true, url: `https://hkdefi.io/coin/${hit.id}`} : {live: false};
+}
+
+async function hkdefiSubmit(listing, _logoPath, env = process.env, fetchFn = fetch) {
+  const chain = HKDEFI_CHAINS[listing.chain];
+  if (!chain) throw notOffered('hkdefi', listing.chain);
+  const found = await hkdefiFind(listing, fetchFn).catch(() => ({live: false}));
+  if (found.live) return {submitted: true, url: found.url, note: 'already listed'};
+  const contactTelegram = listing.telegram_url || env.LISTING_CONTACT_TELEGRAM || '';
+  const contactEmail = contactTelegram ? '' : (env.LISTING_CONTACT_EMAIL || '');
+  if (!contactTelegram && !contactEmail) throw notSent('hkdefi', 'HKDeFi needs a contact Telegram or e-mail (the project has no Telegram; set LISTING_CONTACT_EMAIL)');
+  const description = String(listing.description || listing.short_description || `${listing.name} ($${listing.symbol}) community token.`).slice(0, 2000);
+  const body = {
+    name: listing.name, symbol: `$${String(listing.symbol).replace(/^\$/, '')}`, chain, image: listing.logo_public_url || listing.logo_url || '',
+    contract: listing.contract_address, description, presale_platform: 23, presale_time: '', presale_url: '',
+    launch_platform: HKDEFI_DEX[listing.chain] ?? 26, launch_time: '', launch_url: '',
+    website: listing.website_url || '', telegram: listing.telegram_url || '', twitter: listing.x_url || '', discord: '',
+    contact_email: contactEmail, contact_telegram: contactTelegram,
+  };
+  let r;
+  try { r = await fetchFn(`${HKDEFI_API}/apply`, {method: 'POST', headers: HKDEFI_HEADERS, body: JSON.stringify(body), signal: AbortSignal.timeout(30000)}); }
+  catch (e) { throw notSent('hkdefi', 'could not reach HKDeFi', e); }
+  const j = await r.json().catch(() => ({}));
+  // code 1: "Submission successful, We are reviewing!"; code 0: refused with a reason (nothing was listed).
+  if (!r.ok || j.code !== 1) throw new NotPostedError(`hkdefi rejected the listing: HTTP ${r.status} ${String(j.msg ?? '').slice(0, 160)}; nothing was listed.`);
+  return {submitted: true, url: null};
+}
+
+/**
+ * GemPump (gempump.io): no account and no check. Its form fills the token's details from its contract and signs the
+ * request in the page, so the page is driven as a visitor would. Its status lookup (-1 not listed, 1 live, 2 turned
+ * down in review: GemPump then asks for payment) is read first; the coin page is /en/token/<nameId> once live.
+ */
+const GEMPUMP_API = 'https://api.gempump.io';
+const GEMPUMP_NETWORKS = {solana: 'solana', robinhood: 'robinhood', ethereum: 'ethereum', bsc: 'bsc', arc: 'arc', base: 'base', polygon: 'polygon', arbitrum: 'arbitrum'};
+
+async function gempumpStatus(listing, fetchFn = fetch) {
+  const nets = (await (await fetchFn(`${GEMPUMP_API}/network/useable`, {signal: AbortSignal.timeout(20000)})).json())?.data ?? [];
+  const net = nets.find(n => n.dexscreenerName === GEMPUMP_NETWORKS[listing.chain]);
+  if (!net) return {offered: false, names: nets.map(n => n.name)};
+  const s = (await (await fetchFn(`${GEMPUMP_API}/token/status?network=${net.id}&address=${encodeURIComponent(listing.contract_address)}`, {signal: AbortSignal.timeout(20000)})).json())?.data ?? {};
+  return {offered: true, net, status: s.status, url: s.nameId ? `https://www.gempump.io/en/token/${s.nameId}` : null};
+}
+
+async function gempumpCheck(_url, listing) {
+  const s = await gempumpStatus(listing).catch(() => null);
+  return s?.status === 1 && s.url ? {live: true, url: s.url} : {live: false};
+}
+
+async function gempumpSubmit(listing, logoPath, _env = process.env) {
+  if (!GEMPUMP_NETWORKS[listing.chain]) throw notOffered('gempump', listing.chain);
+  let s;
+  try { s = await gempumpStatus(listing); } catch (e) { throw notSent('gempump', 'could not read GemPump', e); }
+  if (!s.offered) throw notOffered('gempump', listing.chain, s.names);
+  if (s.status === 1) return {submitted: true, url: s.url, note: 'already listed'};
+  if (s.status === 2) throw new NotOfferedError('gempump: GemPump already turned this token down in review and asks for payment; nothing was sent.');
+  if (s.status !== -1) return {submitted: true, url: null, note: 'already submitted, in review'};
+  const browser = await launch();
+  try {
+    const page = await (await browser.newContext(browserContext())).newPage();
+    try {
+      await page.goto('https://www.gempump.io/en/addtoken', {waitUntil: 'domcontentloaded', timeout: 60000});
+      await page.locator('button:has-text("Choose Mainnet")').first().waitFor({timeout: 30000});
+      await page.waitForTimeout(2000);
+      await page.locator('button:has-text("Choose Mainnet")').first().click();
+      await page.locator('[data-slot=popover] [role=option]').filter({hasText: new RegExp(`^\\s*${s.net.name}\\s*$`)}).first().click({timeout: 10000});
+      await page.locator('input[name=address]').fill(listing.contract_address);
+      // GemPump fills name, symbol, launch time, links and description from the contract.
+      await page.waitForTimeout(6000);
+      const fillIf = async (sel, v) => { const e = page.locator(sel).first(); if (v && !(await e.inputValue())) await e.fill(v); };
+      await fillIf('input[name=name]', listing.name);
+      await fillIf('input[name=symbol]', String(listing.symbol).replace(/^\$/, ''));
+      await fillIf('textarea[name=introduce]', listing.description || listing.short_description || `${listing.name} ($${listing.symbol}) community token.`);
+      if (!(await page.locator('input[name=startTime]').inputValue()) && listing.launch_date) {
+        const [y, m, d] = listing.launch_date.split('-');
+        for (const [type, v] of [['month', m], ['day', d], ['year', y], ['hour', '12'], ['minute', '00']]) { await page.locator(`[role=spinbutton][data-type=${type}]`).first().click(); await page.keyboard.type(v); }
+      }
+      if (logoPath) await page.locator('input[type=file]').first().setInputFiles(logoPath);
+      await page.waitForTimeout(3000);
+    } catch (e) { throw e instanceof NotPostedError ? e : notSent('gempump', 'could not fill the form', e); }
+    const created = page.waitForResponse(r => /\/token\/create/.test(r.url()) && r.request().method() === 'PUT', {timeout: 30000}).catch(() => null);
+    const submit = page.locator('button:visible').filter({hasText: /^\s*Submit\s*$/}).last();
+    await submit.click({trial: true, timeout: 15000}).catch(async e => { throw notSent('gempump', 'the submit button is not clickable', e); });
+    await submit.click();
+    const r = await created;
+    if (!r) {
+      const shown = (await page.locator('[data-slot=error-message]').allInnerTexts().catch(() => [])).filter(Boolean).join('; ');
+      if (shown) throw notSent('gempump', `the form refused the details (${shown.slice(0, 160)})`);
+      return {submitted: false};
+    }
+    const body = await r.json().catch(() => ({}));
+    if (r.status() >= 300 || body.code !== 200) throw new NotPostedError(`gempump rejected the listing: HTTP ${r.status()} ${JSON.stringify(body).slice(0, 160)}; nothing was listed.`);
+    return {submitted: true, url: null};
+  } finally { await browser.close(); }
+}
+
 async function pageIsLive(url, listing) {
   if (!url) return {live: false};
   const browser = await launch();
@@ -339,9 +453,14 @@ async function pageIsLive(url, listing) {
   } catch { return {live: false}; } finally { await browser.close(); }
 }
 
+export {hkdefiSubmit, hkdefiFind, gempumpStatus};
+
 export const LISTING_SITES = {
   // The coin page from the chain (older BSC records were saved under /bsc/, which Top100Token doesn't serve).
-  top100token: {enabled: () => true, submit: top100Submit, check: (_url, l) => pageIsLive(`https://top100token.com/${TOP100_PATHS[l.chain] ?? l.chain}/${l.contract_address}`, l)},
+  top100token: {enabled: () => true, submit: (l, p) => top100Submit(l, p, 'top100token'), check: (_url, l) => pageIsLive(top100CoinUrl('top100token', l), l)},
+  coinboom: {enabled: () => true, submit: (l, p) => top100Submit(l, p, 'coinboom'), check: (_url, l) => pageIsLive(top100CoinUrl('coinboom', l), l)},
+  hkdefi: {enabled: () => true, submit: (l, p, e) => hkdefiSubmit(l, p, e), check: (_url, l) => hkdefiFind(l).catch(() => ({live: false}))},
+  gempump: {enabled: () => true, submit: gempumpSubmit, check: gempumpCheck},
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},
