@@ -57,10 +57,13 @@ export const CHANNEL_CHAINS: Partial<Record<string, readonly Chain[]>> = {
   coinboom: ['solana', 'bsc', 'ethereum', 'base', 'arbitrum', 'polygon', 'robinhood'],
   hkdefi: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'arbitrum', 'robinhood'],
   gempump: ['solana', 'robinhood', 'ethereum', 'bsc', 'arc', 'base', 'polygon', 'arbitrum'],
+  // CoinGem / CoinDizzy list these chains; a coin they don't have yet is submitted on Solana only.
+  coingem: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'arbitrum'],
+  coindizzy: ['solana', 'bsc', 'ethereum', 'base', 'polygon', 'arbitrum'],
 };
 export const chainOffered = (channel: string, chain: string) => !CHANNEL_CHAINS[channel] || CHANNEL_CHAINS[channel]!.includes(chain as Chain);
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings', 'sticker_pack', 'coinboom', 'hkdefi', 'gempump'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings', 'sticker_pack', 'coinboom', 'hkdefi', 'gempump', 'coingem', 'coindizzy'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -73,6 +76,8 @@ export const DIRECTORY_HOSTS: Record<string, string[]> = {
   coinboom: ['coinboom.net', 'www.coinboom.net'],
   hkdefi: ['hkdefi.io', 'www.hkdefi.io'],
   gempump: ['www.gempump.io', 'gempump.io'],
+  coingem: ['coingem.com', 'www.coingem.com'],
+  coindizzy: ['coindizzy.com', 'www.coindizzy.com'],
   gemfinder: ['gemfinder.cc', 'www.gemfinder.cc'],
   freshcoins: ['www.freshcoins.io', 'freshcoins.io'],
   coinscope: ['www.coinscope.co', 'coinscope.co'],
@@ -97,6 +102,8 @@ export const LISTING_PATHS: Record<string, RegExp> = {
   coinboom: /^\/[a-z]+\/[A-Za-z0-9]{20,}\/?$/,
   hkdefi: /^\/coin\/\d+\/?$/,
   gempump: /^\/(en\/)?token\/[a-z0-9-]+\/?$/i,
+  coingem: /^\/[a-z0-9-]+\/[a-z0-9-]+\/?$/i,
+  coindizzy: /^\/[a-z0-9-]+\/[a-z0-9-]+\/?$/i,
   gemfinder: /^\/gem\/\d+\/?$/,
   freshcoins: /^\/coins\/[a-z0-9-]+\/?$/,
   coinscope: /^\/coin\/[a-z0-9-]+\/?$/,
@@ -302,6 +309,8 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   ['coinboom', 86],
   ['hkdefi', 86],
   ['gempump', 86],
+  ['coingem', 86],
+  ['coindizzy', 86],
   ['gemfinder', 86],
   ['freshcoins', 86],
   ['coinscope', 86],
@@ -329,7 +338,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** External publications: a failure mid-flight may still have published, so these never auto-retry. */
-export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'coinboom', 'hkdefi', 'gempump', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
+export const IRREVERSIBLE = ['telegraph', 'binance', 'call_channel', ...REDDIT_KINDS, 'coinsniper', 'coinvote', 'top100token', 'coinboom', 'hkdefi', 'gempump', 'coingem', 'coindizzy', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'cmc_community', 'press_1888', 'bitcointalk', 'sticker_publish'];
 /** Rendered by the companion worker (ffmpeg/sharp), not in-process. */
 export const RENDER_KINDS = ['media', 'stickers'];
 export const MAX_ATTEMPTS = 3;
@@ -370,6 +379,8 @@ export const DEADLINE_MS: Record<string, number> = {
   coinboom: 8 * 24 * HOUR,
   hkdefi: 8 * 24 * HOUR,
   gempump: 8 * 24 * HOUR,
+  coingem: 8 * 24 * HOUR,
+  coindizzy: 8 * 24 * HOUR,
   gemfinder: 8 * 24 * HOUR,
   freshcoins: 8 * 24 * HOUR,
   coinscope: 8 * 24 * HOUR,
@@ -422,6 +433,8 @@ export const SOURCE_LABELS: Record<string, string> = {
   coinboom: 'CoinBoom listing',
   hkdefi: 'HKDeFi listing',
   gempump: 'GemPump listing',
+  coingem: 'CoinGem listing',
+  coindizzy: 'CoinDizzy listing',
   gemfinder: 'GemFinder listing',
   freshcoins: 'FreshCoins listing',
   coinscope: 'Coinscope listing',

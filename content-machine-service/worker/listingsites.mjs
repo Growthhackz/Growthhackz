@@ -7,6 +7,7 @@ import {browserContext, installCookieSession, NotOfferedError, NotPostedError, r
 import {withLock} from './lock.mjs';
 import {bitgetSubmit, okxUpdateSubmit} from './wallets.mjs';
 import {web3ListingsSubmit} from './web3links.mjs';
+import {gemCheck, gemSubmit} from './gemsites.mjs';
 
 /**
  * Listing sites with their own step-by-step flows (each mapped from the live form): Top100Token (no login, 3 steps,
@@ -461,6 +462,13 @@ export const LISTING_SITES = {
   coinboom: {enabled: () => true, submit: (l, p) => top100Submit(l, p, 'coinboom'), check: (_url, l) => pageIsLive(top100CoinUrl('coinboom', l), l)},
   hkdefi: {enabled: () => true, submit: (l, p, e) => hkdefiSubmit(l, p, e), check: (_url, l) => hkdefiFind(l).catch(() => ({live: false}))},
   gempump: {enabled: () => true, submit: gempumpSubmit, check: gempumpCheck},
+  // CoinGem / CoinDizzy (gemsites.mjs): most coins are already there (link recorded); others are submitted signed in
+  // with our wallet, one wallet browser at a time.
+  ...Object.fromEntries(['coingem', 'coindizzy'].map(site => [site, {
+    enabled: () => true,
+    submit: (l, p, e) => withLock('wallet', () => gemSubmit(site, l, p, e)),
+    check: (_url, l) => gemCheck(site, l),
+  }])),
   gemfinder: {enabled: env => !!(env.GEMFINDER_COOKIES || (env.GEMFINDER_EMAIL && env.GEMFINDER_PASSWORD)), submit: (l, p, e) => withLock('gemfinder', () => gemfinderSubmit(l, p, e)), check: pageIsLive},
   freshcoins: {enabled: env => !!env.FRESHCOINS_COOKIES, submit: (l, p, e) => withLock('freshcoins', () => freshcoinsSubmit(l, p, e)), check: pageIsLive},
   coinscope: {enabled: env => !!env.COINSCOPE_REFRESH_TOKEN, submit: coinscopeSubmit, check: pageIsLive},

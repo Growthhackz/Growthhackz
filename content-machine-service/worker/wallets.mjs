@@ -221,6 +221,9 @@ async function approveWindow(ctx, name, id, site, w) {
   return approved;
 }
 
+/** For other wallet-login sites: approves connect and sign-in requests, never anything that looks like a transaction. */
+export const approveWallet = approve;
+
 /** The site's tab after the wallet is done (it may have been replaced). */
 const siteTab = (ctx, host) => ctx.pages().filter(p => !p.isClosed() && p.url().includes(host)).pop();
 
