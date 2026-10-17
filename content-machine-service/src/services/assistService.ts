@@ -9,9 +9,11 @@ import { loadOrder, recordEvent, type JobRow, type Order } from './orderService.
 import { setting } from './settingsService.js';
 
 /**
- * Posts handed to a person (ASSIST_KINDS): sites whose human check we never pass for them. The operator gets one
- * Telegram DM per order linking to a private page where each post opens on the site already filled in; they pass
- * the check, submit, and paste the link back, which delivers it like any other publication.
+ * Posts handed to a person: sites whose human check we never pass for them. ASSIST_KINDS go to the person from the
+ * start; ASSIST_ON_CHECK sites are tried by the worker first and handed over only when the site shows its check. The
+ * operator gets one Telegram DM per order linking to a private page where each post opens on the site already filled
+ * in; they pass the check, submit, and paste the link back (Coinvote's is found without it), which delivers it like
+ * any other publication.
  */
 
 const HANDABLE = [...Object.keys(REDDIT_SUBREDDITS), 'coinsniper', 'coinvote'];
@@ -27,7 +29,7 @@ const SUBREDDIT_NOTES: Record<string, string> = {
 };
 const TOKEN_TTL_MS = 7 * 24 * 3_600_000;
 const RESEND_MS = 5 * 60_000;
-const WAITING = 'Waiting on you: open the posting link in your Telegram DM, submit, and paste the link back.';
+const WAITING = 'Waiting on you: open the posting link in your Telegram DM, pass the site\'s check and submit.';
 
 interface AssistRow {
   order_id: string;
@@ -42,6 +44,35 @@ export function assistKinds(ctx: ServiceContext): string[] {
   return HANDABLE.filter((k) => listed.includes(k) || (REDDIT_SUBREDDITS[k] && listed.includes('reddit')));
 }
 
+/** ASSIST_ON_CHECK as item kinds (listing sites only). */
+export function assistOnCheck(ctx: ServiceContext): string[] {
+  const listed = ctx.config.ASSIST_ON_CHECK.split(',').map((s) => s.trim()).filter(Boolean);
+  return HANDABLE.filter((k) => !REDDIT_SUBREDDITS[k] && listed.includes(k));
+}
+
+/** Items of the order that are the person's: ASSIST_KINDS, plus anything the worker handed over. */
+const personsJobs = (ctx: ServiceContext, o: Order) => {
+  const kinds = assistKinds(ctx);
+  return o.jobs.filter((j) => (kinds.includes(j.kind) || j.handed_at) && j.status !== 'skipped');
+};
+
+/**
+ * The worker reached the site's human check: the item waits on the person. The order's DM goes out (again, listing
+ * everything) once its other listing items are settled, so two sites blocking a minute apart make one message.
+ */
+export function handOver(ctx: ServiceContext, j: JobRow, reason: string) {
+  const t = nowMs(ctx);
+  run(
+    ctx.db,
+    `UPDATE jobs SET status = 'blocked', error = :e, handed_at = :t, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
+     WHERE id = :id`,
+    { e: WAITING, t, a: t + 2 * 60_000, id: j.id },
+  );
+  recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'blocked', error: WAITING, reason });
+  const r = run(ctx.db, 'INSERT OR IGNORE INTO assists (order_id, token, created_at) VALUES (:id, :token, :t)', { id: j.order_id, token: randomBytes(24).toString('base64url'), t });
+  if (!r.changes) run(ctx.db, 'UPDATE assists SET sent_at = NULL, attempted_at = NULL, error = NULL WHERE order_id = :id', { id: j.order_id });
+}
+
 const label = (kind: string) => SOURCE_LABELS[kind] ?? kind;
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -52,12 +83,11 @@ const inList = (kinds: string[]) => kinds.map((k) => `'${k}'`).join(', ');
 /** Each tick: hands newly ready posts over (blocked, waiting on the person) and sends any DM not yet delivered. */
 export async function sendAssists(ctx: ServiceContext): Promise<number> {
   const kinds = assistKinds(ctx);
-  if (!kinds.length) return 0;
   const t = nowMs(ctx);
   const handed = new Set<string>();
-  for (const j of all<JobRow>(ctx.db, `SELECT * FROM jobs WHERE status = 'queued' AND kind IN (${inList(kinds)})`)) {
+  for (const j of kinds.length ? all<JobRow>(ctx.db, `SELECT * FROM jobs WHERE status = 'queued' AND kind IN (${inList(kinds)})`) : []) {
     if (!ready(loadOrder(ctx, j.order_id))) continue;
-    const r = run(ctx.db, "UPDATE jobs SET status = 'blocked', error = :e, updated_at = :t WHERE id = :id AND status = 'queued'", { e: WAITING, t, id: j.id });
+    const r = run(ctx.db, "UPDATE jobs SET status = 'blocked', error = :e, handed_at = :t, updated_at = :t WHERE id = :id AND status = 'queued'", { e: WAITING, t, id: j.id });
     if (!r.changes) continue;
     recordEvent(ctx, j.order_id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'blocked', error: WAITING });
     handed.add(j.order_id);
@@ -66,7 +96,16 @@ export async function sendAssists(ctx: ServiceContext): Promise<number> {
     run(ctx.db, 'INSERT OR IGNORE INTO assists (order_id, token, created_at) VALUES (:id, :token, :t)', { id, token: randomBytes(24).toString('base64url'), t });
 
   let sent = 0;
-  const due = all<AssistRow>(ctx.db, 'SELECT * FROM assists WHERE sent_at IS NULL AND (attempted_at IS NULL OR attempted_at <= :a) LIMIT 5', { a: t - RESEND_MS });
+  // Wait while the worker is still trying one of the order's other check-prone sites, so one DM covers both.
+  const trying = inList(assistOnCheck(ctx).length ? assistOnCheck(ctx) : ['-']);
+  const due = all<AssistRow>(
+    ctx.db,
+    `SELECT a.* FROM assists a WHERE a.sent_at IS NULL AND (a.attempted_at IS NULL OR a.attempted_at <= :a)
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = a.order_id AND j.kind IN (${trying})
+         AND (j.status IN ('queued', 'running') OR (j.status = 'blocked' AND j.handed_at IS NULL)))
+     LIMIT 5`,
+    { a: t - RESEND_MS },
+  );
   for (const a of due) {
     run(ctx.db, 'UPDATE assists SET attempted_at = :t WHERE order_id = :id', { t, id: a.order_id });
     try {
@@ -86,12 +125,13 @@ async function sendDm(ctx: ServiceContext, a: AssistRow) {
   const chat = setting(ctx, 'ASSIST_CHAT_ID') || setting(ctx, 'STICKER_OWNER_ID');
   if (!chat) throw new SetupRequiredError('Set ASSIST_CHAT_ID (the Telegram user ID that gets posting links; they must start the bot).');
   const o = loadOrder(ctx, a.order_id);
-  const items = o.jobs.filter((j) => assistKinds(ctx).includes(j.kind) && j.status !== 'skipped');
+  const items = personsJobs(ctx, o).filter((j) => !['delivered', 'submitted'].includes(j.status));
+  if (!items.length) return;
   const p = o.project;
   const text = [
     `🛠 <b>${esc(p.name)}${p.symbol ? ` ($${esc(p.symbol)})` : ''}</b> is ready to post`,
     items.map((j) => `• ${esc(label(j.kind))}`).join('\n'),
-    'Open the page and tap each one: it opens on the site already filled in. Pass the check, submit, then paste the link back on the page.',
+    'Open the page and tap each one: it opens on the site already filled in. Pass the check and submit, then paste the link back on the page (Coinvote\'s is picked up by itself).',
     ...((p as { test?: boolean }).test ? ['<i>Test order: nothing goes to the buyer.</i>'] : []),
   ].join('\n\n');
   await telegram(ctx, 'sendMessage', {
@@ -101,6 +141,13 @@ async function sendDm(ctx: ServiceContext, a: AssistRow) {
     disable_web_page_preview: true,
     reply_markup: { inline_keyboard: [[{ text: 'Open posting page', url: pageUrl(ctx, a.token) }]] },
   });
+}
+
+/** Admin: the order's posting page (null when nothing was handed to a person) and whether its DM went out. */
+export function assistLink(ctx: ServiceContext, orderId: string) {
+  const a = get<AssistRow & { error: string | null }>(ctx.db, 'SELECT * FROM assists WHERE order_id = :id', { id: orderId });
+  if (!a) return { url: null };
+  return { url: pageUrl(ctx, a.token), dm_sent_at: a.sent_at ? new Date(a.sent_at).toISOString() : null, dm_error: a.error ?? null };
 }
 
 function loadAssist(ctx: ServiceContext, token: string): AssistRow {
@@ -124,14 +171,35 @@ function autofillBookmarklet(data: Record<string, unknown>): string {
   return 'javascript:' + encodeURIComponent(code);
 }
 
+/** Coinvote's network ids (its add-coin form). */
+const COINVOTE_NETWORKS: Record<string, number> = { bsc: 1, ethereum: 2, solana: 3, polygon: 5, arbitrum: 10, base: 13, robinhood: 20 };
+
+/**
+ * Fills Coinvote's add-coin form in the visitor's own browser: the contract on its network, then name, ticker, Meme
+ * Token, Live, description and links. The person passes the check and submits.
+ */
+function coinvoteBookmarklet(l: Record<string, string | null>): string {
+  const desc = String(l.description || l.short_description || '').trim();
+  const data = {
+    network: COINVOTE_NETWORKS[String(l.chain ?? '').toLowerCase()] ?? 0,
+    contract_address: l.contract_address,
+    name: l.name,
+    symbol: String(l.symbol ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, 20),
+    description: (desc.length >= 20 ? desc : `${l.name} (${l.symbol}) community token. ${desc}`).slice(0, 2000),
+    telegram_url: l.telegram_url,
+    website_url: l.website_url,
+    x_url: l.x_url,
+  };
+  const code = `(d=>{const q=s=>document.querySelector(s);const set=(s,v)=>{const e=q(s);if(!e||!v)return;Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e),'value').set.call(e,v);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))};if(!q('#cv-ac-form')){alert('Open the Coinvote add-coin page first, signed in.');return}q('#cv-ac-start [data-start-skip]')?.click();set('#cv-ac-address',d.contract_address);setTimeout(()=>{const m=q('#cv-ac-manual-chains');if(m){m.closest('details').open=true;m.querySelector('.cv-ac-chip[data-chain="'+d.network+'"]')?.click()}set('#cv-ac-name',d.name);set('#cv-ac-symbol',d.symbol);set('#cv-ac-category','2');set('#cv-ac-description',d.description);set('[name="socials[telegram]"]',d.telegram_url);set('[name="socials[website]"]',d.website_url);set('[name="socials[twitter]"]',d.x_url);const r=q('input[name="launch_type"][value="released"]');if(r){r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}))}alert('Filled. Check the fields, pass the security check if it shows, and press Submit my project.')},1200)})(${JSON.stringify(data)})`;
+  return 'javascript:' + encodeURIComponent(code);
+}
+
 export function assistView(ctx: ServiceContext, token: string) {
   const a = loadAssist(ctx, token);
   const o = loadOrder(ctx, a.order_id);
-  const kinds = assistKinds(ctx);
   const image = o.assets.find((x) => x.kind === 'campaign_image');
   const items = o.copy
-    ? o.jobs
-        .filter((j) => kinds.includes(j.kind) && j.status !== 'skipped')
+    ? personsJobs(ctx, o)
         .map((j) => ({ id: j.id, kind: j.kind, label: label(j.kind), status: j.status, url: jobResult(j).url ?? null, target: publishTarget(ctx, j.kind, o) as any }))
     : [];
   return { order: o, items, image_url: image ? publicAssetUrl(ctx, o.id, image.id) : null };
@@ -141,10 +209,8 @@ export function assistView(ctx: ServiceContext, token: string) {
 export async function assistDone(ctx: ServiceContext, token: string, body: unknown) {
   const a = loadAssist(ctx, token);
   const { kind, url, submitted } = (body ?? {}) as { kind?: unknown; url?: unknown; submitted?: unknown };
-  const j = typeof kind === 'string' && assistKinds(ctx).includes(kind)
-    ? get<JobRow>(ctx.db, 'SELECT * FROM jobs WHERE order_id = :o AND kind = :k', { o: a.order_id, k: kind })
-    : undefined;
-  if (!j || j.status === 'skipped') throw new NotFoundError('Post');
+  const j = typeof kind === 'string' ? get<JobRow>(ctx.db, 'SELECT * FROM jobs WHERE order_id = :o AND kind = :k', { o: a.order_id, k: kind }) : undefined;
+  if (!j || j.status === 'skipped' || !(assistKinds(ctx).includes(j.kind) || j.handed_at)) throw new NotFoundError('Post');
   if (j.status === 'delivered') return { status: 'delivered', url: jobResult(j).url ?? null };
   if (typeof url === 'string' && url.trim()) {
     const order = await reconcile(ctx, j.id, url.trim());
@@ -200,9 +266,11 @@ export function renderAssist(view: ReturnType<typeof assistView>): string {
       const l = (it.target as { listing: Record<string, string | null> }).listing;
       const logo = l.logo_url || view.image_url;
       const fill = { ...l, chain: String(l.chain ?? '').toLowerCase() };
+      const coinvote = it.kind === 'coinvote';
+      const bookmarklet = coinvote ? coinvoteBookmarklet(l) : autofillBookmarklet(fill);
       return `<section><h2>${esc(it.label)}</h2>${state}
         <a class="go" href="${esc(SUBMIT_PAGES[it.kind])}" target="_blank" rel="noreferrer">Open the ${esc(it.label.replace(/ listing$/, ''))} submit page</a>
-        <p class="hint">On a computer: drag <a class="bm" href="${esc(autofillBookmarklet(fill))}">⚡ Fill ${esc(p.symbol || p.name)}</a> to your bookmarks bar once, open the submit page, click it and the form fills in. On a phone: use the copy buttons.</p>
+        <p class="hint">On a computer: drag <a class="bm" href="${esc(bookmarklet)}">⚡ Fill ${esc(p.symbol || p.name)}</a> to your bookmarks bar once, open the submit page${coinvote ? ' (signed in)' : ''}, click it and the form fills in. ${coinvote ? 'On a phone: copy the contract address below and paste it into Coinvote\'s <b>Yes, it is live</b> box; Coinvote fills in the rest. Then pass the check and submit: the coin link is picked up here by itself within a few minutes.' : 'On a phone: use the copy buttons.'}</p>
         <details><summary>Fields to copy</summary>
           ${copyRow('Name', l.name)}${copyRow('Symbol', l.symbol)}${copyRow('Chain', l.chain)}${copyRow('Contract address', l.contract_address)}
           ${copyRow('Short description', l.short_description, true)}${copyRow('Description', l.description, true)}

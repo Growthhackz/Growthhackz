@@ -33,6 +33,8 @@ export interface JobRow {
   result: string | null;
   error: string | null;
   deadline_at: number | null;
+  /** Handed to a person after the site showed a human check (assistService.handOver). */
+  handed_at?: number | null;
   updated_at: number;
 }
 
@@ -312,6 +314,8 @@ export function presentOrder(ctx: ServiceContext, o: Order) {
       error: j.error,
       result: j.result ? JSON.parse(j.result) : null,
       available_at: iso(j.available_at),
+      // Waiting on a person since (the site showed a human check, or the item is in ASSIST_KINDS).
+      handed_at: j.handed_at ? iso(j.handed_at) : null,
       updated_at: iso(j.updated_at),
     })),
     assets: o.assets.map((a) => ({ id: a.id, kind: a.kind, mime: a.mime, name: a.name, size: a.size, url: assetUrl(a.id), created_at: iso(a.created_at) })),
@@ -359,7 +363,7 @@ export function retryJob(ctx: ServiceContext, id: string, resetAttempts = false,
   run(
     ctx.db,
     // A retry gets a fresh deadline, and the order reports again when everything is final.
-    `UPDATE jobs SET status = 'queued', error = NULL, available_at = 0, deadline_at = :deadline, updated_at = :t,
+    `UPDATE jobs SET status = 'queued', error = NULL, available_at = 0, deadline_at = :deadline, updated_at = :t, handed_at = NULL,
        attempts = CASE WHEN :reset = 1 THEN 0 ELSE attempts END
      WHERE id = :id AND status IN ('blocked', 'failed', 'uncertain')`,
     { id, t: nowMs(ctx), deadline: nowMs(ctx) + deadlineMs(j.kind), reset: resetAttempts ? 1 : 0 },

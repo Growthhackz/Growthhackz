@@ -3,7 +3,7 @@ import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {browserContext, installCookieSession, NotOfferedError, NotPostedError, redditProxy} from './reddit.mjs';
+import {browserContext, HumanCheckError, installCookieSession, NotOfferedError, NotPostedError, redditProxy} from './reddit.mjs';
 import {firecrawlSite, openBrowser, sessionContext} from './firecrawl.mjs';
 import {coinvoteCheck, coinvoteSubmit} from './coinvote.mjs';
 
@@ -121,8 +121,11 @@ async function launch(cfg, save = true, path = cfg.submit) {
   catch (e) { throw new NotPostedError(`${cfg.site}: could not start the browser (${String(e?.message || e).split('\n')[0].slice(0, 160)}); nothing was sent.`); }
 }
 
-/** Cloudflare's full-page "Just a moment…" / "Performing security verification" interstitial. */
-const cloudflareChallenge = async page => (await page.locator('#challenge-form').count().catch(() => 0)) > 0 || /performing security verification|just a moment/i.test(await page.title().catch(() => ''));
+/** Cloudflare's full-page "Just a moment…" / "Verify you are human" interstitial (its title can be empty). */
+const cloudflareChallenge = async page =>
+  (await page.locator('#challenge-form, #challenge-stage, iframe[src*="challenges.cloudflare.com"]').count().catch(() => 0)) > 0 ||
+  /performing security verification|just a moment/i.test(await page.title().catch(() => '')) ||
+  /verify you are human|performing security verification|checking (if the site connection is secure|your browser)/i.test((await page.locator('body').innerText({timeout: 2000}).catch(() => '')).slice(0, 2000));
 
 /** Waits for the interstitial to finish on its own (it usually does on a residential IP); true if it cleared. */
 async function waitOutInterstitial(page, ms = 60000) {
@@ -180,7 +183,7 @@ async function openSubmitFormUnsafe(browser, cfg) {
   // Only the real coin form counts: a footer newsletter form on a login or error page must not look like success.
   const onForm = async () => !page.url().includes(cfg.login) && !(await page.locator('input[type="password"]').count()) && (await hasListingForm(page));
   const clearChallenge = async where => {
-    if (!(await waitOutInterstitial(page))) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${cfg.site}: Cloudflare's security check did not clear on the ${where} page; nothing was sent.`); }
+    if (!(await waitOutInterstitial(page))) { await debugSnapshot(page, cfg, 'cloudflare'); throw new HumanCheckError(`${cfg.site}: Cloudflare's security check did not clear on the ${where} page; nothing was sent.`); }
     await dismissPopups(page);
   };
   const where = async () => `${page.url().split('?')[0]} "${(await page.title().catch(() => '')).slice(0, 60)}"`;
@@ -198,7 +201,7 @@ async function openSubmitFormUnsafe(browser, cfg) {
     await page.waitForTimeout(1500);
     // A login button that stays disabled is waiting on a human check (captcha), which is never bypassed.
     if (await loginButton.isDisabled().catch(() => false))
-      throw new NotPostedError(`${cfg.site}: the login needs a human check (captcha); ${browser.firecrawl ? `log in by hand with \`node login.mjs ${cfg.site}\`` : `set ${cfg.site.toUpperCase()}_COOKIES from a logged-in browser`}.`);
+      throw new HumanCheckError(`${cfg.site}: the login needs a human check (captcha); ${browser.firecrawl ? `log in by hand with \`node login.mjs ${cfg.site}\`` : `set ${cfg.site.toUpperCase()}_COOKIES from a logged-in browser`}.`);
     await Promise.all([page.waitForLoadState('domcontentloaded').catch(() => {}), loginButton.click({timeout: 15000})]);
     await page.waitForTimeout(1500);
     await page.goto(submitUrl, {waitUntil: 'domcontentloaded'});
@@ -239,7 +242,7 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
         if (!ok && f.required) missing.push(f.label || f.name || `#${f.idx}`);
       }
       if (missing.length) { await debugSnapshot(page, cfg, 'unfilled'); throw new NotPostedError(`${site}: step ${step}: could not fill required fields: ${missing.join(', ')}`); }
-      if (await humanCheckPending(page)) { await debugSnapshot(page, cfg, 'check'); throw new NotPostedError(`${site}: step ${step} has a human check that needs a click; the listing was not sent.`); }
+      if (await humanCheckPending(page)) { await debugSnapshot(page, cfg, 'check'); throw new HumanCheckError(`${site}: step ${step} has a human check that needs a click; the listing was not sent.`); }
       const before = page.url();
       const shape = await visibleNames();
       const button = page.locator('form[data-cm-form] [type="submit"]:visible, form[data-cm-form] button:not([type="button"]):visible, form[data-cm-form] button:visible:has-text("Next"), form[data-cm-form] button:visible:has-text("Continue")').last();
@@ -250,7 +253,7 @@ export async function submitListing(site, listing, logoPath, cfg = siteConfig(si
       await page.waitForTimeout(2500);
       // Cloudflare may hold the step behind its check. On a residential IP it usually clears by itself; it's never
       // solved for it. While the check stands, the request hasn't reached the site.
-      if (!(await waitOutInterstitial(page))) { await debugSnapshot(page, cfg, 'cloudflare'); throw new NotPostedError(`${site}: Cloudflare's security check did not clear after step ${step}, so the listing was not sent.`); }
+      if (!(await waitOutInterstitial(page))) { await debugSnapshot(page, cfg, 'cloudflare'); throw new HumanCheckError(`${site}: Cloudflare's security check did not clear after step ${step}, so the listing was not sent.`); }
       await dismissPopups(page);
       const text = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
       const errors = (await page.locator('.error:visible, .alert-danger:visible, .invalid-feedback:visible, [role="alert"]:visible, .text-danger:visible').allInnerTexts().catch(() => [])).join(' ').trim();
@@ -330,7 +333,7 @@ export async function directoryCycle(client, {submit = submitListing, check = ch
       const r = await submit(c.job.kind, c.target.listing, logo.path);
       await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, submitted: r.submitted, url: r.url ?? null});
     } catch (e) {
-      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message, unsupported: e instanceof NotOfferedError}); }
+      if (e instanceof NotPostedError) { console.error(`${c.job.kind} (${c.job.order_id}) not posted: ${e.message}`); await client.request(`publish/${c.job.id}/fail`, {lease: c.job.lease, error: e.message, unsupported: e instanceof NotOfferedError, human_check: e instanceof HumanCheckError}); }
       else {
         console.error(`${c.job.kind} (${c.job.order_id}): ${e?.message || e}`);
         await client.request(`publish/${c.job.id}/complete`, {lease: c.job.lease, url: null, note: String(e?.message || e).slice(0, 300)});

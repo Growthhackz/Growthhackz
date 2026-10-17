@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import sharp from 'sharp';
 import {submitListing,checkListing,siteConfig} from './directories.mjs';
 import {coinvoteDescription,coinvoteLookup} from './coinvote.mjs';
-import {NotOfferedError,NotPostedError} from './reddit.mjs';
+import {HumanCheckError,NotOfferedError,NotPostedError} from './reddit.mjs';
 
 // captcha: 'none' | 'passes' (an invisible check that clears and resubmits by itself) | 'stuck' (needs a person).
 let deadLoads=0,captcha='none',loginCaptcha='none',reject=null,takenName=null,submits=0,logins=0;const coins=[];
@@ -77,20 +77,21 @@ try{
  takenName='Bul';assert.equal((await submitListing('coinvote',{...listing,name:'Bul',contract_address:'0x'+'2'.repeat(40),chain:'bsc'},logo,cfg)).url,`${origin}/coin/Bul-Sol`);takenName=null;
  // A security check that clears by itself is waited for; one that needs a person is never answered: not sent.
  captcha='passes';assert.equal((await submitListing('coinvote',{...listing,name:'Gecko',contract_address:'0x'+'3'.repeat(40),chain:'base'},logo,cfg)).submitted,true);
- captcha='stuck';const before=submits;await assert.rejects(()=>submitListing('coinvote',{...listing,name:'Newt',contract_address:'0x'+'4'.repeat(40),chain:'base'},logo,cfg),e=>e instanceof NotPostedError&&/human check/.test(e.message));assert.equal(submits,before);captcha='none';
+ captcha='stuck';const before=submits;await assert.rejects(()=>submitListing('coinvote',{...listing,name:'Newt',contract_address:'0x'+'4'.repeat(40),chain:'base'},logo,cfg),e=>e instanceof HumanCheckError&&/human check/.test(e.message));assert.equal(submits,before);captcha='none';
  // Coinvote refuses the details: reported, nothing listed.
  reject={description:'Write between 20 and 2000 characters.'};await assert.rejects(()=>submitListing('coinvote',{...listing,name:'Eft',contract_address:'0x'+'5'.repeat(40),chain:'base'},logo,cfg),e=>e instanceof NotPostedError&&/description/.test(e.message));reject=null;
  // Arc is not a Coinvote network: skipped, not retried.
  await assert.rejects(()=>submitListing('coinvote',{...listing,chain:'arc',contract_address:'0x'+'6'.repeat(40)},logo,cfg),NotOfferedError);
  // Wrong password, and a login check that needs a person: not sent.
  await assert.rejects(()=>submitListing('coinvote',{...listing,contract_address:'0x'+'7'.repeat(40),chain:'base'},logo,{...fresh(1),password:'nope'}),e=>e instanceof NotPostedError&&/login refused/.test(e.message));
- loginCaptcha='stuck';await assert.rejects(()=>submitListing('coinvote',{...listing,contract_address:'0x'+'8'.repeat(40),chain:'base'},logo,fresh(2)),e=>e instanceof NotPostedError&&/human check/.test(e.message));
+ loginCaptcha='stuck';await assert.rejects(()=>submitListing('coinvote',{...listing,contract_address:'0x'+'8'.repeat(40),chain:'base'},logo,fresh(2)),e=>e instanceof HumanCheckError&&/human check/.test(e.message));
  loginCaptcha='passes';assert.equal((await submitListing('coinvote',{...listing,name:'Axolotl',contract_address:'0x'+'9'.repeat(40),chain:'base'},logo,fresh(3))).submitted,true);loginCaptcha='none';
  // Coinvote's form script sometimes doesn't start: the page is loaded again; after three dead loads, nothing is sent.
  deadLoads=1;assert.equal((await submitListing('coinvote',{...listing,name:'Olm',contract_address:'0x'+'a'.repeat(40),chain:'base'},logo,cfg)).submitted,true);
  deadLoads=3;const n=submits;await assert.rejects(()=>submitListing('coinvote',{...listing,name:'Siren',contract_address:'0x'+'b'.repeat(40),chain:'base'},logo,cfg),e=>e instanceof NotPostedError&&/did not start/.test(e.message));assert.equal(submits,n);deadLoads=0;
- // Review check: in review, then live once approved.
- assert.deepEqual(await checkListing('coinvote',listing,{},cfg),{live:false});
+ // Review check: the coin page while in review (a listing a person submitted is found this way), then live once approved.
+ assert.deepEqual(await checkListing('coinvote',listing,{},cfg),{live:false,url:`${origin}/coin/Moon-Frog`});
+ assert.deepEqual(await checkListing('coinvote',{...listing,contract_address:'0x'+'c'.repeat(40),chain:'base'},{},cfg),{live:false});
  c.live=true;assert.deepEqual(await checkListing('coinvote',listing,{},cfg),{live:true,url:`${origin}/coin/Moon-Frog`});
  assert.deepEqual(await coinvoteLookup({...listing,contract_address:'none'},{origin}),{listed:null,nameTaken:null});
  assert.equal(coinvoteDescription({name:'A',symbol:'A',chain:'robinhood',description:''}),'A (A) is a community token on Robinhood Chain.');

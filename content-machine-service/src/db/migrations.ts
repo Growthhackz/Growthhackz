@@ -112,4 +112,11 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    sql: `
+      -- When the worker handed this item to a person (the site showed a human check we never pass for them).
+      ALTER TABLE jobs ADD COLUMN handed_at INTEGER;
+    `,
+  },
 ];
