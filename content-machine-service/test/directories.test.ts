@@ -235,7 +235,13 @@ describe('order report with listings under review', () => {
     expect(job).toMatchObject({ status: 'delivered', result: { url: kept[0]!.url, links: kept } });
     const published = (await t.api('GET', `/v1/orders/${o.id}/events`)).body.events.filter((e: any) => e.type === 'link.published' && e.data.source === 'web3_listings');
     expect(published).toHaveLength(1);
-    expect(callbackData('link.published', published[0].data)).toEqual({ source: 'web3_listings', label: 'Web3 Listing Updates', url: kept[0]!.url, links: kept, project: { name: 'Moon Frog', symbol: 'MFROG' } });
+    // The core bot knows no `web3_listings` source: it goes out under a listing source it does know, with the real label.
+    // ...and every page in `links` passes the bot's allowlist: Binance's own host as is, Gate's through our short link.
+    const sent = callbackData(t.ctx, 'link.published', published[0].data) as any;
+    expect(sent).toMatchObject({ source: 'coinsniper', label: 'Web3 Listing Updates', url: kept[0]!.url, project: { name: 'Moon Frog', symbol: 'MFROG' } });
+    expect(sent.links.map((l: any) => l.name)).toEqual(['Binance Wallet', 'Gate Web3']);
+    expect(sent.links[0].url).toBe(kept[0]!.url);
+    expect(sent.links[1].url).toMatch(/^https:\/\/content\.example\.test\/go\//);
     expect((await t.api('GET', `/v1/orders/${o.id}/report`)).body.successes).toContainEqual({ source: 'web3_listings', label: 'Web3 Listing Updates', url: kept[0]!.url, links: kept });
     // No page shows the token: failed, nothing sent.
     const o2 = (await t.api('POST', '/v1/trending', { purchase_id: 'w3-2', chain: 'bsc', contract_address: '0x' + '2'.repeat(40), name: 'Bee', symbol: 'BEE' })).body;

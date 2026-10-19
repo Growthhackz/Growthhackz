@@ -29,6 +29,7 @@ import { apiHealthChecks, notifyAdmins, recordChecks, sourceHealth } from '../se
 import { verifyClaim, verifyResult } from '../services/healService.js';
 import { assistDone, assistLink, assistView, renderAssist } from '../services/assistService.js';
 import { partnerResult } from '../services/partnerService.js';
+import { resolveShortLink } from '../services/callbackShape.js';
 
 type Params = { id: string };
 type AssetParams = { id: string; assetId: string };
@@ -199,6 +200,13 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   app.post<{ Params: Params }>('/v1/connectors/:id/probe', admin, async (req) =>
     probeConnector(ctx, req.params.id, (req.body ?? {}) as Record<string, unknown>),
   );
+
+  // ---- short links: a published URL on a host the core bot's allowlist would drop, served from our own host ----
+  app.get<{ Params: Params }>('/go/:id', async (req, reply) => {
+    const url = resolveShortLink(ctx, req.params.id);
+    if (!url) return reply.code(404).type('text/plain').send('Unknown link');
+    return reply.code(302).header('location', url).header('cache-control', 'public, max-age=86400').header('referrer-policy', 'no-referrer').send();
+  });
 
   // ---- public images (embedded by Telegraph pages); images only, nothing else about the order ----
   app.get<{ Params: { assetId: string } }>('/media/:assetId', async (req, reply) => {

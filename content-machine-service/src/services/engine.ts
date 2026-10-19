@@ -43,6 +43,7 @@ import { healOrders } from './healService.js';
 import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
 import { assistKinds, assistOnCheck, handOver, sendAssists } from './assistService.js';
+import { shapeCallbackData } from './callbackShape.js';
 import { partnerReady, sendPartnerListing, settlePartnerListings } from './partnerService.js';
 
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
@@ -1135,28 +1136,42 @@ interface EventRow {
 }
 
 /** At-least-once delivery with exponential backoff; gives up after 8 attempts. */
-/** Only the fields a receiver needs: names, labels and public URLs. Error text stays in the report API. */
-export function callbackData(type: string, d: any): unknown {
-  const project = d?.project ? { name: d.project.name ?? null, symbol: d.project.symbol ?? null } : undefined;
-  switch (type) {
-    case 'order.accepted':
-      return {};
-    case 'link.published':
-      // Web3 Listing Updates carries every checked page in `links` (url = the first).
-      return { source: d.source, label: d.label, url: d.url, ...(Array.isArray(d.links) ? { links: d.links } : {}), project };
-    case 'sticker_pack.ready':
-      return { url: d.url, name: d.name, project };
-    case 'order.completed':
-      return {
-        complete: !!d.complete,
-        project,
-        successes: (d.successes ?? []).map((x: any) => ({ source: x.source, label: x.label, url: x.url ?? null, ...(Array.isArray(x.links) ? { links: x.links } : {}) })),
-        failures: (d.failures ?? []).map((x: any) => ({ source: x.source, label: x.label, status: x.status })),
-        pending: (d.pending ?? []).map((x: any) => ({ source: x.source, label: x.label, status: x.status })),
-      };
-    default:
-      return d;
+/** The event's `data` as the receiver takes it (services/callbackShape.ts); the full record stays in the events API. */
+export const callbackData = (ctx: ServiceContext, type: string, d: any): unknown => shapeCallbackData(ctx, type, d);
+
+const CALLBACK_ATTEMPTS = 8;
+/** Events worth a second try once the shape or the receiver changed; an "accepted" for an old order is not. */
+const REPLAYABLE = ['link.published', 'sticker_pack.ready', 'order.completed'];
+
+/**
+ * A callback the receiver refused on every attempt gets one more delivery, as a new event (fresh id, so the
+ * receiver's replay check doesn't swallow it) carrying the same data in the current shape. Once per event:
+ * a replay that fails too is left alone.
+ */
+export function replayGivenUpCallbacks(ctx: ServiceContext, types: Set<string>): number {
+  const dead = all<EventRow>(
+    ctx.db,
+    `SELECT * FROM events WHERE sent = 0 AND attempts >= :max AND replay_of IS NULL AND replayed_by IS NULL
+     AND type IN (${REPLAYABLE.map((t) => `'${t}'`).join(', ')}) ORDER BY created_at LIMIT 200`,
+    { max: CALLBACK_ATTEMPTS },
+  );
+  let replayed = 0;
+  for (const e of dead) {
+    if (!types.has(e.type)) continue;
+    const id = uid();
+    run(ctx.db, 'INSERT INTO events (id, order_id, type, data, created_at, replay_of) VALUES (:id, :o, :type, :data, :t, :of)', {
+      id,
+      o: e.order_id,
+      type: e.type,
+      data: e.data,
+      t: e.created_at,
+      of: e.id,
+    });
+    run(ctx.db, 'UPDATE events SET replayed_by = :by WHERE id = :id', { by: id, id: e.id });
+    ctx.log.info({ order_id: e.order_id, type: e.type, event: e.id, replay: id }, 'callback replayed');
+    replayed++;
   }
+  return replayed;
 }
 
 /** One delivery run at a time per service, so the fast callback loop and the tick never send an event twice. */
@@ -1177,12 +1192,13 @@ async function deliverCallbackBatch(ctx: ServiceContext, batch: number): Promise
   const secret = setting(ctx, 'CALLBACK_SECRET');
   if (!url || !secret) return { sent: 0, failed: 0 };
   safeRemote(url);
+  const types = new Set(ctx.config.CALLBACK_EVENT_TYPES.split(',').map((t) => t.trim()).filter(Boolean));
+  replayGivenUpCallbacks(ctx, types);
   const rows = all<EventRow>(
     ctx.db,
-    'SELECT * FROM events WHERE sent = 0 AND attempts < 8 AND available_at <= :t ORDER BY created_at LIMIT :batch',
-    { t: nowMs(ctx), batch },
+    'SELECT * FROM events WHERE sent = 0 AND attempts < :max AND available_at <= :t ORDER BY created_at LIMIT :batch',
+    { max: CALLBACK_ATTEMPTS, t: nowMs(ctx), batch },
   );
-  const types = new Set(ctx.config.CALLBACK_EVENT_TYPES.split(',').map((t) => t.trim()).filter(Boolean));
   let sent = 0;
   let failed = 0;
   for (const e of rows) {
@@ -1200,7 +1216,7 @@ async function deliverCallbackBatch(ctx: ServiceContext, batch: number): Promise
       external_order_id: external,
       purchase_id: external?.startsWith('trending:') ? external.slice('trending:'.length) : null,
       created: e.created_at,
-      data: callbackData(e.type, JSON.parse(e.data)),
+      data: callbackData(ctx, e.type, JSON.parse(e.data)),
     });
     const ts = String(Math.floor(nowMs(ctx) / 1000));
     try {
@@ -1231,13 +1247,15 @@ async function deliverCallbackBatch(ctx: ServiceContext, batch: number): Promise
 }
 
 export function listEvents(ctx: ServiceContext, orderId: string) {
-  return all<EventRow & { sent: number }>(ctx.db, 'SELECT * FROM events WHERE order_id = :o ORDER BY created_at', { o: orderId }).map((e) => ({
+  return all<EventRow & { sent: number; replay_of: string | null; replayed_by: string | null }>(ctx.db, 'SELECT * FROM events WHERE order_id = :o ORDER BY created_at, replay_of', { o: orderId }).map((e) => ({
     id: e.id,
     type: e.type,
     data: JSON.parse(e.data),
     created_at: new Date(e.created_at).toISOString(),
     delivered: !!e.sent,
     attempts: e.attempts,
+    ...(e.replay_of ? { replay_of: e.replay_of } : {}),
+    ...(e.replayed_by ? { replayed_by: e.replayed_by } : {}),
   }));
 }
 
