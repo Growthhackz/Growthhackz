@@ -162,7 +162,9 @@ describe('live pipeline (providers faked at the HTTP layer)', () => {
       expect(sentTypes).toContain(JSON.parse(r.body).type);
     }
     const links = received.map((r) => JSON.parse(r.body)).filter((b) => b.type === 'link.published');
-    expect(links.map((b) => b.data.source).sort()).toEqual(['binance', 'call_channel', 'hub', 'telegraph']);
+    expect(links.map((b) => b.data.label).sort()).toEqual(['Binance Square article', 'Call channel post', 'Project hub', 'Telegraph article']);
+    // Sources are the receiver's closed list (the hub has none of its own there).
+    expect(links.map((b) => b.data.source).sort()).toEqual(['binance', 'call_channel', 'telegraph', 'telegraph']);
     for (const b of links) expect(Object.keys(b.data).sort()).toEqual(['label', 'project', 'source', 'url']);
     const completed = received.map((r) => JSON.parse(r.body)).find((b) => b.type === 'order.completed');
     expect(completed.data.successes.every((x: any) => Object.keys(x).sort().join() === 'label,source,url')).toBe(true);

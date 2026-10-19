@@ -67,6 +67,8 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
     // Posting pages for the operator: the random token in the link is the access (sent only in their Telegram DM).
     if (/^\/assist\/[A-Za-z0-9_-]{32}$/.test(path) && req.method === 'GET') return;
     if (/^\/assist\/[A-Za-z0-9_-]{32}\/done$/.test(path) && req.method === 'POST') return;
+    // Short links to published pages on hosts the core bot won't show directly (buyers tap these from their DMs).
+    if (/^\/go\/[A-Za-z0-9_-]{8,16}$/.test(path) && req.method === 'GET') return;
     if (path.startsWith('/projects/')) {
       if (config.PUBLIC_HUB_ENABLED) return;
       return reply.code(404).send({ error: { code: 'not_found', message: 'Public hubs are disabled' } });

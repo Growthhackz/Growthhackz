@@ -212,7 +212,11 @@ Body envelope:
     "pending":   [] }
   ```
   In `successes`, `source` can also be `sticker_publish` (label "Telegram sticker pack"), and `url`
-  can be `null`. Show a success without a URL as a plain ✅ line.
+  can be `null`. Show a success without a URL as a plain ✅ line. `pending` is always empty.
+- `source` is a category; `label` is the name to show. Several destinations share a source (every
+  listing site arrives as `coinsniper`; a failed internal step arrives as `telegraph`), so always
+  display `label`, never a name derived from `source`. Some links are short links on our own host
+  (`https://content-machine-api-production-509a.up.railway.app/go/...`) that redirect to the page.
 
 ### Delivery behaviour
 

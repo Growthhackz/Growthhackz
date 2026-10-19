@@ -119,4 +119,18 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE jobs ADD COLUMN handed_at INTEGER;
     `,
   },
+  {
+    version: 6,
+    sql: `
+      -- Short links on our own host for URLs the core bot's allowlist would drop (see services/callbackShape.ts).
+      CREATE TABLE redirects (
+        id          TEXT PRIMARY KEY,
+        url         TEXT NOT NULL UNIQUE,
+        created_at  INTEGER NOT NULL
+      );
+      -- A callback the receiver kept refusing gets one second delivery under a fresh event id, in the current shape.
+      ALTER TABLE events ADD COLUMN replay_of TEXT;
+      ALTER TABLE events ADD COLUMN replayed_by TEXT;
+    `,
+  },
 ];

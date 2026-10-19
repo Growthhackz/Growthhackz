@@ -97,8 +97,11 @@ describe('core bot callbacks', () => {
     });
     expect(bodies.every((b) => ['order.accepted', 'link.published', 'sticker_pack.ready', 'order.completed'].includes(b.type))).toBe(true);
     expect(bodies.every((b) => b.purchase_id === 'cb-1' && b.external_order_id === 'trending:cb-1')).toBe(true);
-    const link = bodies.find((b) => b.type === 'link.published' && b.data.source === 'telegraph');
+    const link = bodies.find((b) => b.type === 'link.published' && b.data.label === 'Telegraph article');
     expect(link?.data).toEqual({ source: 'telegraph', label: 'Telegraph article', url: 'https://telegra.ph/Moon-Frog-09-29', project: { name: 'Moon Frog', symbol: 'MFROG' } });
+    // The hub has no source of its own in the bot's schema: it goes out under one it knows, on our (allowlisted) host.
+    const hub = bodies.find((b) => b.type === 'link.published' && b.data.label === 'Project hub');
+    expect(hub?.data).toMatchObject({ source: 'telegraph', url: expect.stringMatching(/^https:\/\/content\.example\.test\/projects\//) });
     for (const b of bodies.filter((x) => x.type === 'order.completed'))
       for (const f of b.data.failures) expect(Object.keys(f).sort()).toEqual(['label', 'source', 'status']);
   });
