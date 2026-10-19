@@ -69,6 +69,7 @@ describe('trending orchestration', () => {
       'freshcoins',
       'gemfinder',
       'meme_pack',
+      'partner_listings',
       'social_boost',
       'sticker_pack',
       'telegraph',

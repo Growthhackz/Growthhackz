@@ -1,5 +1,5 @@
 import { all, get, run } from '../db/database.js';
-import { deadlineMs, IRREVERSIBLE, SOURCE_LABELS, STEP_LABELS } from '../domain/schemas.js';
+import { deadlineMs, IRREVERSIBLE, SOURCE_LABELS, STEP_LABELS, PARTNER_LISTINGS } from '../domain/schemas.js';
 import { nowMs, type ServiceContext } from './context.js';
 import { notifyAdmins } from './healthService.js';
 import { recordEvent, type JobRow } from './orderService.js';
@@ -12,7 +12,8 @@ import { recordEvent, type JobRow } from './orderService.js';
  */
 
 /** In-process steps that are safe to run again (nothing external is published by them). */
-const healable = (kind: string, worker: string[]) => !IRREVERSIBLE.includes(kind) && !worker.includes(kind) && kind !== 'social_boost';
+// The outside listing service has its own retries and wait; its outcome stands (a second run would ask it twice).
+const healable = (kind: string, worker: string[]) => !IRREVERSIBLE.includes(kind) && !worker.includes(kind) && kind !== 'social_boost' && kind !== PARTNER_LISTINGS;
 /** Not worth a second run: the budget is spent, or the item only failed because another did (healed with it). */
 const NOT_TRANSIENT = /^(Not started:|Timed out after)|Generation allowance reached/;
 

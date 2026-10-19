@@ -28,6 +28,7 @@ import { saveSetting, settingsSummary } from '../services/settingsService.js';
 import { apiHealthChecks, notifyAdmins, recordChecks, sourceHealth } from '../services/healthService.js';
 import { verifyClaim, verifyResult } from '../services/healService.js';
 import { assistDone, assistLink, assistView, renderAssist } from '../services/assistService.js';
+import { partnerResult } from '../services/partnerService.js';
 
 type Params = { id: string };
 type AssetParams = { id: string; assetId: string };
@@ -159,6 +160,12 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   app.post<{ Params: Params }>('/v1/publish/:id/fail', async (req) => {
     const b = (req.body ?? {}) as { lease?: unknown; error?: unknown; unsupported?: unknown; human_check?: unknown };
     return publishFailed(ctx, req.params.id, b.lease, b.error, b.unsupported, b.human_check);
+  });
+
+  // ---- outside listing service: Coinvote / CoinSniper URLs for an order (its own token, or admin) ----
+  app.post('/v1/partner/listings', async (req) => {
+    if (req.principal !== 'partner' && req.principal !== 'admin') throw new AppError('Use the listing service token', 403, 'forbidden');
+    return partnerResult(ctx, req.body);
   });
 
   // ---- admin ----

@@ -63,7 +63,7 @@ export const CHANNEL_CHAINS: Partial<Record<string, readonly Chain[]>> = {
 };
 export const chainOffered = (channel: string, chain: string) => !CHANNEL_CHAINS[channel] || CHANNEL_CHAINS[channel]!.includes(chain as Chain);
 /** `call_channel` is our own Telegram call channel (e.g. @fullsendtrenches), posted by our bot. */
-export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings', 'sticker_pack', 'coinboom', 'hkdefi', 'gempump', 'coingem', 'coindizzy'] as const;
+export const CHANNELS = ['telegraph', 'binance', 'call_channel', 'reddit', 'coinsniper', 'coinvote', 'cmc_community', 'press_1888', 'social_boost', 'bitcointalk', 'meme_pack', 'media', 'top100token', 'gemfinder', 'freshcoins', 'coinscope', 'okx_wallet', 'bitget_wallet', 'web3_listings', 'sticker_pack', 'coinboom', 'hkdefi', 'gempump', 'coingem', 'coindizzy', 'partner_listings'] as const;
 
 /**
  * Submitted by the worker, reviewed by the site, delivered once the public page is live: directory listings and
@@ -93,6 +93,8 @@ export const REQUEST_LISTINGS = ['okx_wallet', 'bitget_wallet'];
  * They list every DEX-traded token on their own; the worker checks each page shows the token before it is sent.
  */
 export const WEB3_LISTINGS = 'web3_listings';
+/** Coinvote and CoinSniper listings made by an outside service (partnerService). */
+export const PARTNER_LISTINGS = 'partner_listings';
 export const WEB3_HOSTS = ['web3.binance.com', 'web3.okx.com', 'web3.bitget.com', 'web3.gate.com', 'www.mexc.com'];
 /** What the live page's path looks like on each of those sites. */
 export const LISTING_PATHS: Record<string, RegExp> = {
@@ -295,6 +297,7 @@ export const STAGES: ReadonlyArray<readonly [string, number]> = [
   // Independent of the content: starts as soon as the order arrives.
   ['social_boost', 5],
   ['metadata', 10],
+  ['partner_listings', 15],
   ['copy', 20],
   ['hub', 30],
   ['campaign_image', 40],
@@ -387,6 +390,7 @@ export const DEADLINE_MS: Record<string, number> = {
   okx_wallet: 24 * HOUR,
   bitget_wallet: 24 * HOUR,
   web3_listings: 6 * HOUR,
+  partner_listings: 2 * HOUR,
   press_1888: 8 * 24 * HOUR,
   sticker_art_0: 10 * HOUR,
   sticker_art_1: 10 * HOUR,
@@ -407,7 +411,8 @@ export const deadlineMs = (kind: string) => DEADLINE_MS[kind] ?? 24 * HOUR;
 
 /** What each item needs delivered first. A failed dependency fails its dependents at once. */
 export function dependenciesOf(kind: string): string[] {
-  if (kind === 'social_boost' || kind === 'metadata') return [];
+  // The outside listing service needs nothing else to succeed (it waits briefly for the metadata and copy, see ready()).
+  if (kind === 'social_boost' || kind === 'metadata' || kind === PARTNER_LISTINGS) return [];
   if (kind === 'copy') return ['metadata'];
   if (kind === 'hub' || kind === 'campaign_image' || kind.startsWith('sticker_art_')) return ['copy'];
   if (kind === 'stickers') return ['sticker_art_0', 'sticker_art_1', 'sticker_art_2', 'sticker_art_3', 'sticker_art_4'];
@@ -433,6 +438,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   coinboom: 'CoinBoom listing',
   hkdefi: 'HKDeFi listing',
   gempump: 'GemPump listing',
+  partner_listings: 'Coinvote & CoinSniper listings',
   coingem: 'CoinGem listing',
   coindizzy: 'CoinDizzy listing',
   gemfinder: 'GemFinder listing',
