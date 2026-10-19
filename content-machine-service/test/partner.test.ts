@@ -126,6 +126,12 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     await silent.tick(1);
     expect((await silent.job()).status).toBe('failed');
     expect((await silent.job()).error).toMatch(/no URLs within 15 minutes/);
+    // A late answer is acknowledged (no retries from the service) and changes nothing: the order has moved on.
+    const late = await silent.answer({ request_id: (await silent.job()).id, coinvote_url: COINVOTE });
+    expect(late.status).toBe(200);
+    expect(late.body.status).toBe('closed');
+    expect((await silent.job()).status).toBe('failed');
+    expect(silent.events('link.published').filter((l: any) => l.source === 'partner_listings')).toHaveLength(0);
     // A final "done" with nothing ends it too.
     const done = await setup();
     await done.tick();
@@ -145,6 +151,17 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     const jobs = (await down.t.api('GET', `/v1/orders/${down.o.id}`)).body.jobs;
     for (const k of ['metadata', 'copy', 'campaign_image']) expect(jobs.find((x: any) => x.kind === k).status).toBe('delivered');
     expect(down.events('order.completed')).toHaveLength(1);
+  });
+
+  it('calls the service with its own key when it gave us one; it still answers with ours', async () => {
+    const OUT = 'plw_' + 'k'.repeat(40);
+    const { sent, tick, job, answer } = await setup({ PARTNER_LISTINGS_URL: PARTNER, PARTNER_LISTINGS_TOKEN: TOKEN, PARTNER_LISTINGS_OUT_TOKEN: OUT });
+    await tick();
+    const { headers, raw } = sent[0]!;
+    expect(headers.get('authorization')).toBe(`Bearer ${OUT}`);
+    expect(headers.get('x-signature')).toBe(createHmac('sha256', OUT).update(`${headers.get('x-timestamp')}.${raw}`).digest('hex'));
+    expect((await answer({ request_id: (await job()).id, coinvote_url: COINVOTE, coinsniper_url: COINSNIPER }, OUT)).status).toBe(401);
+    expect((await answer({ request_id: (await job()).id, coinvote_url: COINVOTE, coinsniper_url: COINSNIPER })).body.status).toBe('delivered');
   });
 
   it('is skipped while the service is not set up', async () => {

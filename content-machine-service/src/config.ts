@@ -77,8 +77,10 @@ const EnvSchema = z.object({
    * and it answers on /v1/partner/listings with the coin page URLs. Off while either is unset.
    */
   PARTNER_LISTINGS_URL: z.string().url().optional(),
-  /** Shared secret: our Bearer token on requests to it, and the Bearer token it uses on /v1/partner/listings. */
+  /** The Bearer token it uses on /v1/partner/listings (and ours to it, unless PARTNER_LISTINGS_OUT_TOKEN is set). */
   PARTNER_LISTINGS_TOKEN: z.string().min(32).optional(),
+  /** The service's own key: our Bearer token (and signing key) on requests to it. */
+  PARTNER_LISTINGS_OUT_TOKEN: z.string().min(16).optional(),
   /** How long its URLs are waited for: then whatever came back is delivered, or the item fails (nothing else waits). */
   PARTNER_LISTINGS_WAIT_MINUTES: z.coerce.number().int().min(1).max(120).default(15),
   /** Channels switched off for every order, even when the buybot asks for them. The call channel is paused. */

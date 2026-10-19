@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { z } from 'zod';
 import { all, get, run } from '../db/database.js';
 import { chainName, DIRECTORY_HOSTS, LISTING_PATHS, PARTNER_LISTINGS } from '../domain/schemas.js';
-import { ConflictError, NotFoundError, UpstreamError, ValidationError } from '../lib/errors.js';
+import { NotFoundError, UpstreamError, ValidationError } from '../lib/errors.js';
 import { iso, nowMs, publicAssetUrl, type ServiceContext } from './context.js';
 import { recordEvent, type JobRow, type Order } from './orderService.js';
 
@@ -135,7 +135,8 @@ export async function sendPartnerListing(ctx: ServiceContext, j: Leased, o: Orde
     if (r.changes) recordEvent(ctx, o.id, 'delivery.updated', { job_id: j.id, kind: j.kind, status: 'skipped', result });
     return;
   }
-  const token = ctx.config.PARTNER_LISTINGS_TOKEN!;
+  // The service's own key when it gave us one, else the shared token.
+  const token = ctx.config.PARTNER_LISTINGS_OUT_TOKEN ?? ctx.config.PARTNER_LISTINGS_TOKEN!;
   const body = JSON.stringify(partnerRequest(ctx, j, o));
   const ts = String(Math.floor(nowMs(ctx) / 1000));
   let res: Response;
@@ -207,7 +208,8 @@ export function partnerResult(ctx: ServiceContext, body: unknown) {
   if (!j) throw new NotFoundError('Listing request');
   const found = Object.fromEntries(SITES.map((s) => [s.key, siteUrl(s, b[s.field])]));
   if (j.status === 'delivered') return { status: 'delivered', links: resultOf(j).links ?? [] };
-  if (!['running', 'submitted'].includes(j.status)) throw new ConflictError(`This request is no longer waiting (${j.status})`);
+  // After the wait the order has moved on: a late URL is acknowledged (so the service doesn't retry) and not used.
+  if (!['running', 'submitted'].includes(j.status)) return { status: 'closed', links: resultOf(j).links ?? [], note: 'The wait for this order is over; it completed without this answer.' };
   const links = merged(resultOf(j).links, found);
   const final = b.status === 'done' || b.status === 'failed' || b.status === 'partial';
   if (links.length === SITES.length || (final && links.length)) {
