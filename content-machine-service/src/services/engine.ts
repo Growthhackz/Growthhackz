@@ -4,6 +4,7 @@ import {
   deadlineMs,
   dependenciesOf,
   DIRECTORY_HOSTS,
+  PARTNER_LISTINGS,
   EXPECTED_RENDER_FILES,
   IRREVERSIBLE,
   OPTIONAL_RENDER_FILES,
@@ -42,6 +43,7 @@ import { healOrders } from './healService.js';
 import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, type JobRow, type Order } from './orderService.js';
 import { setRawSetting, setting } from './settingsService.js';
 import { assistKinds, assistOnCheck, handOver, sendAssists } from './assistService.js';
+import { partnerReady, sendPartnerListing, settlePartnerListings } from './partnerService.js';
 
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
@@ -214,7 +216,7 @@ export function claim(ctx: ServiceContext, orderId: string, render = false, skip
       // Binance and Reddit wait for the companion worker's publish claim.
       !WORKER_PUBLICATIONS.includes(j.kind) &&
       !skip.includes(j.kind) &&
-      ready(j, o),
+      (j.kind === PARTNER_LISTINGS ? partnerReady(o, t) : ready(j, o)),
   );
   for (const j of candidates) {
     const lease = uid();
@@ -279,6 +281,8 @@ async function runJob(ctx: ServiceContext, j: Leased, o: Order): Promise<void> {
     }
     case 'social_boost':
       return startSocialBoost(ctx, j, o);
+    case PARTNER_LISTINGS:
+      return sendPartnerListing(ctx, j, o);
     case 'hub':
       // The hub page isn't published or delivered unless PUBLIC_HUB_ENABLED; the content and assets still exist.
       if (!ctx.config.PUBLIC_HUB_ENABLED) return finish(ctx, j, { reason: 'Project hub is not published.' }, 'skipped');
@@ -505,6 +509,7 @@ export async function tick(ctx: ServiceContext, limit = ctx.config.JOBS_PER_TICK
     if (!progressed) break;
   }
   await pollSocialBoosts(ctx);
+  settlePartnerListings(ctx);
   if (ctx.config.HEALTH_CHECKS_ENABLED)
     await apiHealthChecks(ctx).catch((err) => ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'health checks failed'));
   await sendAssists(ctx);
@@ -1397,7 +1402,9 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')})
          AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL)
          -- A paid social boost runs on WURK's schedule; the report doesn't wait for it.
-         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost'))`,
+         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost')
+         -- Nor for the outside listing service: its URLs go out as links when they come back.
+         AND NOT (j.status IN ('queued', 'running', 'submitted') AND j.kind = '${PARTNER_LISTINGS}'))`,
     {},
   );
   for (const { id } of pending) {
@@ -1433,6 +1440,8 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     }
     else if (j.status === 'uncertain')
       failures.push({ source: j.kind, label, status: 'unconfirmed', error: j.error ?? 'May have been published; needs checking before any retry.' });
+    else if (j.kind === PARTNER_LISTINGS)
+      pending.push({ source: j.kind, label, status: 'in_progress', deadline_at: new Date(j.available_at).toISOString(), note: 'Waiting for the listing service; the links follow when they come back.' });
     else pending.push({ source: j.kind, label, status: j.status, deadline_at: j.deadline_at ? new Date(j.deadline_at).toISOString() : null, note: j.error });
   }
   return {

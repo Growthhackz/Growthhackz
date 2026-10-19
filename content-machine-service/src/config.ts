@@ -60,7 +60,7 @@ const EnvSchema = z.object({
    */
   TRENDING_CHANNELS: z
     .string()
-    .default('telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack,sticker_pack,web3_listings'),
+    .default('telegraph,binance,call_channel,top100token,gemfinder,freshcoins,coinscope,cmc_community,social_boost,bitcointalk,meme_pack,sticker_pack,web3_listings,partner_listings'),
 
   /**
    * Posts handed to a person instead of the worker: the order's operator gets one Telegram DM with a page where each
@@ -72,6 +72,15 @@ const EnvSchema = z.object({
    * hands to the same person and page as ASSIST_KINDS. Comma list of item kinds.
    */
   ASSIST_ON_CHECK: z.string().default('coinsniper,coinvote'),
+  /**
+   * Outside listing service (Coinvote and CoinSniper): each order's coin details are POSTed to PARTNER_LISTINGS_URL
+   * and it answers on /v1/partner/listings with the coin page URLs. Off while either is unset.
+   */
+  PARTNER_LISTINGS_URL: z.string().url().optional(),
+  /** Shared secret: our Bearer token on requests to it, and the Bearer token it uses on /v1/partner/listings. */
+  PARTNER_LISTINGS_TOKEN: z.string().min(32).optional(),
+  /** How long its URLs are waited for: then whatever came back is delivered, or the item fails (nothing else waits). */
+  PARTNER_LISTINGS_WAIT_MINUTES: z.coerce.number().int().min(1).max(120).default(15),
   /** Channels switched off for every order, even when the buybot asks for them. The call channel is paused. */
   PAUSED_CHANNELS: z.string().default('call_channel'),
   /** Source health checks every 30 min (logins, keys, bots, WURK wallet); changes are DMed to ASSIST_CHAT_ID. */
@@ -88,7 +97,7 @@ const EnvSchema = z.object({
    * A second, third… trending purchase for the same token gets only these (new posts and a new social boost), plus
    * five new stickers and five new memes added to its existing sticker pack.
    */
-  REPEAT_CHANNELS: z.string().default('cmc_community,binance,social_boost,meme_pack,sticker_pack,web3_listings'),
+  REPEAT_CHANNELS: z.string().default('cmc_community,binance,social_boost,meme_pack,sticker_pack,web3_listings,partner_listings'),
   /** Subreddits each order posts to when it has the `reddit` channel (names from SUBREDDITS, or `all`). */
   REDDIT_TARGETS: z.string().default('moonshots,SolanaMemeCoins'),
 

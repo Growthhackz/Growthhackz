@@ -12,7 +12,7 @@ import type { ServiceContext } from './services/context.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    principal: 'admin' | KeyScope | null;
+    principal: 'admin' | 'partner' | KeyScope | null;
   }
 }
 
@@ -72,6 +72,11 @@ export function buildApp(opts: BuildAppOptions): BuiltApp {
       return reply.code(404).send({ error: { code: 'not_found', message: 'Public hubs are disabled' } });
     }
     const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
+    // The outside listing service answers with its shared token, which opens this one route and nothing else.
+    if (path === '/v1/partner/listings' && req.method === 'POST' && config.PARTNER_LISTINGS_TOKEN && token && safeEqual(token, config.PARTNER_LISTINGS_TOKEN)) {
+      req.principal = 'partner';
+      return;
+    }
     const scope = token && !safeEqual(token, config.ADMIN_API_TOKEN) ? authenticateKey(ctx, token) : null;
     if (token && safeEqual(token, config.ADMIN_API_TOKEN)) req.principal = 'admin';
     else if (scope) req.principal = scope;
