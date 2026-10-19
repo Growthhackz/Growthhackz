@@ -1146,14 +1146,17 @@ const REPLAYABLE = ['link.published', 'sticker_pack.ready', 'order.completed'];
 /**
  * A callback the receiver refused on every attempt gets one more delivery, as a new event (fresh id, so the
  * receiver's replay check doesn't swallow it) carrying the same data in the current shape. Once per event:
- * a replay that fails too is left alone.
+ * a replay that fails too is left alone. Runs for one order when an admin asks (POST /v1/orders/:id/callbacks/replay),
+ * or for everything on each delivery run only with CALLBACK_REPLAY_ENABLED.
  */
-export function replayGivenUpCallbacks(ctx: ServiceContext, types: Set<string>): number {
+export const callbackTypes = (ctx: ServiceContext) => new Set(ctx.config.CALLBACK_EVENT_TYPES.split(',').map((t) => t.trim()).filter(Boolean));
+
+export function replayGivenUpCallbacks(ctx: ServiceContext, types: Set<string>, orderId?: string): number {
   const dead = all<EventRow>(
     ctx.db,
     `SELECT * FROM events WHERE sent = 0 AND attempts >= :max AND replay_of IS NULL AND replayed_by IS NULL
-     AND type IN (${REPLAYABLE.map((t) => `'${t}'`).join(', ')}) ORDER BY created_at LIMIT 200`,
-    { max: CALLBACK_ATTEMPTS },
+     AND type IN (${REPLAYABLE.map((t) => `'${t}'`).join(', ')})${orderId ? ' AND order_id = :o' : ''} ORDER BY created_at LIMIT 200`,
+    { max: CALLBACK_ATTEMPTS, ...(orderId ? { o: orderId } : {}) },
   );
   let replayed = 0;
   for (const e of dead) {
@@ -1192,8 +1195,8 @@ async function deliverCallbackBatch(ctx: ServiceContext, batch: number): Promise
   const secret = setting(ctx, 'CALLBACK_SECRET');
   if (!url || !secret) return { sent: 0, failed: 0 };
   safeRemote(url);
-  const types = new Set(ctx.config.CALLBACK_EVENT_TYPES.split(',').map((t) => t.trim()).filter(Boolean));
-  replayGivenUpCallbacks(ctx, types);
+  const types = callbackTypes(ctx);
+  if (ctx.config.CALLBACK_REPLAY_ENABLED) replayGivenUpCallbacks(ctx, types);
   const rows = all<EventRow>(
     ctx.db,
     'SELECT * FROM events WHERE sent = 0 AND attempts < :max AND available_at <= :t ORDER BY created_at LIMIT :batch',

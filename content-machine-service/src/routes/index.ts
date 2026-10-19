@@ -7,6 +7,8 @@ import { connectorList, probeConnector } from '../services/connectorService.js';
 import type { ServiceContext } from '../services/context.js';
 import {
   acceptRender,
+  callbackTypes,
+  deliverCallbacks,
   listEvents,
   processOrder,
   publishClaim,
@@ -21,6 +23,7 @@ import {
   renderFailed,
   tick,
   orderReport,
+  replayGivenUpCallbacks,
 } from '../services/engine.js';
 import { publicHub, renderHub } from '../services/hubService.js';
 import { createOrder, createTrendingOrder, findByExternalId, getOrder, listOrders, loadOrder, presentOrder, readAsset, recentProblems, retryJob } from '../services/orderService.js';
@@ -85,6 +88,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ServiceContext): void 
   app.get<{ Params: Params }>('/v1/orders/:id/events', async (req) => {
     getOrder(ctx, req.params.id);
     return { events: listEvents(ctx, req.params.id) };
+  });
+
+  /** Re-sends this order's callbacks the receiver refused on every attempt, once each, as new events (admin). */
+  app.post<{ Params: Params }>('/v1/orders/:id/callbacks/replay', admin, async (req) => {
+    getOrder(ctx, req.params.id);
+    const replayed = replayGivenUpCallbacks(ctx, callbackTypes(ctx), req.params.id);
+    const delivery = replayed ? await deliverCallbacks(ctx) : { sent: 0, failed: 0 };
+    return { replayed, ...delivery };
   });
 
   /** Runs one ready job now instead of waiting for the background loop. */

@@ -87,6 +87,8 @@ const EnvSchema = z.object({
   PAUSED_CHANNELS: z.string().default('call_channel'),
   /** Source health checks every 30 min (logins, keys, bots, WURK wallet); changes are DMed to ASSIST_CHAT_ID. */
   HEALTH_CHECKS_ENABLED: bool.default('true'),
+  /** Re-send callbacks the receiver refused on every attempt (one new event each). Off: replay only by admin, per order. */
+  CALLBACK_REPLAY_ENABLED: bool.default('false'),
   /** Failed content steps get one automatic retry; uncertain posts are checked on the account and re-posted if absent. */
   SELF_HEAL_ENABLED: bool.default('true'),
   /** One-time extra generation allowance (cents) for an order whose retries used up its budget. */

@@ -111,8 +111,8 @@ describe('callbacks fit the core bot', () => {
     expect(received.at(-1).data.url).toBe(link.data.url);
   });
 
-  it('gives a callback the receiver kept refusing one more delivery as a new event, once', async () => {
-    const t = makeApp({ TRENDING_CHANNELS: 'telegraph' });
+  it('gives a callback the receiver kept refusing one more delivery as a new event, once (when replay is on)', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph', CALLBACK_REPLAY_ENABLED: 'true' });
     let status = 400;
     const { received, orderId } = await botAndOrder(t, () => json({ error: 'bad shape' }, status));
     const proj = { name: 'Moon Frog', symbol: 'MFROG' };
@@ -160,5 +160,32 @@ describe('callbacks fit the core bot', () => {
     expect(links.every((e: any) => e.attempts === 8 && !e.delivered)).toBe(true);
     expect(await deliverCallbacks(t.ctx)).toEqual({ sent: 0, failed: 0 });
     expect((await t.api('GET', `/v1/orders/${orderId}/events`)).body.events.filter((e: any) => e.type === 'link.published')).toHaveLength(2);
+  });
+
+  it('replays nothing on its own by default; an admin replays one order at a time', async () => {
+    const t = makeApp({ TRENDING_CHANNELS: 'telegraph' });
+    let status = 400;
+    const { received, orderId } = await botAndOrder(t, () => json({ error: 'bad shape' }, status));
+    const proj = { name: 'Moon Frog', symbol: 'MFROG' };
+    recordEvent(t.ctx, orderId, 'order.completed', { complete: true, project: proj, successes: [], failures: [], pending: [] });
+    for (let i = 0; i < 8; i++) {
+      await deliverCallbacks(t.ctx);
+      t.clock.advance(3_600_000);
+    }
+    status = 200;
+    received.length = 0;
+    expect(await deliverCallbacks(t.ctx)).toEqual({ sent: 0, failed: 0 }); // dead events stay dead
+    expect(received).toEqual([]);
+    const other = (await t.api('POST', '/v1/trending', { ...purchase, purchase_id: 'shape-2' })).body;
+    await deliverCallbacks(t.ctx);
+    received.length = 0;
+
+    const r = await t.api('POST', `/v1/orders/${orderId}/callbacks/replay`);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ replayed: 1, sent: 1, failed: 0 }); // the completion, not the stale "accepted"
+    expect(received.map((b) => [b.type, b.order_id])).toEqual([['order.completed', orderId]]);
+    expect((await t.api('POST', `/v1/orders/${orderId}/callbacks/replay`)).body).toEqual({ replayed: 0, sent: 0, failed: 0 });
+    expect((await t.api('POST', `/v1/orders/${other.id}/callbacks/replay`)).body.replayed).toBe(0);
+    expect((await t.call(null, 'POST', `/v1/orders/${orderId}/callbacks/replay`)).status).toBe(401);
   });
 });
