@@ -14,6 +14,35 @@ Security is the top priority on both sides. Treat everything below as requiremen
 
 ---
 
+## Update (October 2026): one change so new destinations never need another
+
+The receiver was built with a closed list of `source` names. The Content Machine adds destinations
+regularly, so make the receiver **open to new content and closed to everything else**. One update,
+in the webhook receiver only; nothing else changes.
+
+1. **`source` is a category, not a list.** Accept any string matching `^[a-z0-9_]{1,40}$`. Never
+   display `source` or derive a name, icon or wording from it; `label` is the display name. Use
+   `source` only for logging. (Until this lands, the Content Machine sends unknown destinations under
+   one of the old names with the real name in `label`, so the old enum still validates.)
+2. **`status` is open too.** Accept any string matching `^[a-z ]{1,30}$`. Show every failure as
+   "⚠️ {label}: didn't go through", whatever the status says.
+3. **`links` on `link.published` and on `successes[]`:** an optional array of `{ name, url }` (same
+   limits as `label` and `url`; at most 20). When present, the item is a **set** of pages: DM one
+   line per entry, "🔗 {label} – {name}:" followed by its URL, instead of only the top-level `url`.
+   Today "Web3 Listing Updates" arrives with `url` = the Binance Wallet page and `links` = every
+   wallet page that shows the token (Binance, OKX, Bitget, Gate, MEXC); the buyer should get all of
+   them. Dedupe per `(purchase_id, url)` as before. The `order.completed` summary lists every
+   `links[]` entry under its success line.
+4. **URL allowlist: keep it, add nothing.** Every link on a host outside the allowlist is sent as
+   `https://content-machine-api-production-509a.up.railway.app/go/<id>` (a 302 to the page), which
+   the allowlist already covers. That is how new sites arrive from now on; no allowlist edits.
+5. **`pending`:** accept any array and ignore it.
+6. **Unknown event types** keep returning `204`, and unknown keys inside `data` keep being dropped.
+
+Everything in section 2's verification list (signature, freshness, size, replay, `purchase_id`
+ownership, no server-side fetching of URLs) stays exactly as it is. The schema is the only part
+that loosens, and only in those three fields.
+
 ## 0. Secrets and configuration
 
 The following are provided separately. They must never be committed, logged, echoed to users or put

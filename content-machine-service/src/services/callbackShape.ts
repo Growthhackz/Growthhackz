@@ -105,12 +105,18 @@ export function resolveShortLink(ctx: ServiceContext, id: string): string | null
 type Link = { source: string; label: string; url: string | null; links?: unknown };
 
 function shapeLink(ctx: ServiceContext, x: { source?: unknown; label?: unknown; url?: unknown; links?: unknown }): Link {
-  // `links` (every checked page of a Web3 Listing Update) is extra: the bot drops keys it doesn't know.
+  // `links` (every checked page of a Web3 Listing Update) is extra today: the bot drops keys it doesn't know.
+  // Once it takes them, each one must pass its allowlist too, so they get the same treatment as `url`.
+  const links = Array.isArray(x.links)
+    ? x.links
+        .map((l: any) => ({ name: receiverLabel(l?.name), url: receiverUrl(ctx, l?.url) }))
+        .filter((l: { name: string; url: string | null }): l is { name: string; url: string } => !!l.url)
+    : null;
   return {
     source: receiverSource(String(x.source ?? '')),
     label: receiverLabel(x.label),
     url: receiverUrl(ctx, x.url),
-    ...(Array.isArray(x.links) ? { links: x.links } : {}),
+    ...(links ? { links } : {}),
   };
 }
 
