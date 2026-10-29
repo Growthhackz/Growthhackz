@@ -9,8 +9,10 @@ import { recordEvent, type JobRow, type Order } from './orderService.js';
 /**
  * Coinvote and CoinSniper listings made by an outside service. Each order's coin details are POSTed to it (Bearer
  * PARTNER_LISTINGS_TOKEN, plus an HMAC signature); it answers on /v1/partner/listings with the coin page URLs, which
- * go to the core bot like any other link. Nothing waits on this item: it needs no other step, the order report
- * doesn't wait for it, and when the service fails or stays silent only this item fails.
+ * go to the core bot like any other link. A coin page is taken as soon as it comes back (the listing is in review on
+ * the site): the first page delivers the item and a later one follows as its own link. Nothing waits long on it: it
+ * needs no other step, the order report holds for it at most PARTNER_REPORT_HOLD_MS, and when the service fails or
+ * stays silent only this item fails.
  */
 
 const SITES = [
@@ -19,6 +21,8 @@ const SITES = [
 ] as const;
 /** At most this long after the order, the request waits for the token details and copy so it can carry them. */
 export const PARTNER_DETAILS_WAIT_MS = 2 * 60_000;
+/** The order report waits this long after the order for the first coin page (it usually comes back within 2 minutes). */
+export const PARTNER_REPORT_HOLD_MS = 4 * 60_000;
 
 type Link = { name: string; url: string };
 type Leased = JobRow & { lease: string };
@@ -105,10 +109,14 @@ function merged(existing: Link[] | undefined, found: Partial<Record<string, stri
   return SITES.filter((s) => have.has(s.name)).map((s) => ({ name: s.name, url: have.get(s.name)! }));
 }
 
-const resultOf = (j: JobRow) => (j.result ? (JSON.parse(j.result) as Record<string, unknown> & { links?: Link[] }) : {});
+const resultOf = (j: JobRow) => (j.result ? (JSON.parse(j.result) as Record<string, unknown> & { links?: Link[]; wait_until?: string }) : {});
+
+/** What the buyer is told: the sites whose pages came back, in review on those sites. */
+export const partnerLabel = (links: Link[]) =>
+  links.length ? `${links.map((l) => l.name).join(' & ')} listing${links.length > 1 ? 's' : ''} (in review)` : 'Coinvote & CoinSniper listings (in review)';
 
 function deliver(ctx: ServiceContext, j: JobRow, links: Link[], extra: Record<string, unknown> = {}) {
-  const result = { ...resultOf(j), ...extra, url: links[0]!.url, links, delivered_at: iso(nowMs(ctx)) };
+  const result = { ...resultOf(j), ...extra, url: links[0]!.url, links, label: partnerLabel(links), delivered_at: iso(nowMs(ctx)) };
   const r = run(
     ctx.db,
     `UPDATE jobs SET status = 'delivered', result = :r, error = NULL, lease = NULL, lease_until = NULL, updated_at = :t
@@ -166,7 +174,7 @@ export async function sendPartnerListing(ctx: ServiceContext, j: Leased, o: Orde
   if (answer) links = merged(links, Object.fromEntries(SITES.map((s) => [s.key, safeSiteUrl(s, answer[s.field])])));
   if (row.status !== 'running') return; // The URLs already came back (and were delivered) while this request was out.
   const result = { request_id: j.id, sent_at: iso(now), wait_until: iso(now + waitMs(ctx)), links };
-  if (links.length === SITES.length) return deliver(ctx, { ...row, result: JSON.stringify(result) }, links);
+  if (links.length) return deliver(ctx, { ...row, result: JSON.stringify(result) }, links);
   const r = run(
     ctx.db,
     `UPDATE jobs SET status = 'submitted', result = :r, error = NULL, lease = NULL, lease_until = NULL, available_at = :a, updated_at = :t
@@ -197,7 +205,36 @@ const resultSchema = z
   })
   .refine((v) => v.request_id || v.order_id, 'request_id or order_id is required');
 
-/** The service sends URLs (one or both, in one call or several). Both, or a final status, settle the item. */
+/**
+ * A page that comes back after the item was delivered (the other site, within the wait): added, and sent to the core
+ * bot as its own link.
+ */
+function addLate(ctx: ServiceContext, j: JobRow, found: Partial<Record<string, string | null>>): Link[] {
+  const result = resultOf(j);
+  const links = merged(result.links, found);
+  const added = links.filter((l) => !(result.links ?? []).some((x) => x.name === l.name));
+  const open = !result.wait_until || nowMs(ctx) < Date.parse(result.wait_until);
+  if (!added.length || !open) return result.links ?? [];
+  const r = run(ctx.db, "UPDATE jobs SET result = :r, updated_at = :t WHERE id = :id AND status = 'delivered' AND result = :was", {
+    r: { ...result, links, label: partnerLabel(links) },
+    t: nowMs(ctx),
+    id: j.id,
+    was: j.result,
+  });
+  if (r.changes) {
+    const p = JSON.parse(get<{ project: string }>(ctx.db, 'SELECT project FROM orders WHERE id = :id', { id: j.order_id })?.project ?? '{}');
+    recordEvent(ctx, j.order_id, 'link.published', {
+      source: PARTNER_LISTINGS,
+      label: partnerLabel(added),
+      url: added[0]!.url,
+      links: added,
+      project: { name: p.name ?? null, symbol: p.symbol ?? null },
+    });
+  }
+  return links;
+}
+
+/** The service sends URLs (one or both, in one call or several). The first page delivers the item; a final status with none fails it. */
 export function partnerResult(ctx: ServiceContext, body: unknown) {
   const parsed = resultSchema.safeParse(body ?? {});
   if (!parsed.success) throw new ValidationError(parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '));
@@ -207,12 +244,12 @@ export function partnerResult(ctx: ServiceContext, body: unknown) {
     : get<JobRow>(ctx.db, 'SELECT j.* FROM jobs j JOIN orders o ON o.id = j.order_id WHERE o.order_id = :o AND j.kind = :k', { o: b.order_id, k: PARTNER_LISTINGS });
   if (!j) throw new NotFoundError('Listing request');
   const found = Object.fromEntries(SITES.map((s) => [s.key, siteUrl(s, b[s.field])]));
-  if (j.status === 'delivered') return { status: 'delivered', links: resultOf(j).links ?? [] };
+  if (j.status === 'delivered') return { status: 'delivered', links: addLate(ctx, j, found) };
   // After the wait the order has moved on: a late URL is acknowledged (so the service doesn't retry) and not used.
   if (!['running', 'submitted'].includes(j.status)) return { status: 'closed', links: resultOf(j).links ?? [], note: 'The wait for this order is over; it completed without this answer.' };
   const links = merged(resultOf(j).links, found);
   const final = b.status === 'done' || b.status === 'failed' || b.status === 'partial';
-  if (links.length === SITES.length || (final && links.length)) {
+  if (links.length) {
     deliver(ctx, j, links, b.error ? { note: b.error } : {});
     return { status: 'delivered', links };
   }

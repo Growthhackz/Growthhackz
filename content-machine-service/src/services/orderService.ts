@@ -2,7 +2,7 @@ import { all, get, run, transaction } from '../db/database.js';
 import { canonical, sha256 } from '../lib/crypto.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { uid } from '../lib/ids.js';
-import { CHANNELS, chainName, chainOffered, channelOf, DIRECTORY_HOSTS, deadlineMs, IRREVERSIBLE, MAX_ATTEMPTS, orderInputSchema, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
+import { CHANNELS, chainName, chainOffered, channelOf, DIRECTORY_HOSTS, deadlineMs, IRREVERSIBLE, MAX_ATTEMPTS, orderInputSchema, PARTNER_LISTINGS, REDDIT_SUBREDDITS, SOURCE_LABELS, STAGES, trendingPurchaseSchema, type Copy, type Project } from '../domain/schemas.js';
 import { hubUrl, iso, nowMs, type ServiceContext } from './context.js';
 
 export interface OrderRow {
@@ -124,7 +124,9 @@ function publishedLink(ctx: ServiceContext, orderId: string, data: unknown): { s
   if (listing && get(ctx.db, "SELECT 1 AS x FROM events WHERE order_id = :o AND type = 'link.published' AND json_extract(data, '$.source') = :k", { o: orderId, k: d.kind }))
     return null;
   if (d.kind === 'hub' && !ctx.config.PUBLIC_HUB_ENABLED) return null;
-  const link = linkOf(d.kind, SOURCE_LABELS[d.kind]!, d.result?.url);
+  // The outside listing service's label names the sites whose pages came back.
+  const label = d.kind === PARTNER_LISTINGS && typeof (d.result as { label?: unknown })?.label === 'string' ? (d.result as { label: string }).label : SOURCE_LABELS[d.kind]!;
+  const link = linkOf(d.kind, label, d.result?.url);
   const links = (d.result as { links?: unknown } | undefined)?.links;
   return link && Array.isArray(links) ? { ...link, links } : link;
 }

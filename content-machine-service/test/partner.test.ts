@@ -72,33 +72,34 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     expect(body.coin.description.length).toBeGreaterThan(20);
     expect(body.coin.short_description).toBeTruthy();
     expect((await job()).status).toBe('submitted');
-    // Everything else is done, but the core bot refuses a report that isn't complete: it waits for the service.
+    // Everything else is done, but the report holds a few minutes for the service's first page.
     expect(events('order.completed')).toHaveLength(0);
     expect(o.id).toBeTruthy();
   });
 
-  it('delivers both URLs to the core bot as one link with both pages', async () => {
+  it('sends the first page at once (in review), and a later one as its own link', async () => {
     const { tick, job, events, answer } = await setup();
     await tick();
     const id = (await job()).id;
-    expect((await answer({ request_id: id, coinvote_url: COINVOTE })).body).toEqual({ status: 'waiting', links: [{ name: 'Coinvote', url: COINVOTE }] });
-    expect((await job()).status).toBe('submitted');
-    expect((await answer({ order_id: 'trending:partner-1', coinsniper_url: COINSNIPER })).body.status).toBe('delivered');
-    const j = await job();
-    expect(j.status).toBe('delivered');
-    expect(j.result.links).toEqual([{ name: 'Coinvote', url: COINVOTE }, { name: 'CoinSniper', url: COINSNIPER }]);
-    const link = events('link.published').find((l: any) => l.source === 'partner_listings');
-    expect(link).toMatchObject({ label: 'Coinvote & CoinSniper listings', url: COINVOTE, links: [{ name: 'Coinvote', url: COINVOTE }, { name: 'CoinSniper', url: COINSNIPER }] });
-    // Repeated answers are harmless.
-    expect((await answer({ request_id: id, coinvote_url: COINVOTE, coinsniper_url: COINSNIPER })).body.status).toBe('delivered');
-    expect(events('link.published').filter((l: any) => l.source === 'partner_listings')).toHaveLength(1);
-    // The report follows on the next run, complete, with both pages in it.
+    // Coinvote first: delivered straight away, without waiting for CoinSniper.
+    expect((await answer({ request_id: id, coinvote_url: COINVOTE })).body).toEqual({ status: 'delivered', links: [{ name: 'Coinvote', url: COINVOTE }] });
+    expect((await job()).status).toBe('delivered');
+    const links = () => events('link.published').filter((l: any) => l.source === 'partner_listings');
+    expect(links()).toMatchObject([{ label: 'Coinvote listing (in review)', url: COINVOTE, links: [{ name: 'Coinvote', url: COINVOTE }] }]);
+    // The report goes out on the next run, complete, with the Coinvote page in it.
     await tick(1);
     const report = events('order.completed');
     expect(report).toHaveLength(1);
     expect(report[0].complete).toBe(true);
     expect(report[0].pending).toEqual([]);
-    expect(report[0].successes.find((s: any) => s.source === 'partner_listings').links).toHaveLength(2);
+    expect(report[0].successes.find((s: any) => s.source === 'partner_listings')).toMatchObject({ label: 'Coinvote listing (in review)', url: COINVOTE });
+    // CoinSniper later (within the wait): added to the item and sent as its own link.
+    expect((await answer({ order_id: 'trending:partner-1', coinsniper_url: COINSNIPER })).body).toEqual({ status: 'delivered', links: [{ name: 'Coinvote', url: COINVOTE }, { name: 'CoinSniper', url: COINSNIPER }] });
+    expect((await job()).result).toMatchObject({ label: 'Coinvote & CoinSniper listings (in review)', links: [{ name: 'Coinvote', url: COINVOTE }, { name: 'CoinSniper', url: COINSNIPER }] });
+    expect(links()[1]).toMatchObject({ label: 'CoinSniper listing (in review)', url: COINSNIPER, links: [{ name: 'CoinSniper', url: COINSNIPER }] });
+    // Repeated answers are harmless.
+    expect((await answer({ request_id: id, coinvote_url: COINVOTE, coinsniper_url: COINSNIPER })).body.status).toBe('delivered');
+    expect(links()).toHaveLength(2);
   });
 
   it('checks the token and the URLs', async () => {
@@ -114,30 +115,32 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     expect((await answer({ coinvote_url: COINVOTE })).status).toBe(400);
   });
 
-  it('delivers what came back when the wait is over, or fails only this item', async () => {
+  it('holds the report a few minutes at most, then fails only this item if nothing comes back', async () => {
     const partial = await setup();
     await partial.tick();
     await partial.answer({ request_id: (await partial.job()).id, coinsniper_url: COINSNIPER });
-    partial.t.clock.advance(16 * 60_000);
-    await partial.tick(1);
     const p = await partial.job();
     expect(p.status).toBe('delivered');
-    expect(p.result.links).toEqual([{ name: 'CoinSniper', url: COINSNIPER }]);
-    expect(p.result.note).toMatch(/Coinvote did not come back within 15 minutes/);
-    await partial.tick(1);
-    expect(partial.events('order.completed').map((r: any) => r.complete)).toEqual([true]);
+    expect(p.result).toMatchObject({ label: 'CoinSniper listing (in review)', links: [{ name: 'CoinSniper', url: COINSNIPER }] });
+    // Coinvote after the wait is over: acknowledged, not sent.
+    partial.t.clock.advance(16 * 60_000);
+    expect((await partial.answer({ request_id: p.id, coinvote_url: COINVOTE })).body.links).toEqual([{ name: 'CoinSniper', url: COINSNIPER }]);
+    expect(partial.events('link.published').filter((l: any) => l.source === 'partner_listings')).toHaveLength(1);
 
     const silent = await setup();
     await silent.tick();
-    silent.t.clock.advance(16 * 60_000);
-    await silent.tick(1);
-    expect((await silent.job()).status).toBe('failed');
-    expect((await silent.job()).error).toMatch(/no URLs within 15 minutes/);
+    // Nothing back after 4 minutes: the report goes out complete, the listing "in review" with no link yet.
+    silent.t.clock.advance(4 * 60_000 + 1000);
     await silent.tick(1);
     const silentReport = silent.events('order.completed');
     expect(silentReport).toHaveLength(1);
     expect(silentReport[0].complete).toBe(true);
-    expect(silentReport[0].failures.map((f: any) => f.source)).toContain('partner_listings');
+    expect(silentReport[0].successes.find((s: any) => s.source === 'partner_listings')).toMatchObject({ label: 'Coinvote & CoinSniper listings (in review)', url: null });
+    silent.t.clock.advance(12 * 60_000);
+    await silent.tick(1);
+    expect((await silent.job()).status).toBe('failed');
+    expect((await silent.job()).error).toMatch(/no URLs within 15 minutes/);
+    expect(silent.events('order.completed')).toHaveLength(1);
     // A late answer is acknowledged (no retries from the service) and changes nothing: the order has moved on.
     const late = await silent.answer({ request_id: (await silent.job()).id, coinvote_url: COINVOTE });
     expect(late.status).toBe(200);
@@ -162,11 +165,10 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     expect(j.error).toMatch(/refused the request \(503\)/);
     const jobs = (await down.t.api('GET', `/v1/orders/${down.o.id}`)).body.jobs;
     for (const k of ['metadata', 'copy', 'campaign_image']) expect(jobs.find((x: any) => x.kind === k).status).toBe('delivered');
-    // The report waits for the service, but never past the item's deadline: then it fails alone and the report goes out.
+    // The report holds a few minutes for the service, then goes out complete while the item keeps retrying alone.
     expect(down.events('order.completed')).toHaveLength(0);
-    down.t.clock.advance(2 * 3_600_000 + 60_000);
+    down.t.clock.advance(4 * 60_000 + 1000);
     await down.tick(1);
-    expect((await down.job()).status).toBe('failed');
     const report = down.events('order.completed');
     expect(report).toHaveLength(1);
     expect(report[0].complete).toBe(true);
