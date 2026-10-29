@@ -47,7 +47,7 @@ async function setup(env: Record<string, string> = { PARTNER_LISTINGS_URL: PARTN
 }
 
 describe('outside listing service (Coinvote & CoinSniper)', () => {
-  it('sends every coin detail once the metadata and copy are in, signed, and waits without holding the order', async () => {
+  it('sends every coin detail once the metadata and copy are in, signed, and holds the report until it answers', async () => {
     const { o, sent, tick, job, events } = await setup();
     await tick();
     expect(sent).toHaveLength(1);
@@ -72,10 +72,8 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     expect(body.coin.description.length).toBeGreaterThan(20);
     expect(body.coin.short_description).toBeTruthy();
     expect((await job()).status).toBe('submitted');
-    // Everything else is done: the report goes out without waiting for the listing service.
-    const report = events('order.completed');
-    expect(report).toHaveLength(1);
-    expect(report[0].pending.map((p: any) => p.source)).toContain('partner_listings');
+    // Everything else is done, but the core bot refuses a report that isn't complete: it waits for the service.
+    expect(events('order.completed')).toHaveLength(0);
     expect(o.id).toBeTruthy();
   });
 
@@ -94,6 +92,13 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     // Repeated answers are harmless.
     expect((await answer({ request_id: id, coinvote_url: COINVOTE, coinsniper_url: COINSNIPER })).body.status).toBe('delivered');
     expect(events('link.published').filter((l: any) => l.source === 'partner_listings')).toHaveLength(1);
+    // The report follows on the next run, complete, with both pages in it.
+    await tick(1);
+    const report = events('order.completed');
+    expect(report).toHaveLength(1);
+    expect(report[0].complete).toBe(true);
+    expect(report[0].pending).toEqual([]);
+    expect(report[0].successes.find((s: any) => s.source === 'partner_listings').links).toHaveLength(2);
   });
 
   it('checks the token and the URLs', async () => {
@@ -119,6 +124,8 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     expect(p.status).toBe('delivered');
     expect(p.result.links).toEqual([{ name: 'CoinSniper', url: COINSNIPER }]);
     expect(p.result.note).toMatch(/Coinvote did not come back within 15 minutes/);
+    await partial.tick(1);
+    expect(partial.events('order.completed').map((r: any) => r.complete)).toEqual([true]);
 
     const silent = await setup();
     await silent.tick();
@@ -126,6 +133,11 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     await silent.tick(1);
     expect((await silent.job()).status).toBe('failed');
     expect((await silent.job()).error).toMatch(/no URLs within 15 minutes/);
+    await silent.tick(1);
+    const silentReport = silent.events('order.completed');
+    expect(silentReport).toHaveLength(1);
+    expect(silentReport[0].complete).toBe(true);
+    expect(silentReport[0].failures.map((f: any) => f.source)).toContain('partner_listings');
     // A late answer is acknowledged (no retries from the service) and changes nothing: the order has moved on.
     const late = await silent.answer({ request_id: (await silent.job()).id, coinvote_url: COINVOTE });
     expect(late.status).toBe(200);
@@ -150,7 +162,14 @@ describe('outside listing service (Coinvote & CoinSniper)', () => {
     expect(j.error).toMatch(/refused the request \(503\)/);
     const jobs = (await down.t.api('GET', `/v1/orders/${down.o.id}`)).body.jobs;
     for (const k of ['metadata', 'copy', 'campaign_image']) expect(jobs.find((x: any) => x.kind === k).status).toBe('delivered');
-    expect(down.events('order.completed')).toHaveLength(1);
+    // The report waits for the service, but never past the item's deadline: then it fails alone and the report goes out.
+    expect(down.events('order.completed')).toHaveLength(0);
+    down.t.clock.advance(2 * 3_600_000 + 60_000);
+    await down.tick(1);
+    expect((await down.job()).status).toBe('failed');
+    const report = down.events('order.completed');
+    expect(report).toHaveLength(1);
+    expect(report[0].complete).toBe(true);
   });
 
   it('calls the service with its own key when it gave us one; it still answers with ours', async () => {
