@@ -20,7 +20,14 @@ const stateDir = (env = process.env) => resolve(env.DIRECTORY_STATE_DIR || '.');
 /** A link for forms that require one: the project's own, else its DEX Screener chart. */
 const anyLink = l => l.website_url || l.x_url || l.telegram_url || l.chart_url || `https://dexscreener.com/${l.chain}/${l.contract_address}`;
 const notSent = (site, what, e) => new NotPostedError(`${site}: ${what}${e ? ` (${String(e?.message || e).split('\n')[0].slice(0, 160)})` : ''}; nothing was sent.`);
-const notOffered = (site, chain, offered) => new NotOfferedError(`${site}: chain ${chain} is not offered${offered?.length ? ` (${offered.slice(0, 14).join(', ')})` : ''}; nothing was sent.`);
+/**
+ * The chain isn't on the site's list, so the item is skipped. An empty list read off the page means the form never
+ * loaded (the site was down, e.g. Cloudflare 522): that is a failed attempt to retry, not a chain to skip.
+ */
+const notOffered = (site, chain, offered) =>
+  Array.isArray(offered) && !offered.some(Boolean)
+    ? notSent(site, 'the form did not load (no chain list; site down?)')
+    : new NotOfferedError(`${site}: chain ${chain} is not offered${offered?.length ? ` (${offered.slice(0, 14).join(', ')})` : ''}; nothing was sent.`);
 
 /** Each site's names for our chains (from their live forms). A chain missing here is not offered there. */
 const TOP100_CHAINS = {solana: /^Solana/i, bsc: /\(BSC\)|Binance Smart Chain/i, ethereum: /^Ethereum/i, base: /^Base$/i, arbitrum: /^Arbitrum/i, polygon: /^Polygon/i, robinhood: /^Robinhood/i};
@@ -454,7 +461,7 @@ async function pageIsLive(url, listing) {
   } catch { return {live: false}; } finally { await browser.close(); }
 }
 
-export {hkdefiSubmit, hkdefiFind, gempumpStatus};
+export {hkdefiSubmit, hkdefiFind, gempumpStatus, notOffered};
 
 export const LISTING_SITES = {
   // The coin page from the chain (older BSC records were saved under /bsc/, which Top100Token doesn't serve).

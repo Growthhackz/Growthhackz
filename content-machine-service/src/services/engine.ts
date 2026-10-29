@@ -1238,7 +1238,9 @@ async function deliverCallbackBatch(ctx: ServiceContext, batch: number): Promise
       if (!r.ok) throw new UpstreamError(`Callback returned ${r.status}`);
       run(ctx.db, 'UPDATE events SET sent = 1 WHERE id = :id', { id: e.id });
       sent++;
-    } catch {
+    } catch (err) {
+      // The receiver's answer (status only; its body could echo the payload), so a refused event shows in the log.
+      ctx.log.warn({ order_id: e.order_id, event: e.id, type: e.type, attempt: e.attempts + 1, error: (err as Error).message }, 'callback not delivered');
       run(ctx.db, 'UPDATE events SET attempts = attempts + 1, available_at = :a WHERE id = :id', {
         id: e.id,
         a: nowMs(ctx) + Math.min(3_600_000, 30_000 * 2 ** e.attempts),
@@ -1423,9 +1425,9 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')})
          AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL)
          -- A paid social boost runs on WURK's schedule; the report doesn't wait for it.
-         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost')
-         -- Nor for the outside listing service: its URLs go out as links when they come back.
-         AND NOT (j.status IN ('queued', 'running', 'submitted') AND j.kind = '${PARTNER_LISTINGS}'))`,
+         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost'))`,
+    // The outside listing service settles within PARTNER_LISTINGS_WAIT_MINUTES, so the report waits for it: the core
+    // bot refuses a report that isn't complete.
     {},
   );
   for (const { id } of pending) {

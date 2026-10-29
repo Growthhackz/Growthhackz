@@ -1,6 +1,6 @@
 // HKDeFi's submission and lookup, and GemPump's status reading, against fake APIs (no browser, nothing sent).
 import assert from 'node:assert/strict';
-import {gempumpStatus, hkdefiFind, hkdefiSubmit, LISTING_SITES} from './listingsites.mjs';
+import {gempumpStatus, hkdefiFind, hkdefiSubmit, LISTING_SITES, notOffered} from './listingsites.mjs';
 import {NotOfferedError, NotPostedError} from './reddit.mjs';
 
 const listing = {name: 'Moon Frog', symbol: 'MFROG', chain: 'solana', contract_address: 'So11111111111111111111111111111111111111112', description: 'Moon Frog brings its community together.', website_url: 'https://moonfrog.example', telegram_url: 'https://t.me/moonfrog', x_url: 'https://x.com/moonfrog', logo_public_url: 'https://cdn.example/logo.png'};
@@ -41,4 +41,11 @@ assert.equal((await gempumpStatus({...listing, chain: 'base'}, gp)).offered, fal
 
 // CoinBoom shares Top100Token's flow and coin pages on its own domain.
 assert.ok(LISTING_SITES.coinboom && LISTING_SITES.hkdefi && LISTING_SITES.gempump);
-console.log('PASS: HKDeFi payload, contact rules, refusal, already listed and coin page lookup; GemPump status and coin page; new sites registered.');
+
+// A chain list without ours: skipped. No chain list at all (the site was down, e.g. Top100Token's Cloudflare 522): a retry.
+assert.ok(notOffered('top100token', 'arc', ['Solana', 'Ethereum (ETH)']) instanceof NotOfferedError);
+const down = notOffered('top100token', 'solana', []);
+assert.ok(down instanceof NotPostedError && !(down instanceof NotOfferedError));
+assert.match(down.message, /form did not load/);
+assert.ok(notOffered('coinscope', 'arc') instanceof NotOfferedError);
+console.log('PASS: HKDeFi payload, contact rules, refusal, already listed and coin page lookup; GemPump status and coin page; new sites registered; a site that is down is retried, not skipped.');
