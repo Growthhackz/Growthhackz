@@ -44,7 +44,7 @@ import { earlierTrendingOrders, getOrder, loadOrder, recordEvent, saveAsset, typ
 import { setRawSetting, setting } from './settingsService.js';
 import { assistKinds, assistOnCheck, handOver, sendAssists } from './assistService.js';
 import { shapeCallbackData } from './callbackShape.js';
-import { partnerReady, sendPartnerListing, settlePartnerListings } from './partnerService.js';
+import { PARTNER_REPORT_HOLD_MS, partnerLabel, partnerReady, sendPartnerListing, settlePartnerListings } from './partnerService.js';
 
 const IRREVERSIBLE_SQL = IRREVERSIBLE.map((k) => `'${k}'`).join(', ');
 const RENDER_LEASE_MS = 10 * 60_000;
@@ -1425,10 +1425,11 @@ export function settleOrders(ctx: ServiceContext): { timedOut: number; cascaded:
        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.order_id = o.id AND j.status NOT IN (${FINAL.map((s) => `'${s}'`).join(', ')})
          AND NOT (j.status = 'submitted' AND j.kind IN (${listings}) AND json_extract(j.result, '$.url') IS NOT NULL)
          -- A paid social boost runs on WURK's schedule; the report doesn't wait for it.
-         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost'))`,
-    // The outside listing service settles within PARTNER_LISTINGS_WAIT_MINUTES, so the report waits for it: the core
-    // bot refuses a report that isn't complete.
-    {},
+         AND NOT (j.status = 'submitted' AND j.kind = 'social_boost')
+         -- The outside listing service usually answers within 2 minutes: the report holds that long for its first page,
+         -- then goes out with it "in review" (the core bot refuses a report that isn't complete).
+         AND NOT (j.kind = '${PARTNER_LISTINGS}' AND o.created_at <= :hold))`,
+    { hold: t - PARTNER_REPORT_HOLD_MS },
   );
   for (const { id } of pending) {
     if (!run(ctx.db, 'UPDATE orders SET completed_at = :t WHERE id = :id AND completed_at IS NULL', { t, id }).changes) continue;
@@ -1451,7 +1452,7 @@ export function orderReport(ctx: ServiceContext, o: Order) {
       if (SOURCE_LABELS[j.kind])
         successes.push({
           source: j.kind,
-          label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : label,
+          label: REQUEST_LISTINGS.includes(j.kind) ? `${label} (submitted, in review)` : j.kind === PARTNER_LISTINGS && result.label ? result.label : label,
           url: result.url ?? result.proof_url ?? null,
           ...(Array.isArray(result.links) ? { links: result.links } : {}),
         });
@@ -1463,8 +1464,8 @@ export function orderReport(ctx: ServiceContext, o: Order) {
     }
     else if (j.status === 'uncertain')
       failures.push({ source: j.kind, label, status: 'unconfirmed', error: j.error ?? 'May have been published; needs checking before any retry.' });
-    else if (j.kind === PARTNER_LISTINGS)
-      pending.push({ source: j.kind, label, status: 'in_progress', deadline_at: new Date(j.available_at).toISOString(), note: 'Waiting for the listing service; the links follow when they come back.' });
+    // Still with the outside listing service when the report goes out: in review, its pages follow as links.
+    else if (j.kind === PARTNER_LISTINGS) successes.push({ source: j.kind, label: partnerLabel([]), url: null });
     else pending.push({ source: j.kind, label, status: j.status, deadline_at: j.deadline_at ? new Date(j.deadline_at).toISOString() : null, note: j.error });
   }
   return {
